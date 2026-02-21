@@ -9,6 +9,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from server.engine import EngineAnalysis
+from server.game import GameManager
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -20,6 +21,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 
 engine = EngineAnalysis(hash_mb=64)
+games = GameManager(engine)
 
 
 @asynccontextmanager
@@ -42,6 +44,15 @@ class BestMovesRequest(BaseModel):
     fen: str
     n: int = 3
     depth: int = 20
+
+
+class NewGameRequest(BaseModel):
+    depth: int = 10
+
+
+class MoveRequest(BaseModel):
+    session_id: str
+    move: str
 
 
 @app.get("/api/health")
@@ -74,6 +85,24 @@ async def best_moves(req: BestMovesRequest):
         {"uci": m.uci, "score_cp": m.score_cp, "score_mate": m.score_mate}
         for m in moves
     ]
+
+
+@app.post("/api/game/new")
+async def new_game(req: NewGameRequest | None = None):
+    depth = req.depth if req else 10
+    session_id, fen, status = games.new_game(depth=depth)
+    return {"session_id": session_id, "fen": fen, "status": status}
+
+
+@app.post("/api/game/move")
+async def game_move(req: MoveRequest):
+    try:
+        result = await games.make_move(req.session_id, req.move)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Session not found")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return result
 
 
 # Mount static files last — catches all non-API routes
