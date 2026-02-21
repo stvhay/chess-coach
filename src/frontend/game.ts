@@ -281,8 +281,9 @@ export class GameController {
       this.board.set({
         movable: { color: undefined },
       });
+    } else {
+      this.syncBoard();
     }
-    // syncBoard will restore movable when thinking ends
   }
 
   /** Notify status callback based on current game state. */
