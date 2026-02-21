@@ -1,6 +1,7 @@
 import { createBoard } from "./board";
 import { BrowserEngine, EvalInfo } from "./eval";
 import { GameController, PromotionPiece } from "./game";
+import { CoachingData } from "./api";
 
 function init() {
   const root = document.getElementById("app");
@@ -37,6 +38,11 @@ function init() {
   lineDisplay.className = "line-display";
   lineDisplay.textContent = "Best line: \u2014";
   panel.appendChild(lineDisplay);
+
+  // Coach panel
+  const coachPanel = document.createElement("div");
+  coachPanel.className = "coach-panel";
+  panel.appendChild(coachPanel);
 
   // Move history
   const moveHistory = document.createElement("div");
@@ -144,6 +150,15 @@ function init() {
     moveHistory.scrollTop = moveHistory.scrollHeight;
   }
 
+  // --- Coaching display ---
+  function showCoaching(coaching: CoachingData) {
+    const msg = document.createElement("div");
+    msg.className = `coach-message ${coaching.quality}`;
+    msg.textContent = coaching.message;
+    coachPanel.appendChild(msg);
+    coachPanel.scrollTop = coachPanel.scrollHeight;
+  }
+
   // --- Game status ---
   function showStatus(status: string, result: string | null) {
     if (status === "checkmate") {
@@ -173,6 +188,7 @@ function init() {
     return showPromotionChooser(isWhite);
   });
   gc.setStatusCallback(showStatus);
+  gc.setCoachingCallback(showCoaching);
 
   // Create initial server session
   gc.newGame();
@@ -184,6 +200,7 @@ function init() {
       statusDisplay.style.color = "#4ade80";
       evalDisplay.textContent = "Eval: \u2014";
       lineDisplay.textContent = "Best line: \u2014";
+      coachPanel.innerHTML = "";
     });
   });
 
