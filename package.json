@@ -1,0 +1,18 @@
+{
+  "name": "chess-teacher-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "cat node_modules/chessground/assets/chessground.base.css node_modules/chessground/assets/chessground.brown.css node_modules/chessground/assets/chessground.cburnett.css > static/chessground.css && esbuild src/frontend/main.ts --bundle --outfile=static/app.js --format=esm",
+    "watch": "esbuild src/frontend/main.ts --bundle --outfile=static/app.js --format=esm --watch"
+  },
+  "dependencies": {
+    "chessground": "^9",
+    "snabbdom": "^3",
+    "stockfish": "^18.0.5"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25",
+    "typescript": "^5"
+  }
+}

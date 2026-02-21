@@ -1,0 +1,19 @@
+Stockfish.js 18 (lite, single-threaded)
+========================================
+
+Source:  npm "stockfish" package v18.0.5
+         https://github.com/nmrugg/stockfish.js
+License: GPLv3 (see https://github.com/nmrugg/stockfish.js/blob/master/Copying.txt)
+
+Files:
+  stockfish.js   - stockfish-18-lite-single.js (JS loader / worker, ~21KB)
+  stockfish.wasm - stockfish-18-lite-single.wasm (WASM binary, ~7MB)
+
+The "lite" build uses a smaller neural network and is ~7MB total vs ~113MB
+for the full build.  The "single" variant does not require SharedArrayBuffer
+/ cross-origin isolation headers, though our server provides them.
+
+To upgrade:
+  npm install stockfish@latest
+  cp node_modules/stockfish/bin/stockfish-18-lite-single.js static/vendor/stockfish/stockfish.js
+  cp node_modules/stockfish/bin/stockfish-18-lite-single.wasm static/vendor/stockfish/stockfish.wasm
