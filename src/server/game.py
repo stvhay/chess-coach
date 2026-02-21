@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 
 import chess
 
+from server.coach import assess_move
 from server.engine import EngineAnalysis
 
 
@@ -10,6 +11,7 @@ from server.engine import EngineAnalysis
 class GameState:
     board: chess.Board = field(default_factory=chess.Board)
     depth: int = 10
+    coaching_depth: int = 12
 
 
 def _game_status(board: chess.Board) -> str:
@@ -62,8 +64,48 @@ class GameManager:
         if move not in board.legal_moves:
             raise ValueError(f"Illegal move: {move_uci}")
 
+        # Evaluate position before the player's move for coaching.
+        eval_before = await self._engine.evaluate(
+            board.fen(), depth=state.coaching_depth
+        )
+        best_move_uci = eval_before.best_move
+
+        board_before = board.copy()
         player_san = board.san(move)
         board.push(move)
+
+        # Evaluate position after the player's move for coaching.
+        eval_after = await self._engine.evaluate(
+            board.fen(), depth=state.coaching_depth
+        )
+
+        # Assess the player's move for coaching feedback.
+        coaching_data = None
+        if best_move_uci is not None:
+            coaching_data = assess_move(
+                board_before=board_before,
+                board_after=board.copy(),
+                player_move_uci=move_uci,
+                eval_before=eval_before,
+                eval_after=eval_after,
+                best_move_uci=best_move_uci,
+            )
+
+        coaching_dict = None
+        if coaching_data is not None:
+            coaching_dict = {
+                "quality": coaching_data.quality.value,
+                "message": coaching_data.message,
+                "arrows": [
+                    {"orig": a.orig, "dest": a.dest, "brush": a.brush}
+                    for a in coaching_data.arrows
+                ],
+                "highlights": [
+                    {"square": h.square, "brush": h.brush}
+                    for h in coaching_data.highlights
+                ],
+                "severity": coaching_data.severity,
+            }
 
         status = _game_status(board)
         if status != "playing":
@@ -74,6 +116,7 @@ class GameManager:
                 "opponent_move_san": None,
                 "status": status,
                 "result": _game_result(board),
+                "coaching": coaching_dict,
             }
 
         moves = await self._engine.best_moves(
@@ -95,4 +138,5 @@ class GameManager:
             "opponent_move_san": opponent_san,
             "status": status,
             "result": _game_result(board),
+            "coaching": coaching_dict,
         }

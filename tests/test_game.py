@@ -98,3 +98,41 @@ def test_new_game_with_depth(client):
     assert response.status_code == 200
     data = response.json()
     assert "session_id" in data
+
+
+def test_move_response_has_coaching_field(client):
+    """Move response includes coaching field (may be null for good moves)."""
+    new = client.post("/api/game/new").json()
+    sid = new["session_id"]
+
+    resp = client.post("/api/game/move", json={
+        "session_id": sid,
+        "move": "e2e4",
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    # coaching field should be present (either null or a dict)
+    assert "coaching" in data
+
+
+def test_coaching_structure_when_present(client):
+    """When coaching is returned, it has the expected structure."""
+    new = client.post("/api/game/new").json()
+    sid = new["session_id"]
+
+    # Play a move
+    resp = client.post("/api/game/move", json={
+        "session_id": sid,
+        "move": "e2e4",
+    })
+    data = resp.json()
+    if data["coaching"] is not None:
+        coaching = data["coaching"]
+        assert "quality" in coaching
+        assert "message" in coaching
+        assert "arrows" in coaching
+        assert "highlights" in coaching
+        assert "severity" in coaching
+        assert coaching["quality"] in ("brilliant", "good", "inaccuracy", "mistake", "blunder")
+        assert isinstance(coaching["arrows"], list)
+        assert isinstance(coaching["highlights"], list)
