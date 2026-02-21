@@ -110,6 +110,23 @@ class TestMoveQuality:
         assert result is not None
         assert result.quality == MoveQuality.BRILLIANT
 
+    def test_blunder_as_black(self):
+        """Black's blunder is detected correctly."""
+        # Position after 1. e4 — Black to move
+        board_before = chess.Board("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1")
+        board_after = chess.Board("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1")
+        board_after.push_uci("f7f6")  # A bad move
+        result = assess_move(
+            board_before=board_before,
+            board_after=board_after,
+            player_move_uci="f7f6",
+            eval_before=_eval(cp=-30),   # Slightly better for Black
+            eval_after=_eval(cp=200),     # Now much better for White = bad for Black
+            best_move_uci="e7e5",
+        )
+        assert result is not None
+        assert result.quality == MoveQuality.BLUNDER
+
     def test_missed_mate_is_blunder(self):
         """If eval_before had mate and eval_after doesn't, it's a blunder."""
         board_before = chess.Board()
@@ -189,12 +206,14 @@ class TestTacticalCoaching:
         """When player leaves a piece hanging, coach should warn about it."""
         board_before = chess.Board("r1bqkb1r/pppppppp/2n2n2/4N3/2B5/8/PPPP1PPP/RNBQK2R b KQkq - 0 4")
         board_after = chess.Board("r1bqkb1r/pppppppp/2n2n2/4N3/2B5/8/PPPP1PPP/RNBQK2R b KQkq - 0 4")
+        # Black to move. Evals from White's POV: before=-50 (Black slightly
+        # better), after=100 (White now better) => Black lost 150cp.
         result = assess_move(
             board_before=board_before,
             board_after=board_after,
             player_move_uci="f3e5",
-            eval_before=_eval(cp=50),
-            eval_after=_eval(cp=-100),
+            eval_before=_eval(cp=-50),
+            eval_after=_eval(cp=100),
             best_move_uci="d2d3",
         )
         assert result is not None

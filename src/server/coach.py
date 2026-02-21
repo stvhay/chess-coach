@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 
 import chess
 
-from server.analysis import analyze_tactics
+from server.analysis import TacticalMotifs, analyze_tactics
 from server.engine import Evaluation
 
 
@@ -140,9 +140,10 @@ def _generate_message(
     return " ".join(parts)
 
 
-def _summarize_tactics(board: chess.Board) -> str:
+def _summarize_tactics(board: chess.Board, motifs: TacticalMotifs | None = None) -> str:
     """Return a short text summary of tactical motifs on *board*."""
-    motifs = analyze_tactics(board)
+    if motifs is None:
+        motifs = analyze_tactics(board)
     pieces: list[str] = []
 
     if motifs.forks:
@@ -178,6 +179,7 @@ def _build_arrows(
     best_move_uci: str,
     is_best_move: bool,
     board_after: chess.Board,
+    tactics: TacticalMotifs | None = None,
 ) -> list[Arrow]:
     """Create chessground arrow annotations."""
     arrows: list[Arrow] = []
@@ -188,7 +190,7 @@ def _build_arrows(
         dest = player_move_uci[2:4]
         arrows.append(Arrow(orig=orig, dest=dest, brush="blue"))
         # Also add tactical arrows from fork targets, etc.
-        motifs = analyze_tactics(board_after)
+        motifs = tactics if tactics is not None else analyze_tactics(board_after)
         for fork in motifs.forks:
             for target in fork.targets:
                 arrows.append(Arrow(orig=fork.forking_square, dest=target, brush="yellow"))
@@ -236,8 +238,12 @@ def assess_move(
     cp_after = _cp_value(eval_after)
 
     # Centipawn loss: how much the position worsened for the player.
-    # Both evals are from White's POV so loss is simply the difference.
-    cp_loss = cp_before - cp_after
+    # Both evals are from White's POV. For White, losing means cp dropped.
+    # For Black, losing means cp increased (better for White = worse for Black).
+    if board_before.turn == chess.WHITE:
+        cp_loss = cp_before - cp_after
+    else:
+        cp_loss = cp_after - cp_before
 
     is_best_move = player_move_uci == best_move_uci
 
@@ -249,7 +255,8 @@ def assess_move(
 
     player_move_san = _move_to_san(board_before, player_move_uci)
     best_move_san = _move_to_san(board_before, best_move_uci)
-    tactics_summary = _summarize_tactics(board_after)
+    tactics = analyze_tactics(board_after)
+    tactics_summary = _summarize_tactics(board_after, motifs=tactics)
 
     message = _generate_message(
         quality=quality,
@@ -266,6 +273,7 @@ def assess_move(
         best_move_uci=best_move_uci,
         is_best_move=is_best_move,
         board_after=board_after,
+        tactics=tactics,
     )
 
     severity = min(100, max(0, cp_loss))
