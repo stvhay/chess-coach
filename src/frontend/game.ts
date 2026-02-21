@@ -2,6 +2,7 @@ import { Chess, Square } from "chess.js";
 import { Api } from "chessground/api";
 import { Key } from "chessground/types";
 import { BrowserEngine, EvalCallback } from "./eval";
+import { createGame, sendMove, MoveResponse } from "./api";
 
 export type PromotionPiece = "q" | "r" | "b" | "n";
 
@@ -13,6 +14,9 @@ export type PromotionCallback = (
   orig: Key,
   dest: Key,
 ) => Promise<PromotionPiece>;
+
+/** Callback when game status changes. */
+export type StatusCallback = (status: string, result: string | null) => void;
 
 /**
  * Compute chessground-compatible legal destinations from a chess.js instance.
@@ -50,6 +54,10 @@ export class GameController {
   private onMoveList: MoveListCallback | null = null;
   private onPromotion: PromotionCallback | null = null;
   private onEval: EvalCallback | null = null;
+  private sessionId: string | null = null;
+  private playerColor: "w" | "b" = "w";
+  private onStatus: StatusCallback | null = null;
+  private thinking = false;
 
   constructor(board: Api, engine: BrowserEngine | null) {
     this.game = new Chess();
@@ -73,11 +81,18 @@ export class GameController {
     this.onEval = cb;
   }
 
+  /** Register callback for game status changes. */
+  setStatusCallback(cb: StatusCallback): void {
+    this.onStatus = cb;
+  }
+
   /**
    * Handle a move made on the board. Called from chessground's after callback.
-   * Returns true if the move was valid and applied.
+   * Sends move to server, receives opponent response, applies it.
    */
   async handleMove(orig: Key, dest: Key): Promise<boolean> {
+    if (this.thinking) return false;
+
     // Check if this is a promotion
     const isPromotion = this.isPromotionMove(orig, dest);
     let promotion: PromotionPiece = "q";
@@ -86,27 +101,70 @@ export class GameController {
       promotion = await this.onPromotion(orig, dest);
     }
 
-    const move = this.game.move({
+    // Build UCI move string
+    let moveUci = `${orig}${dest}`;
+    if (isPromotion) {
+      moveUci += promotion;
+    }
+
+    // Apply player move locally first
+    const localMove = this.game.move({
       from: orig as Square,
       to: dest as Square,
       promotion: isPromotion ? promotion : undefined,
     });
 
-    if (!move) {
-      // Invalid move — resync board to undo the visual move
+    if (!localMove) {
       this.syncBoard();
       return false;
     }
 
     this.syncBoard();
     this.notifyMoveList();
+
+    // If no server session, just play locally (both sides)
+    if (!this.sessionId) {
+      this.updateEval();
+      return true;
+    }
+
+    // Check if game over after player move
+    if (this.game.isGameOver()) {
+      this.notifyStatus();
+      this.updateEval();
+      return true;
+    }
+
+    // Send to server and get opponent response
+    this.setThinking(true);
+    try {
+      const resp = await sendMove(this.sessionId, moveUci);
+      this.applyOpponentMove(resp);
+    } catch (err) {
+      console.error("Server move failed:", err);
+      // Game continues locally — graceful degradation
+    } finally {
+      this.setThinking(false);
+    }
+
     this.updateEval();
     return true;
   }
 
-  /** Reset to starting position. */
-  newGame(): void {
+  /** Reset to starting position and create a server session. */
+  async newGame(): Promise<void> {
     this.game = new Chess();
+    this.playerColor = "w";
+    this.thinking = false;
+
+    try {
+      const resp = await createGame();
+      this.sessionId = resp.session_id;
+    } catch (err) {
+      console.warn("Failed to create server session:", err);
+      this.sessionId = null;
+    }
+
     this.syncBoard();
     this.notifyMoveList();
     this.updateEval();
@@ -143,12 +201,13 @@ export class GameController {
   /** Sync chessground board state with chess.js game state. */
   private syncBoard(): void {
     const turnColor = toColor(this.game.turn());
+    const isPlayerTurn = this.game.turn() === this.playerColor;
     this.board.set({
       fen: this.game.fen(),
       turnColor,
       movable: {
-        color: turnColor,
-        dests: legalDests(this.game),
+        color: isPlayerTurn && !this.thinking ? toColor(this.playerColor) : undefined,
+        dests: isPlayerTurn && !this.thinking ? legalDests(this.game) : new Map(),
       },
       lastMove: this.getLastMove(),
       check: this.game.isCheck() ? turnColor : undefined,
@@ -181,6 +240,60 @@ export class GameController {
   private updateEval(): void {
     if (this.engine && this.onEval) {
       this.engine.evaluate(this.game.fen(), this.onEval);
+    }
+  }
+
+  /** Apply the opponent's move from the server response. */
+  private applyOpponentMove(resp: MoveResponse): void {
+    if (!resp.opponent_move_uci) {
+      // Game ended on player's move
+      this.notifyStatus();
+      return;
+    }
+
+    const from = resp.opponent_move_uci.slice(0, 2) as Key;
+    const to = resp.opponent_move_uci.slice(2, 4) as Key;
+    const promotion = resp.opponent_move_uci.length > 4
+      ? resp.opponent_move_uci[4] as PromotionPiece
+      : undefined;
+
+    // Apply to chess.js
+    this.game.move({
+      from: from as Square,
+      to: to as Square,
+      promotion,
+    });
+
+    // Animate on board then sync
+    this.board.move(from, to);
+    this.syncBoard();
+    this.notifyMoveList();
+
+    if (resp.status !== "playing") {
+      this.onStatus?.(resp.status, resp.result);
+    }
+  }
+
+  /** Lock/unlock the board during opponent thinking. */
+  private setThinking(thinking: boolean): void {
+    this.thinking = thinking;
+    if (thinking) {
+      this.board.set({
+        movable: { color: undefined },
+      });
+    }
+    // syncBoard will restore movable when thinking ends
+  }
+
+  /** Notify status callback based on current game state. */
+  private notifyStatus(): void {
+    if (this.game.isCheckmate()) {
+      const winner = this.game.turn() === "w" ? "Black" : "White";
+      this.onStatus?.("checkmate", winner === "White" ? "1-0" : "0-1");
+    } else if (this.game.isStalemate()) {
+      this.onStatus?.("stalemate", "1/2-1/2");
+    } else if (this.game.isDraw()) {
+      this.onStatus?.("draw", "1/2-1/2");
     }
   }
 }

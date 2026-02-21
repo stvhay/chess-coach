@@ -144,21 +144,23 @@ function init() {
   }
 
   // --- Game status ---
-  function updateStatus() {
-    if (!gc) return;
-    if (gc.isGameOver()) {
-      statusDisplay.textContent = "Game over";
-      statusDisplay.style.color = "#f87171";
-    } else {
-      statusDisplay.textContent = "";
+  function showStatus(status: string, result: string | null) {
+    if (status === "checkmate") {
+      const winner = result === "1-0" ? "White" : "Black";
+      statusDisplay.textContent = `Checkmate — ${winner} wins`;
+    } else if (status === "stalemate") {
+      statusDisplay.textContent = "Stalemate — Draw";
+    } else if (status === "draw") {
+      statusDisplay.textContent = "Draw";
     }
+    statusDisplay.style.color = "#f87171";
   }
 
   // --- Initialize ---
   const engine = new BrowserEngine();
 
   const board = createBoard(boardWrap, (orig, dest) => {
-    gc.handleMove(orig, dest).then(() => updateStatus());
+    gc.handleMove(orig, dest);
   });
 
   const gc = new GameController(board, engine);
@@ -169,14 +171,19 @@ function init() {
     const isWhite = dest[1] === "8";
     return showPromotionChooser(isWhite);
   });
+  gc.setStatusCallback(showStatus);
+
+  // Create initial server session
+  gc.newGame();
 
   // New game button
   newGameBtn.addEventListener("click", () => {
-    gc.newGame();
-    statusDisplay.textContent = "";
-    statusDisplay.style.color = "#4ade80";
-    evalDisplay.textContent = "Eval: \u2014";
-    lineDisplay.textContent = "Best line: \u2014";
+    gc.newGame().then(() => {
+      statusDisplay.textContent = "";
+      statusDisplay.style.color = "#4ade80";
+      evalDisplay.textContent = "Eval: \u2014";
+      lineDisplay.textContent = "Best line: \u2014";
+    });
   });
 
   // FEN input
