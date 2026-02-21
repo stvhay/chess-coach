@@ -113,7 +113,8 @@ function init() {
       evalDisplay.textContent = `Mate in ${Math.abs(info.scoreMate)} (depth ${info.depth})`;
     }
     if (info.pv.length > 0) {
-      lineDisplay.textContent = `Best: ${info.pv.slice(0, 5).join(" ")}`;
+      const san = gc.uciToSan(info.pv.slice(0, 5));
+      lineDisplay.textContent = `Best: ${san.join(" ")}`;
     }
   }
 

@@ -198,6 +198,26 @@ export class GameController {
     return this.game.isGameOver();
   }
 
+  /** Convert UCI move strings to SAN notation using current position. */
+  uciToSan(uciMoves: string[]): string[] {
+    const temp = new Chess(this.game.fen());
+    const san: string[] = [];
+    for (const uci of uciMoves) {
+      try {
+        const move = temp.move({
+          from: uci.slice(0, 2) as Square,
+          to: uci.slice(2, 4) as Square,
+          promotion: uci.length > 4 ? uci[4] as PromotionPiece : undefined,
+        });
+        if (move) san.push(move.san);
+        else break;
+      } catch {
+        break;
+      }
+    }
+    return san;
+  }
+
   /** Sync chessground board state with chess.js game state. */
   private syncBoard(): void {
     const turnColor = toColor(this.game.turn());
