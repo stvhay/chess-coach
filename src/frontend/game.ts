@@ -264,8 +264,7 @@ export class GameController {
       promotion,
     });
 
-    // Animate on board then sync
-    this.board.move(from, to);
+    // Sync full state — chessground animates the diff via lastMove
     this.syncBoard();
     this.notifyMoveList();
 

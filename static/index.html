@@ -36,12 +36,15 @@
       background: #16213e;
       border: 1px solid #333;
       border-radius: 8px;
-      min-width: 280px;
+      width: 280px;
       min-height: 512px;
     }
     .eval-display, .line-display {
       font-family: 'JetBrains Mono', 'Fira Code', monospace;
       font-size: 14px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .status-dot {
       width: 8px;
