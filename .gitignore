@@ -16,3 +16,7 @@ __pycache__/
 *.pyc
 CLAUDE.md
 docs/plans/
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/

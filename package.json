@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "build": "cat node_modules/chessground/assets/chessground.base.css node_modules/chessground/assets/chessground.brown.css node_modules/chessground/assets/chessground.cburnett.css > static/chessground.css && esbuild src/frontend/main.ts --bundle --outfile=static/app.js --format=esm",
-    "watch": "esbuild src/frontend/main.ts --bundle --outfile=static/app.js --format=esm --watch"
+    "watch": "esbuild src/frontend/main.ts --bundle --outfile=static/app.js --format=esm --watch",
+    "test:e2e": "npx playwright test"
   },
   "dependencies": {
     "chess.js": "^1.4.0",
@@ -13,6 +14,7 @@
     "stockfish": "^18.0.5"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "esbuild": "^0.25",
     "typescript": "^5"
   }
