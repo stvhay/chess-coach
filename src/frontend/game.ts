@@ -1,8 +1,9 @@
 import { Chess, Square } from "chess.js";
 import { Api } from "chessground/api";
+import { DrawShape } from "chessground/draw";
 import { Key } from "chessground/types";
 import { BrowserEngine, EvalCallback } from "./eval";
-import { createGame, sendMove, MoveResponse } from "./api";
+import { createGame, sendMove, MoveResponse, CoachingData } from "./api";
 
 export type PromotionPiece = "q" | "r" | "b" | "n";
 
@@ -17,6 +18,9 @@ export type PromotionCallback = (
 
 /** Callback when game status changes. */
 export type StatusCallback = (status: string, result: string | null) => void;
+
+/** Callback when coaching data arrives. */
+export type CoachingCallback = (coaching: CoachingData) => void;
 
 /**
  * Compute chessground-compatible legal destinations from a chess.js instance.
@@ -57,6 +61,7 @@ export class GameController {
   private sessionId: string | null = null;
   private playerColor: "w" | "b" = "w";
   private onStatus: StatusCallback | null = null;
+  private onCoaching: CoachingCallback | null = null;
   private thinking = false;
 
   constructor(board: Api, engine: BrowserEngine | null) {
@@ -86,12 +91,18 @@ export class GameController {
     this.onStatus = cb;
   }
 
+  /** Register callback for coaching updates. */
+  setCoachingCallback(cb: CoachingCallback): void {
+    this.onCoaching = cb;
+  }
+
   /**
    * Handle a move made on the board. Called from chessground's after callback.
    * Sends move to server, receives opponent response, applies it.
    */
   async handleMove(orig: Key, dest: Key): Promise<boolean> {
     if (this.thinking) return false;
+    this.clearCoaching();
 
     // Check if this is a promotion
     const isPromotion = this.isPromotionMove(orig, dest);
@@ -139,6 +150,7 @@ export class GameController {
     this.setThinking(true);
     try {
       const resp = await sendMove(this.sessionId, moveUci);
+      this.handleCoaching(resp.coaching);
       this.applyOpponentMove(resp);
     } catch (err) {
       console.error("Server move failed:", err);
@@ -156,6 +168,7 @@ export class GameController {
     this.game = new Chess();
     this.playerColor = "w";
     this.thinking = false;
+    this.board.setAutoShapes([]);
 
     try {
       const resp = await createGame();
@@ -303,6 +316,39 @@ export class GameController {
     } else {
       this.syncBoard();
     }
+  }
+
+  /** Display coaching annotations on the board and fire coaching callback. */
+  private handleCoaching(coaching: CoachingData | null): void {
+    if (!coaching) {
+      this.board.setAutoShapes([]);
+      return;
+    }
+
+    const shapes: DrawShape[] = [];
+
+    for (const arrow of coaching.arrows) {
+      shapes.push({
+        orig: arrow.orig as Key,
+        dest: arrow.dest as Key,
+        brush: arrow.brush,
+      });
+    }
+
+    for (const highlight of coaching.highlights) {
+      shapes.push({
+        orig: highlight.square as Key,
+        brush: highlight.brush,
+      });
+    }
+
+    this.board.setAutoShapes(shapes);
+    this.onCoaching?.(coaching);
+  }
+
+  /** Clear coaching annotations (called before player's next move). */
+  private clearCoaching(): void {
+    this.board.setAutoShapes([]);
   }
 
   /** Notify status callback based on current game state. */

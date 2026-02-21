@@ -4,6 +4,25 @@ export interface NewGameResponse {
   status: string;
 }
 
+export interface ArrowData {
+  orig: string;
+  dest: string;
+  brush: string;
+}
+
+export interface HighlightData {
+  square: string;
+  brush: string;
+}
+
+export interface CoachingData {
+  quality: string;
+  message: string;
+  arrows: ArrowData[];
+  highlights: HighlightData[];
+  severity: string;
+}
+
 export interface MoveResponse {
   fen: string;
   player_move_san: string;
@@ -11,6 +30,7 @@ export interface MoveResponse {
   opponent_move_san: string | null;
   status: string;
   result: string | null;
+  coaching: CoachingData | null;
 }
 
 const API_BASE = "/api";
