@@ -51,3 +51,23 @@ def test_best_moves_endpoint(client):
     data = response.json()
     assert isinstance(data, list)
     assert len(data) >= 1
+
+
+def test_analysis_endpoint(client):
+    response = client.post("/api/analysis/position", json={
+        "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    })
+    assert response.status_code == 200
+    data = response.json()
+    assert data["fen"] == "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+    assert data["turn"] == "white"
+    assert data["material"]["imbalance"] == 0
+    assert data["material"]["white"]["pawns"] == 8
+    assert data["development"]["white_developed"] == 0
+
+
+def test_analysis_invalid_fen(client):
+    response = client.post("/api/analysis/position", json={
+        "fen": "not valid",
+    })
+    assert response.status_code == 400

@@ -1,6 +1,8 @@
 import os
 from contextlib import asynccontextmanager
+from dataclasses import asdict
 
+import chess
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -8,6 +10,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
+from server.analysis import analyze
 from server.engine import EngineAnalysis
 from server.game import GameManager
 
@@ -35,6 +38,10 @@ app = FastAPI(title="Chess Teacher", lifespan=lifespan)
 app.add_middleware(SecurityHeadersMiddleware)
 
 
+class AnalysisRequest(BaseModel):
+    fen: str
+
+
 class EvalRequest(BaseModel):
     fen: str
     depth: int = 20
@@ -58,6 +65,16 @@ class MoveRequest(BaseModel):
 @app.get("/api/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.post("/api/analysis/position")
+async def analysis_position(req: AnalysisRequest):
+    try:
+        board = chess.Board(req.fen)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid FEN: {req.fen}") from e
+    report = analyze(board)
+    return asdict(report)
 
 
 @app.post("/api/engine/evaluate")
