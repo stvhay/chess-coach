@@ -1,5 +1,10 @@
+from unittest.mock import AsyncMock
+
 import pytest
 from fastapi.testclient import TestClient
+from server.engine import Evaluation, MoveInfo
+from server.game import GameManager
+from server.llm import ChessTeacher
 from server.main import app
 
 
@@ -136,3 +141,65 @@ def test_coaching_structure_when_present(client):
         assert coaching["quality"] in ("brilliant", "good", "inaccuracy", "mistake", "blunder")
         assert isinstance(coaching["arrows"], list)
         assert isinstance(coaching["highlights"], list)
+
+
+# ---------------------------------------------------------------------------
+# Unit tests for GameManager LLM integration (mocked engine + teacher)
+# ---------------------------------------------------------------------------
+
+
+def _mock_engine():
+    """Create a mock EngineAnalysis that returns plausible evaluations."""
+    engine = AsyncMock()
+    # eval_before: White +100, best move is d2d4
+    engine.evaluate = AsyncMock(side_effect=[
+        Evaluation(score_cp=100, score_mate=None, depth=12, best_move="d2d4", pv=["d2d4"]),
+        # eval_after: White -200 (big drop — triggers coaching)
+        Evaluation(score_cp=-200, score_mate=None, depth=12, best_move="d7d5", pv=["d7d5"]),
+    ])
+    # Opponent reply
+    engine.best_moves = AsyncMock(return_value=[
+        MoveInfo(uci="e7e5", score_cp=-10, score_mate=None),
+    ])
+    return engine
+
+
+class TestGameManagerLLM:
+    async def test_coaching_with_llm(self):
+        """When teacher returns a message, it replaces the hardcoded one."""
+        teacher = AsyncMock(spec=ChessTeacher)
+        teacher.explain_move = AsyncMock(return_value="Great effort, but d4 controls the center better!")
+
+        engine = _mock_engine()
+        gm = GameManager(engine, teacher=teacher)
+        sid, _, _ = gm.new_game()
+
+        result = await gm.make_move(sid, "e2e4")
+        assert result["coaching"] is not None
+        assert result["coaching"]["message"] == "Great effort, but d4 controls the center better!"
+        teacher.explain_move.assert_called_once()
+
+    async def test_coaching_llm_fallback(self):
+        """When teacher returns None, the hardcoded message is preserved."""
+        teacher = AsyncMock(spec=ChessTeacher)
+        teacher.explain_move = AsyncMock(return_value=None)
+
+        engine = _mock_engine()
+        gm = GameManager(engine, teacher=teacher)
+        sid, _, _ = gm.new_game()
+
+        result = await gm.make_move(sid, "e2e4")
+        assert result["coaching"] is not None
+        # Should contain the hardcoded message pattern (mentions pawn loss)
+        assert "loses about" in result["coaching"]["message"]
+        teacher.explain_move.assert_called_once()
+
+    async def test_coaching_without_teacher(self):
+        """When no teacher is provided, hardcoded messages are used."""
+        engine = _mock_engine()
+        gm = GameManager(engine, teacher=None)
+        sid, _, _ = gm.new_game()
+
+        result = await gm.make_move(sid, "e2e4")
+        assert result["coaching"] is not None
+        assert "loses about" in result["coaching"]["message"]

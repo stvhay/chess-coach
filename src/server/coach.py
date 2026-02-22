@@ -53,6 +53,7 @@ class CoachingResponse:
     arrows: list[Arrow] = field(default_factory=list)
     highlights: list[Highlight] = field(default_factory=list)
     severity: int = 0  # 0-100, higher = more urgent
+    tactics_summary: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -283,4 +284,5 @@ def assess_move(
         message=message,
         arrows=arrows,
         severity=severity,
+        tactics_summary=tactics_summary,
     )

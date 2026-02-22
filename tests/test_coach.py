@@ -235,3 +235,22 @@ class TestTacticalCoaching:
         assert result is not None
         assert result.quality == MoveQuality.BRILLIANT
         assert len(result.arrows) >= 1
+
+
+class TestTacticsSummaryField:
+    def test_coaching_response_has_tactics_summary(self):
+        """CoachingResponse includes tactics_summary field."""
+        board_before = chess.Board()
+        board_after = chess.Board()
+        board_after.push_uci("e2e4")
+        result = assess_move(
+            board_before=board_before,
+            board_after=board_after,
+            player_move_uci="e2e4",
+            eval_before=_eval(cp=100),
+            eval_after=_eval(cp=-200),
+            best_move_uci="d2d4",
+        )
+        assert result is not None
+        assert hasattr(result, "tactics_summary")
+        assert isinstance(result.tactics_summary, str)

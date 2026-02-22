@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import uuid
 from dataclasses import dataclass, field
 
@@ -5,6 +7,7 @@ import chess
 
 from server.coach import assess_move
 from server.engine import EngineAnalysis
+from server.llm import ChessTeacher, MoveContext
 
 
 @dataclass
@@ -33,8 +36,9 @@ def _game_result(board: chess.Board) -> str | None:
 
 
 class GameManager:
-    def __init__(self, engine: EngineAnalysis):
+    def __init__(self, engine: EngineAnalysis, teacher: ChessTeacher | None = None):
         self._engine = engine
+        self._teacher = teacher
         self._sessions: dict[str, GameState] = {}
 
     def new_game(self, depth: int = 10) -> tuple[str, str, str]:
@@ -90,6 +94,23 @@ class GameManager:
                 eval_after=eval_after,
                 best_move_uci=best_move_uci,
             )
+
+        # Attempt LLM-powered explanation when coaching triggers.
+        if coaching_data is not None and self._teacher is not None:
+            player_color = "White" if board_before.turn == chess.WHITE else "Black"
+            ctx = MoveContext(
+                fen_before=board_before.fen(),
+                fen_after=board.fen(),
+                player_move_san=player_san,
+                best_move_san=board_before.san(chess.Move.from_uci(best_move_uci)),
+                quality=coaching_data.quality.value,
+                cp_loss=coaching_data.severity,
+                tactics_summary=coaching_data.tactics_summary,
+                player_color=player_color,
+            )
+            llm_message = await self._teacher.explain_move(ctx)
+            if llm_message is not None:
+                coaching_data.message = llm_message
 
         coaching_dict = None
         if coaching_data is not None:

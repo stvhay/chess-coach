@@ -13,6 +13,7 @@ from starlette.responses import Response
 from server.analysis import analyze
 from server.engine import EngineAnalysis
 from server.game import GameManager
+from server.llm import ChessTeacher
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -24,7 +25,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 
 engine = EngineAnalysis(hash_mb=64)
-games = GameManager(engine)
+teacher = ChessTeacher(ollama_url="https://ollama.st5ve.com")
+games = GameManager(engine, teacher=teacher)
 
 
 @asynccontextmanager
