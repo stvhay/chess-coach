@@ -4,53 +4,166 @@ import httpx
 
 from server.llm import (
     ChessTeacher,
-    MoveContext,
     OpponentMoveContext,
-    _build_user_prompt,
+    format_coaching_prompt,
     _parse_move_selection,
 )
+from server.screener import CoachingContext
+from server.annotator import AnnotatedLine, PlyAnnotation
+from server.analysis import TacticalMotifs
 
 
-def _sample_context(**overrides) -> MoveContext:
+def _sample_player_line(**overrides) -> AnnotatedLine:
     defaults = dict(
-        fen_before="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-        fen_after="rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
-        player_move_san="e4",
-        best_move_san="d4",
+        first_move_san="e4",
+        first_move_uci="e2e4",
+        score_cp=-30,
+        score_mate=None,
+        pv_san=["e4", "e5", "Nf3"],
+        annotations=[
+            PlyAnnotation(
+                ply=0,
+                fen="rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
+                move_san="e4",
+                tactics=TacticalMotifs(),
+                material_change=0,
+                new_motifs=[],
+                position_summary="The position is roughly balanced.",
+            ),
+        ],
+    )
+    defaults.update(overrides)
+    return AnnotatedLine(**defaults)
+
+
+def _sample_context(**overrides) -> CoachingContext:
+    defaults = dict(
+        player_move=_sample_player_line(),
+        best_lines=[
+            AnnotatedLine(
+                first_move_san="d4",
+                first_move_uci="d2d4",
+                score_cp=30,
+                score_mate=None,
+                pv_san=["d4", "d5", "c4"],
+                annotations=[
+                    PlyAnnotation(
+                        ply=0,
+                        fen="rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq - 0 1",
+                        move_san="d4",
+                        tactics=TacticalMotifs(),
+                        material_change=0,
+                        new_motifs=[],
+                        position_summary="The position is roughly balanced.",
+                    ),
+                ],
+            ),
+        ],
         quality="mistake",
-        cp_loss=130,
-        tactics_summary="The knight on f3 is hanging.",
+        cp_loss=60,
         player_color="White",
     )
     defaults.update(overrides)
-    return MoveContext(**defaults)
+    return CoachingContext(**defaults)
 
 
-class TestBuildPrompt:
+class TestFormatCoachingPrompt:
     def test_contains_player_move(self):
         ctx = _sample_context()
-        prompt = _build_user_prompt(ctx)
-        assert "e4" in prompt
+        prompt = format_coaching_prompt(ctx)
+        assert "Student played: e4" in prompt
 
-    def test_contains_best_move(self):
+    def test_contains_best_line(self):
         ctx = _sample_context()
-        prompt = _build_user_prompt(ctx)
+        prompt = format_coaching_prompt(ctx)
         assert "d4" in prompt
 
     def test_contains_quality(self):
         ctx = _sample_context()
-        prompt = _build_user_prompt(ctx)
+        prompt = format_coaching_prompt(ctx)
         assert "mistake" in prompt
 
-    def test_contains_tactics_when_present(self):
-        ctx = _sample_context(tactics_summary="There is a fork on c7.")
-        prompt = _build_user_prompt(ctx)
-        assert "fork on c7" in prompt
+    def test_contains_rag_context_when_present(self):
+        ctx = _sample_context(rag_context="A fork attacks two pieces simultaneously.")
+        prompt = format_coaching_prompt(ctx)
+        assert "Relevant chess knowledge" in prompt
+        assert "fork attacks two pieces" in prompt
 
-    def test_omits_tactics_line_when_empty(self):
-        ctx = _sample_context(tactics_summary="")
-        prompt = _build_user_prompt(ctx)
-        assert "Tactical details" not in prompt
+    def test_omits_rag_when_empty(self):
+        ctx = _sample_context(rag_context="")
+        prompt = format_coaching_prompt(ctx)
+        assert "Relevant chess knowledge" not in prompt
+
+    def test_shows_new_motifs(self):
+        ann = PlyAnnotation(
+            ply=0, fen="...", move_san="Nf7",
+            tactics=TacticalMotifs(),
+            material_change=0,
+            new_motifs=["fork", "hanging_piece"],
+            position_summary="Fork on f7.",
+        )
+        line = AnnotatedLine(
+            first_move_san="Nf7", first_move_uci="g5f7",
+            score_cp=300, score_mate=None,
+            pv_san=["Nf7"], annotations=[ann],
+        )
+        ctx = _sample_context(best_lines=[line])
+        prompt = format_coaching_prompt(ctx)
+        assert "fork" in prompt
+        assert "hanging_piece" in prompt
+
+    def test_shows_material_change(self):
+        ann = PlyAnnotation(
+            ply=0, fen="...", move_san="exd5",
+            tactics=TacticalMotifs(),
+            material_change=100,
+            new_motifs=[],
+            position_summary="White captured a pawn.",
+        )
+        line = AnnotatedLine(
+            first_move_san="exd5", first_move_uci="e4d5",
+            score_cp=100, score_mate=None,
+            pv_san=["exd5"], annotations=[ann],
+        )
+        ctx = _sample_context(best_lines=[line])
+        prompt = format_coaching_prompt(ctx)
+        assert "material gains 100 cp" in prompt
+
+    def test_omits_empty_ply_annotations(self):
+        """Plies with no motifs and no material change are omitted."""
+        ann = PlyAnnotation(
+            ply=0, fen="...", move_san="Nf3",
+            tactics=TacticalMotifs(),
+            material_change=0,
+            new_motifs=[],
+            position_summary="Balanced.",
+        )
+        line = AnnotatedLine(
+            first_move_san="Nf3", first_move_uci="g1f3",
+            score_cp=10, score_mate=None,
+            pv_san=["Nf3", "Nc6"], annotations=[ann],
+        )
+        ctx = _sample_context(best_lines=[line])
+        prompt = format_coaching_prompt(ctx)
+        assert "no new tactical motifs" not in prompt
+
+    def test_filters_player_move_from_alternatives(self):
+        """Player's own move should not appear as 'Stronger move'."""
+        same_as_player = AnnotatedLine(
+            first_move_san="e4", first_move_uci="e2e4",
+            score_cp=30, score_mate=None,
+            pv_san=["e4", "e5"], annotations=[],
+        )
+        different = AnnotatedLine(
+            first_move_san="d4", first_move_uci="d2d4",
+            score_cp=40, score_mate=None,
+            pv_san=["d4", "d5"], annotations=[],
+        )
+        ctx = _sample_context(best_lines=[same_as_player, different])
+        prompt = format_coaching_prompt(ctx)
+        # "Stronger move" should be d4, not e4
+        assert "Stronger alternative: d4" in prompt
+        assert "Stronger alternative: e4" not in prompt
 
 
 class TestExplainMove:
@@ -67,7 +180,7 @@ class TestExplainMove:
             return resp
 
         monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
-        result = await teacher.explain_move(_sample_context())
+        result = await teacher.explain_move("You played e4. Stronger move: d4.")
         assert result == "Nice try, but d4 controls the center better."
 
     async def test_timeout_returns_none(self, monkeypatch):
@@ -78,7 +191,7 @@ class TestExplainMove:
             raise httpx.ReadTimeout("timed out")
 
         monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
-        result = await teacher.explain_move(_sample_context())
+        result = await teacher.explain_move("test prompt")
         assert result is None
 
     async def test_connection_error_returns_none(self, monkeypatch):
@@ -89,7 +202,7 @@ class TestExplainMove:
             raise httpx.ConnectError("connection refused")
 
         monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
-        result = await teacher.explain_move(_sample_context())
+        result = await teacher.explain_move("test prompt")
         assert result is None
 
     async def test_bad_json_returns_none(self, monkeypatch):
@@ -104,21 +217,8 @@ class TestExplainMove:
             )
 
         monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
-        result = await teacher.explain_move(_sample_context())
+        result = await teacher.explain_move("test prompt")
         assert result is None
-
-
-class TestBuildPromptRagContext:
-    def test_prompt_includes_rag_context(self):
-        ctx = _sample_context(rag_context="A fork attacks two pieces simultaneously.")
-        prompt = _build_user_prompt(ctx)
-        assert "Relevant chess knowledge" in prompt
-        assert "fork attacks two pieces" in prompt
-
-    def test_prompt_omits_rag_when_empty(self):
-        ctx = _sample_context(rag_context="")
-        prompt = _build_user_prompt(ctx)
-        assert "Relevant chess knowledge" not in prompt
 
 
 class TestParseMoveSeletion:
