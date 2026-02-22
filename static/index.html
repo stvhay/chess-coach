@@ -21,12 +21,51 @@
     }
     .layout {
       display: flex;
-      gap: 16px;
+      gap: 0;
       align-items: flex-start;
     }
     .board-wrap {
       width: 512px;
       height: 512px;
+    }
+    .eval-bar-wrap {
+      width: 20px;
+      height: 512px;
+      margin: 0 8px;
+      position: relative;
+      border-radius: 4px;
+      overflow: hidden;
+      border: 1px solid #333;
+    }
+    .eval-bar-black {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      background: #333;
+      transition: height 0.3s ease;
+    }
+    .eval-bar-white {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: #e0e0e0;
+      transition: height 0.3s ease;
+    }
+    .eval-bar-label {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 10px;
+      font-weight: 700;
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      color: #1a1a2e;
+      z-index: 1;
+      writing-mode: vertical-rl;
+      text-orientation: mixed;
+      white-space: nowrap;
     }
     .panel {
       display: flex;
@@ -36,28 +75,54 @@
       background: #16213e;
       border: 1px solid #333;
       border-radius: 8px;
-      width: 280px;
+      width: 320px;
       min-height: 512px;
     }
-    .eval-display, .line-display {
+    .eval-display {
       font-family: 'JetBrains Mono', 'Fira Code', monospace;
       font-size: 14px;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    .status-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: #666;
-      margin-top: auto;
+    .line-display {
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      font-size: 12px;
+      line-height: 1.5;
+      max-height: 120px;
+      overflow-y: auto;
+      padding: 4px 0;
     }
-    .status-dot.connected { background: #4ade80; }
-    .status-dot.error { background: #f87171; }
+    .line-display .pv-line {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      padding: 1px 0;
+    }
+    .line-display .pv-line:first-child {
+      font-weight: 700;
+      color: #e0e0e0;
+    }
+    .line-display .pv-line:not(:first-child) {
+      color: #888;
+    }
+    .line-display .pv-score {
+      display: inline-block;
+      min-width: 48px;
+      color: #4ade80;
+      margin-right: 6px;
+    }
+    .engine-status {
+      font-size: 11px;
+      color: #666;
+      margin-top: auto;
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+    .engine-status.connected { color: #4ade80; }
+    .engine-status.error { color: #f87171; }
     .fen-input {
       width: 100%;
-      max-width: 808px;
+      max-width: 868px;
       padding: 8px 12px;
       background: #16213e;
       border: 1px solid #333;
@@ -66,7 +131,12 @@
       font-family: monospace;
       font-size: 13px;
     }
-    .fen-input::placeholder { color: #666; }
+    .fen-input::placeholder { color: #555; }
+    .fen-input:focus {
+      outline: none;
+      border-color: #4ade80;
+      box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.15);
+    }
     .move-history {
       font-family: 'JetBrains Mono', 'Fira Code', monospace;
       font-size: 13px;
@@ -80,20 +150,30 @@
     .move-history .move-number {
       color: #666;
       margin-right: 4px;
+      letter-spacing: 0.5px;
       white-space: nowrap;
     }
     .move-history .move {
       color: #e0e0e0;
-      cursor: default;
+      cursor: pointer;
       margin-right: 8px;
       white-space: nowrap;
+      padding: 1px 3px;
+      border-radius: 3px;
+      transition: background 0.15s ease;
+    }
+    .move-history .move:hover {
+      background: rgba(255, 255, 255, 0.08);
+    }
+    .move-history .move.active {
+      background: rgba(74, 222, 128, 0.15);
     }
     .controls {
       display: flex;
       gap: 8px;
     }
     .controls button {
-      padding: 6px 14px;
+      padding: 8px 16px;
       background: #1e3a5f;
       color: #e0e0e0;
       border: 1px solid #333;
@@ -101,9 +181,11 @@
       cursor: pointer;
       font-size: 13px;
       font-family: inherit;
+      transition: background 0.15s ease, border-color 0.15s ease;
     }
     .controls button:hover {
       background: #2a5080;
+      border-color: #4ade80;
     }
     .game-status {
       font-size: 14px;
@@ -152,6 +234,7 @@
       display: flex;
       flex-direction: column;
       gap: 8px;
+      min-height: 60px;
       max-height: 200px;
       overflow-y: auto;
       padding: 8px;
@@ -164,6 +247,11 @@
       padding: 8px 10px;
       border-radius: 4px;
       border-left: 3px solid;
+      cursor: pointer;
+      transition: filter 0.15s ease;
+    }
+    .coach-message:hover {
+      filter: brightness(1.2);
     }
     .coach-message.brilliant {
       background: rgba(74, 222, 128, 0.1);
@@ -184,6 +272,32 @@
       background: rgba(248, 113, 113, 0.1);
       border-left-color: #f87171;
       color: #f87171;
+    }
+    .nav-controls {
+      display: flex;
+      gap: 4px;
+      justify-content: center;
+    }
+    .nav-controls button {
+      padding: 4px 12px;
+      background: #1e3a5f;
+      color: #e0e0e0;
+      border: 1px solid #333;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      transition: background 0.15s ease;
+    }
+    .nav-controls button:hover {
+      background: #2a5080;
+    }
+    .viewing-indicator {
+      font-size: 11px;
+      color: #fbbf24;
+      text-align: center;
+      min-height: 16px;
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
     }
   </style>
 </head>

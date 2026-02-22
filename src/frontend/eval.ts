@@ -27,8 +27,25 @@ export interface EvalInfo {
   multipv?: number;
 }
 
+/** A single engine line from MultiPV output. */
+export interface EvalLine {
+  multipv: number;
+  scoreCp: number | null;
+  scoreMate: number | null;
+  pv: string[];
+}
+
+/** All lines at a given depth from MultiPV search. */
+export interface MultiPVInfo {
+  depth: number;
+  lines: EvalLine[];
+}
+
 /** Callback invoked each time the engine emits a new info line. */
 export type EvalCallback = (info: EvalInfo) => void;
+
+/** Callback invoked when a complete set of MultiPV lines is available at a depth. */
+export type MultiPVCallback = (info: MultiPVInfo) => void;
 
 /**
  * Wraps a Stockfish WASM Web Worker behind a simple evaluate/stop API.
@@ -39,6 +56,9 @@ export type EvalCallback = (info: EvalInfo) => void;
 export class BrowserEngine {
   private worker: Worker | null = null;
   private onEval: EvalCallback | null = null;
+  private onMultiPV: MultiPVCallback | null = null;
+  private multiPVLines: Map<number, EvalLine> = new Map();
+  private multiPVDepth = 0;
   private ready = false;
 
   /**
@@ -60,6 +80,7 @@ export class BrowserEngine {
 
         if (line.includes("uciok")) {
           this.ready = true;
+          this.worker!.postMessage("setoption name MultiPV value 5");
           resolve();
         }
 
@@ -115,6 +136,28 @@ export class BrowserEngine {
     if (multipvMatch) info.multipv = parseInt(multipvMatch[1], 10);
 
     this.onEval?.(info);
+
+    // MultiPV accumulation
+    if (this.onMultiPV) {
+      const pvNum = info.multipv ?? 1;
+      // When multipv=1 arrives at a new depth, flush previous depth
+      if (pvNum === 1 && info.depth > this.multiPVDepth && this.multiPVLines.size > 0) {
+        this.onMultiPV({
+          depth: this.multiPVDepth,
+          lines: Array.from(this.multiPVLines.values()).sort((a, b) => a.multipv - b.multipv),
+        });
+        this.multiPVLines.clear();
+      }
+      if (pvNum === 1) {
+        this.multiPVDepth = info.depth;
+      }
+      this.multiPVLines.set(pvNum, {
+        multipv: pvNum,
+        scoreCp: info.scoreCp,
+        scoreMate: info.scoreMate,
+        pv: info.pv,
+      });
+    }
   }
 
   /**
@@ -138,10 +181,29 @@ export class BrowserEngine {
     this.worker.postMessage(`go depth ${depth}`);
   }
 
+  /**
+   * Start evaluating a position with MultiPV output.
+   * The callback fires each time a complete set of lines at a new depth is ready.
+   */
+  evaluateMultiPV(fen: string, callback: MultiPVCallback, depth: number = 20): void {
+    if (!this.worker || !this.ready) return;
+
+    this.onMultiPV = callback;
+    this.onEval = null;
+    this.multiPVLines.clear();
+    this.multiPVDepth = 0;
+    this.worker.postMessage("stop");
+    this.worker.postMessage("ucinewgame");
+    this.worker.postMessage("isready");
+    this.worker.postMessage(`position fen ${fen}`);
+    this.worker.postMessage(`go depth ${depth}`);
+  }
+
   /** Stop the current search. */
   stop(): void {
     this.worker?.postMessage("stop");
     this.onEval = null;
+    this.onMultiPV = null;
   }
 
   /** Terminate the worker entirely.  The engine cannot be reused after this. */

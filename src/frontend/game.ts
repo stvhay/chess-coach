@@ -2,7 +2,7 @@ import { Chess, Square } from "chess.js";
 import { Api } from "chessground/api";
 import { DrawShape } from "chessground/draw";
 import { Key } from "chessground/types";
-import { BrowserEngine, EvalCallback } from "./eval";
+import { BrowserEngine, EvalCallback, MultiPVCallback } from "./eval";
 import { createGame, sendMove, MoveResponse, CoachingData } from "./api";
 
 export type PromotionPiece = "q" | "r" | "b" | "n";
@@ -21,6 +21,9 @@ export type StatusCallback = (status: string, result: string | null) => void;
 
 /** Callback when coaching data arrives. */
 export type CoachingCallback = (coaching: CoachingData) => void;
+
+/** Callback when the viewed ply changes (for UI navigation state). */
+export type PlyChangeCallback = (ply: number, maxPly: number) => void;
 
 /**
  * Compute chessground-compatible legal destinations from a chess.js instance.
@@ -62,7 +65,12 @@ export class GameController {
   private playerColor: "w" | "b" = "w";
   private onStatus: StatusCallback | null = null;
   private onCoaching: CoachingCallback | null = null;
+  private onPlyChange: PlyChangeCallback | null = null;
+  private onMultiPV: MultiPVCallback | null = null;
   private thinking = false;
+  private currentPly = 0;
+  private maxPly = 0;
+  private coachingByPly: Map<number, CoachingData> = new Map();
 
   constructor(board: Api, engine: BrowserEngine | null) {
     this.game = new Chess();
@@ -94,6 +102,16 @@ export class GameController {
   /** Register callback for coaching updates. */
   setCoachingCallback(cb: CoachingCallback): void {
     this.onCoaching = cb;
+  }
+
+  /** Register callback for ply change events. */
+  setPlyChangeCallback(cb: PlyChangeCallback): void {
+    this.onPlyChange = cb;
+  }
+
+  /** Register callback for MultiPV eval updates. */
+  setMultiPVCallback(cb: MultiPVCallback): void {
+    this.onMultiPV = cb;
   }
 
   /**
@@ -130,8 +148,11 @@ export class GameController {
       return false;
     }
 
+    this.maxPly = this.game.history().length;
+    this.currentPly = this.maxPly;
     this.syncBoard();
     this.notifyMoveList();
+    this.notifyPlyChange();
 
     // If no server session, just play locally (both sides)
     if (!this.sessionId) {
@@ -168,6 +189,9 @@ export class GameController {
     this.game = new Chess();
     this.playerColor = "w";
     this.thinking = false;
+    this.currentPly = 0;
+    this.maxPly = 0;
+    this.coachingByPly.clear();
     this.board.setAutoShapes([]);
 
     try {
@@ -211,9 +235,98 @@ export class GameController {
     return this.game.isGameOver();
   }
 
-  /** Convert UCI move strings to SAN notation using current position. */
+  /** Jump to a specific ply in the game history. */
+  jumpToPly(ply: number): void {
+    if (ply < 0 || ply > this.maxPly) return;
+    this.currentPly = ply;
+
+    // Rebuild position from move history
+    const fullHistory = this.game.history({ verbose: true });
+    const temp = new Chess();
+    for (let i = 0; i < ply; i++) {
+      temp.move(fullHistory[i].san);
+    }
+
+    // Sync board to this position without touching game state
+    const turnColor = toColor(temp.turn());
+    const atLatest = this.isAtLatest();
+    this.board.set({
+      fen: temp.fen(),
+      turnColor,
+      movable: {
+        color: atLatest && !this.thinking ? toColor(this.playerColor) : undefined,
+        dests: atLatest && !this.thinking ? legalDests(temp) : new Map(),
+      },
+      lastMove: ply > 0
+        ? [fullHistory[ply - 1].from as Key, fullHistory[ply - 1].to as Key]
+        : undefined,
+      check: temp.isCheck() ? turnColor : undefined,
+    });
+
+    // Show coaching for this ply if it exists
+    const coaching = this.coachingByPly.get(ply);
+    if (coaching) {
+      this.showCoachingShapes(coaching);
+    } else {
+      this.board.setAutoShapes([]);
+    }
+
+    // Eval the viewed position
+    if (this.engine) {
+      if (this.onMultiPV) {
+        this.engine.evaluateMultiPV(temp.fen(), this.onMultiPV);
+      } else if (this.onEval) {
+        this.engine.evaluate(temp.fen(), this.onEval);
+      }
+    }
+
+    this.notifyPlyChange();
+  }
+
+  /** Step one move forward in history. */
+  stepForward(): void {
+    this.jumpToPly(this.currentPly + 1);
+  }
+
+  /** Step one move back in history. */
+  stepBack(): void {
+    this.jumpToPly(this.currentPly - 1);
+  }
+
+  /** Whether we're viewing the latest position (live play). */
+  isAtLatest(): boolean {
+    return this.currentPly === this.maxPly;
+  }
+
+  /** Get the current viewed ply. */
+  getCurrentPly(): number {
+    return this.currentPly;
+  }
+
+  /** Get the max ply. */
+  getMaxPly(): number {
+    return this.maxPly;
+  }
+
+  /** Get the FEN of the currently viewed position (may differ from live game). */
+  viewedFen(): string {
+    if (this.isAtLatest()) return this.game.fen();
+    const fullHistory = this.game.history({ verbose: true });
+    const temp = new Chess();
+    for (let i = 0; i < this.currentPly; i++) {
+      temp.move(fullHistory[i].san);
+    }
+    return temp.fen();
+  }
+
+  /** Get coaching data for a specific ply. */
+  getCoachingAtPly(ply: number): CoachingData | undefined {
+    return this.coachingByPly.get(ply);
+  }
+
+  /** Convert UCI move strings to SAN notation using the currently viewed position. */
   uciToSan(uciMoves: string[]): string[] {
-    const temp = new Chess(this.game.fen());
+    const temp = new Chess(this.viewedFen());
     const san: string[] = [];
     for (const uci of uciMoves) {
       try {
@@ -269,10 +382,19 @@ export class GameController {
     this.onMoveList?.(this.game.history());
   }
 
+  /** Notify ply change callback. */
+  private notifyPlyChange(): void {
+    this.onPlyChange?.(this.currentPly, this.maxPly);
+  }
+
   /** Trigger engine evaluation of current position. */
   private updateEval(): void {
-    if (this.engine && this.onEval) {
-      this.engine.evaluate(this.game.fen(), this.onEval);
+    if (this.engine) {
+      if (this.onMultiPV) {
+        this.engine.evaluateMultiPV(this.game.fen(), this.onMultiPV);
+      } else if (this.onEval) {
+        this.engine.evaluate(this.game.fen(), this.onEval);
+      }
     }
   }
 
@@ -298,8 +420,11 @@ export class GameController {
     });
 
     // Sync full state — chessground animates the diff via lastMove
+    this.maxPly = this.game.history().length;
+    this.currentPly = this.maxPly;
     this.syncBoard();
     this.notifyMoveList();
+    this.notifyPlyChange();
 
     if (resp.status !== "playing") {
       this.onStatus?.(resp.status, resp.result);
@@ -325,6 +450,15 @@ export class GameController {
       return;
     }
 
+    // Store coaching by ply for later navigation
+    this.coachingByPly.set(this.currentPly, coaching);
+
+    this.showCoachingShapes(coaching);
+    this.onCoaching?.(coaching);
+  }
+
+  /** Draw coaching arrows and highlights on the board. */
+  private showCoachingShapes(coaching: CoachingData): void {
     const shapes: DrawShape[] = [];
 
     for (const arrow of coaching.arrows) {
@@ -343,7 +477,6 @@ export class GameController {
     }
 
     this.board.setAutoShapes(shapes);
-    this.onCoaching?.(coaching);
   }
 
   /** Clear coaching annotations (called before player's next move). */
