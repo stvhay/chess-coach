@@ -12,7 +12,8 @@ from server.coach import Arrow, assess_move
 from server.elo_profiles import get_profile
 from server.engine import EngineAnalysis
 from server.knowledge import query_knowledge
-from server.llm import ChessTeacher, format_coaching_prompt
+from server.llm import ChessTeacher
+from server.prompts import format_coaching_prompt
 from server.opponent import select_opponent_move
 from server.rag import ChessRAG
 from server.screener import screen_and_validate

@@ -5,9 +5,9 @@ import httpx
 from server.llm import (
     ChessTeacher,
     OpponentMoveContext,
-    format_coaching_prompt,
     _parse_move_selection,
 )
+from server.prompts import format_coaching_prompt
 from server.screener import CoachingContext
 from server.annotator import AnnotatedLine, PlyAnnotation
 from server.analysis import TacticalMotifs

@@ -20,7 +20,8 @@ import chess
 from server.coach import _classify_move, _cp_value, MoveQuality
 from server.elo_profiles import get_profile
 from server.engine import EngineAnalysis
-from server.llm import ChessTeacher, format_coaching_prompt
+from server.llm import ChessTeacher
+from server.prompts import format_coaching_prompt
 from server.screener import screen_and_validate
 
 
