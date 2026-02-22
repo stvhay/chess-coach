@@ -7,17 +7,82 @@ function init() {
   const root = document.getElementById("app");
   if (!root) return;
 
-  // --- Layout ---
+  // --- Header ---
+  const header = document.createElement("header");
+  header.className = "app-header";
+  root.appendChild(header);
+
+  const title = document.createElement("h1");
+  title.textContent = "Chess Teacher";
+  header.appendChild(title);
+
+  const hamburgerBtn = document.createElement("button");
+  hamburgerBtn.className = "hamburger-btn";
+  hamburgerBtn.setAttribute("aria-label", "Menu");
+  for (let i = 0; i < 3; i++) {
+    hamburgerBtn.appendChild(document.createElement("span"));
+  }
+  header.appendChild(hamburgerBtn);
+
+  // Hamburger menu dropdown
+  const hamburgerMenu = document.createElement("div");
+  hamburgerMenu.className = "hamburger-menu";
+  header.appendChild(hamburgerMenu);
+
+  const menuNewGameBtn = document.createElement("button");
+  menuNewGameBtn.textContent = "New Game";
+  hamburgerMenu.appendChild(menuNewGameBtn);
+
+  const menuFenInput = document.createElement("input");
+  menuFenInput.type = "text";
+  menuFenInput.placeholder = "Load FEN\u2026";
+  menuFenInput.className = "fen-input";
+  hamburgerMenu.appendChild(menuFenInput);
+
+  const shortcutsRef = document.createElement("div");
+  shortcutsRef.className = "shortcuts-ref";
+  shortcutsRef.innerHTML =
+    "<kbd>\u2190</kbd> <kbd>\u2192</kbd> navigate moves<br>" +
+    "<kbd>Home</kbd> <kbd>End</kbd> first / last<br>" +
+    "<kbd>n</kbd> new game";
+  hamburgerMenu.appendChild(shortcutsRef);
+
+  hamburgerBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    hamburgerMenu.classList.toggle("open");
+  });
+  document.addEventListener("click", () => {
+    hamburgerMenu.classList.remove("open");
+  });
+  hamburgerMenu.addEventListener("click", (e) => {
+    e.stopPropagation();
+  });
+
+  // --- Layout wrapper (centers the grid vertically) ---
+  const layoutWrap = document.createElement("div");
+  layoutWrap.className = "layout-wrap";
+  root.appendChild(layoutWrap);
+
+  // --- Layout grid ---
   const layout = document.createElement("div");
   layout.className = "layout";
-  root.appendChild(layout);
+  layoutWrap.appendChild(layout);
 
-  // Board
-  const boardWrap = document.createElement("div");
-  boardWrap.className = "board-wrap";
-  layout.appendChild(boardWrap);
+  // 1. Coach column (left)
+  const coachColumn = document.createElement("div");
+  coachColumn.className = "coach-column";
+  layout.appendChild(coachColumn);
 
-  // Eval bar
+  const coachLabel = document.createElement("div");
+  coachLabel.className = "coach-column-label";
+  coachLabel.textContent = "Coach";
+  coachColumn.appendChild(coachLabel);
+
+  const coachMessages = document.createElement("div");
+  coachMessages.className = "coach-messages";
+  coachColumn.appendChild(coachMessages);
+
+  // 2. Eval bar
   const evalBarWrap = document.createElement("div");
   evalBarWrap.className = "eval-bar-wrap";
   layout.appendChild(evalBarWrap);
@@ -37,77 +102,64 @@ function init() {
   evalBarLabel.textContent = "0.0";
   evalBarWrap.appendChild(evalBarLabel);
 
-  // Right panel
-  const panel = document.createElement("div");
-  panel.className = "panel";
-  layout.appendChild(panel);
+  // 3. Board
+  const boardWrap = document.createElement("div");
+  boardWrap.className = "board-wrap";
+  layout.appendChild(boardWrap);
+
+  // 4. Right panel
+  const rightPanel = document.createElement("div");
+  rightPanel.className = "right-panel";
+  layout.appendChild(rightPanel);
 
   // Game status
   const statusDisplay = document.createElement("div");
   statusDisplay.className = "game-status";
-  panel.appendChild(statusDisplay);
+  rightPanel.appendChild(statusDisplay);
+
+  // Analysis section label
+  const analysisLabel = document.createElement("div");
+  analysisLabel.className = "section-label";
+  analysisLabel.textContent = "Analysis";
+  rightPanel.appendChild(analysisLabel);
 
   // Eval display
   const evalDisplay = document.createElement("div");
   evalDisplay.className = "eval-display";
   evalDisplay.textContent = "Eval: \u2014";
-  panel.appendChild(evalDisplay);
+  rightPanel.appendChild(evalDisplay);
 
   // MultiPV line display
   const lineDisplay = document.createElement("div");
   lineDisplay.className = "line-display";
   lineDisplay.textContent = "Lines: \u2014";
-  panel.appendChild(lineDisplay);
+  rightPanel.appendChild(lineDisplay);
 
-  // Coach panel
-  const coachPanel = document.createElement("div");
-  coachPanel.className = "coach-panel";
-  panel.appendChild(coachPanel);
-
-  // Viewing indicator
-  const viewingIndicator = document.createElement("div");
-  viewingIndicator.className = "viewing-indicator";
-  panel.appendChild(viewingIndicator);
+  // Moves section label
+  const movesLabel = document.createElement("div");
+  movesLabel.className = "section-label";
+  movesLabel.textContent = "Moves";
+  rightPanel.appendChild(movesLabel);
 
   // Move history
   const moveHistory = document.createElement("div");
   moveHistory.className = "move-history";
-  panel.appendChild(moveHistory);
+  rightPanel.appendChild(moveHistory);
 
-  // Nav controls
-  const navControls = document.createElement("div");
-  navControls.className = "nav-controls";
-  panel.appendChild(navControls);
+  // Viewing indicator
+  const viewingIndicator = document.createElement("div");
+  viewingIndicator.className = "viewing-indicator";
+  rightPanel.appendChild(viewingIndicator);
 
-  const navBackBtn = document.createElement("button");
-  navBackBtn.textContent = "\u25C0";
-  navControls.appendChild(navBackBtn);
+  // --- Footer ---
+  const footer = document.createElement("footer");
+  footer.className = "app-footer";
+  root.appendChild(footer);
 
-  const navForwardBtn = document.createElement("button");
-  navForwardBtn.textContent = "\u25B6";
-  navControls.appendChild(navForwardBtn);
-
-  // Controls
-  const controls = document.createElement("div");
-  controls.className = "controls";
-  panel.appendChild(controls);
-
-  const newGameBtn = document.createElement("button");
-  newGameBtn.textContent = "New Game";
-  controls.appendChild(newGameBtn);
-
-  // Engine status (text label replaces old status dot)
-  const engineStatus = document.createElement("div");
+  const engineStatus = document.createElement("span");
   engineStatus.className = "engine-status";
   engineStatus.textContent = "Engine: loading";
-  panel.appendChild(engineStatus);
-
-  // FEN input below layout
-  const fenInput = document.createElement("input");
-  fenInput.type = "text";
-  fenInput.placeholder = "Enter FEN to analyze a position\u2026";
-  fenInput.className = "fen-input";
-  root.appendChild(fenInput);
+  footer.appendChild(engineStatus);
 
   // --- Promotion UI ---
   function showPromotionChooser(
@@ -158,7 +210,6 @@ function init() {
       whitePct = scoreMate > 0 ? 100 : 0;
       label = `M${Math.abs(scoreMate)}`;
     } else if (scoreCp !== null) {
-      // Sigmoid mapping: 50 + 50 * (2 / (1 + e^(-cp/300)) - 1)
       whitePct = 50 + 50 * (2 / (1 + Math.exp(-scoreCp / 300)) - 1);
       const score = scoreCp / 100;
       label = `${score > 0 ? "+" : ""}${score.toFixed(1)}`;
@@ -174,7 +225,6 @@ function init() {
 
   // --- MultiPV display ---
   function updateMultiEval(info: MultiPVInfo) {
-    // Update header eval from line 1
     const line1 = info.lines[0];
     if (line1) {
       if (line1.scoreCp !== null) {
@@ -186,7 +236,6 @@ function init() {
       updateEvalBar(line1.scoreCp, line1.scoreMate);
     }
 
-    // Render all PV lines
     lineDisplay.innerHTML = "";
     for (const line of info.lines) {
       const div = document.createElement("div");
@@ -209,48 +258,48 @@ function init() {
     }
   }
 
-  // --- Move history rendering ---
+  // --- Move history rendering (grid) ---
   function renderMoveList(moves: string[]) {
     moveHistory.innerHTML = "";
     const activePly = gc.getCurrentPly();
     for (let i = 0; i < moves.length; i += 2) {
-      const moveNum = Math.floor(i / 2) + 1;
-      const numSpan = document.createElement("span");
-      numSpan.className = "move-number";
-      numSpan.textContent = `${moveNum}.`;
-      moveHistory.appendChild(numSpan);
+      const row = document.createElement("div");
+      row.className = "move-row";
 
-      const whitePly = i + 1; // ply is 1-indexed (move i is ply i+1)
-      const whiteSpan = document.createElement("span");
-      whiteSpan.className = "move";
-      if (whitePly === activePly) whiteSpan.classList.add("active");
-      whiteSpan.textContent = moves[i];
-      whiteSpan.dataset.ply = String(whitePly);
-      whiteSpan.addEventListener("click", () => {
-        gc.jumpToPly(whitePly);
-      });
-      moveHistory.appendChild(whiteSpan);
+      const numEl = document.createElement("span");
+      numEl.className = "move-number";
+      numEl.textContent = `${Math.floor(i / 2) + 1}.`;
+      row.appendChild(numEl);
 
+      // White move
+      const whitePly = i + 1;
+      const whiteEl = document.createElement("span");
+      whiteEl.className = "move";
+      if (whitePly === activePly) whiteEl.classList.add("active");
+      whiteEl.textContent = moves[i];
+      whiteEl.addEventListener("click", () => gc.jumpToPly(whitePly));
+      row.appendChild(whiteEl);
+
+      // Black move (or empty cell)
       if (i + 1 < moves.length) {
         const blackPly = i + 2;
-        const blackSpan = document.createElement("span");
-        blackSpan.className = "move";
-        if (blackPly === activePly) blackSpan.classList.add("active");
-        blackSpan.textContent = moves[i + 1];
-        blackSpan.dataset.ply = String(blackPly);
-        blackSpan.addEventListener("click", () => {
-          gc.jumpToPly(blackPly);
-        });
-        moveHistory.appendChild(blackSpan);
+        const blackEl = document.createElement("span");
+        blackEl.className = "move";
+        if (blackPly === activePly) blackEl.classList.add("active");
+        blackEl.textContent = moves[i + 1];
+        blackEl.addEventListener("click", () => gc.jumpToPly(blackPly));
+        row.appendChild(blackEl);
+      } else {
+        row.appendChild(document.createElement("span"));
       }
+
+      moveHistory.appendChild(row);
     }
-    // Scroll to bottom
     moveHistory.scrollTop = moveHistory.scrollHeight;
   }
 
   // --- Ply change handler ---
   function onPlyChange(ply: number, maxPly: number) {
-    // Update active highlighting in move list
     const moveSpans = moveHistory.querySelectorAll(".move");
     moveSpans.forEach((span) => {
       const el = span as HTMLElement;
@@ -261,13 +310,11 @@ function init() {
       }
     });
 
-    // Scroll active move into view
     const activeEl = moveHistory.querySelector(".move.active");
     if (activeEl) {
       activeEl.scrollIntoView({ block: "nearest" });
     }
 
-    // Viewing indicator
     if (ply < maxPly) {
       viewingIndicator.textContent = `Viewing move ${ply} of ${maxPly}`;
     } else {
@@ -285,8 +332,11 @@ function init() {
       const ply = parseInt(msg.dataset.ply!, 10);
       gc.jumpToPly(ply);
     });
-    coachPanel.appendChild(msg);
-    coachPanel.scrollTop = coachPanel.scrollHeight;
+    coachMessages.appendChild(msg);
+    coachMessages.scrollTop = coachMessages.scrollHeight;
+
+    // Show eval bar when coaching fires
+    evalBarWrap.classList.add("visible");
   }
 
   // --- Game status ---
@@ -300,6 +350,21 @@ function init() {
       statusDisplay.textContent = "Draw";
     }
     statusDisplay.style.color = "#f87171";
+  }
+
+  // --- New game reset ---
+  function resetUI() {
+    gc.newGame().then(() => {
+      statusDisplay.textContent = "";
+      statusDisplay.style.color = "#4ade80";
+      evalDisplay.textContent = "Eval: \u2014";
+      lineDisplay.innerHTML = "";
+      lineDisplay.textContent = "Lines: \u2014";
+      coachMessages.innerHTML = "";
+      viewingIndicator.textContent = "";
+      updateEvalBar(null, null);
+      evalBarWrap.classList.remove("visible");
+    });
   }
 
   // --- Initialize ---
@@ -324,13 +389,8 @@ function init() {
   // Create initial server session
   gc.newGame();
 
-  // Nav button handlers
-  navBackBtn.addEventListener("click", () => gc.stepBack());
-  navForwardBtn.addEventListener("click", () => gc.stepForward());
-
   // Keyboard navigation
   document.addEventListener("keydown", (e) => {
-    // Don't intercept when typing in input fields
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
 
     switch (e.key) {
@@ -350,31 +410,29 @@ function init() {
         e.preventDefault();
         gc.jumpToPly(gc.getMaxPly());
         break;
+      case "n":
+        e.preventDefault();
+        resetUI();
+        break;
     }
   });
 
-  // New game button
-  newGameBtn.addEventListener("click", () => {
-    gc.newGame().then(() => {
-      statusDisplay.textContent = "";
-      statusDisplay.style.color = "#4ade80";
-      evalDisplay.textContent = "Eval: \u2014";
-      lineDisplay.innerHTML = "";
-      lineDisplay.textContent = "Lines: \u2014";
-      coachPanel.innerHTML = "";
-      viewingIndicator.textContent = "";
-      updateEvalBar(null, null);
-    });
+  // Menu: New game button
+  menuNewGameBtn.addEventListener("click", () => {
+    resetUI();
+    hamburgerMenu.classList.remove("open");
   });
 
-  // FEN input
-  fenInput.addEventListener("change", () => {
-    const fen = fenInput.value.trim();
+  // Menu: FEN input
+  menuFenInput.addEventListener("change", () => {
+    const fen = menuFenInput.value.trim();
     if (fen) {
       const valid = gc.setPosition(fen);
       if (!valid) {
-        fenInput.style.borderColor = "#f87171";
-        setTimeout(() => { fenInput.style.borderColor = "#333"; }, 1500);
+        menuFenInput.style.borderColor = "#f87171";
+        setTimeout(() => { menuFenInput.style.borderColor = "#333"; }, 1500);
+      } else {
+        hamburgerMenu.classList.remove("open");
       }
     }
   });
