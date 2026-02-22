@@ -102,18 +102,18 @@ SCENARIOS = [
         "student_move": "c4e2",
     },
     {
-        "name": "weakening_h_pawn",
-        "desc": "Pushes h6 weakening kingside pawn shield after castling",
-        "fen": "r1bq1rk1/pppnbppp/4pn2/3p4/2PP4/2NBPN2/PP3PPP/R1BQ1RK1 b - - 0 8",
-        "student_move": "h7h6",
+        "name": "weakening_f_pawn",
+        "desc": "Plays f6 weakening king diagonal — blocks Nf6 and allows Ng5",
+        "fen": "r1bqkbnr/ppp2ppp/2np4/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 2 3",
+        "student_move": "f7f6",
     },
 
     # --- Endgame ---
     {
         "name": "endgame_wrong_king",
-        "desc": "Moves king sideways instead of toward the center in K+P ending",
-        "fen": "8/8/8/4k3/8/4K3/3P4/8 w - - 0 1",
-        "student_move": "e3f3",
+        "desc": "Moves king away from passed pawn instead of supporting it",
+        "fen": "8/8/8/8/3Pk3/8/3K4/8 w - - 0 1",
+        "student_move": "d2c2",
     },
     {
         "name": "endgame_good_pawn_push",

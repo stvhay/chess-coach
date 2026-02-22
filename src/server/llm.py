@@ -36,14 +36,43 @@ STRICT RULES:
 - If the analysis says "fork" or "pin", you may mention it. If it does not, you must NOT.
 - When tactical annotations exist, reference the specific tactic and squares involved.
 - If an annotation says "checkmate", that is the most important thing to mention.
-- Do NOT invent or guess tactical themes, piece locations, or consequences.
+- Do NOT invent or guess tactical themes, piece locations, or consequences \
+not explicitly listed in the annotations.
 - Do NOT mention evaluation numbers or centipawn values.
 - If the move classification is "good", affirm the student's choice. Do NOT suggest \
 alternatives are better. You may briefly mention other options exist without recommending them.
 - If the student's move is a blunder or mistake, clearly explain what was wrong and \
 what the stronger alternative achieves using ONLY the listed annotations.
-- Do not use markdown formatting.\
+- Do not use markdown formatting.
+
+SEVERITY:
+- "blunder": Serious error. Use direct language like "this misses checkmate" or \
+"this loses significant material". NEVER say "a bit risky" for a blunder.
+- "mistake": Clear error. Explain concretely what was missed.
+- "inaccuracy": Slight imprecision. Acknowledge the move is reasonable but note the \
+improvement.
+- "good" or "brilliant": Praise the move. Do NOT criticize it.
+
+PERSPECTIVE:
+- Each ply is labeled "(student)" or "(opponent)".
+- Tactics on student plies are things the student CREATES — often good for the student.
+- Tactics on opponent plies are threats the student will FACE — often bad for the student.
+- Each piece is labeled with its color (e.g., "White B", "Black N").
+- "hanging White B on b5" on a Black student's ply means the student attacks White's bishop.
+- "hanging Black P on e5" on a White student's ply means the student left Black's pawn capturable.
+- Use the piece colors to determine who benefits from each tactic.
+
+ACCURACY:
+- Use the EXACT move notation shown in the analysis (e.g., "Be2" not "Bf2").
+- If the analysis says the student "played: d4", say "d4" — do NOT say "captured on d4" \
+unless the move notation includes "x" (e.g., "Nxe4" is a capture, "d4" is not).\
 """
+
+
+def _colored(piece_char: str) -> str:
+    """Add color prefix: 'N' → 'White N', 'p' → 'Black P'."""
+    color = "White" if piece_char.isupper() else "Black"
+    return f"{color} {piece_char.upper()}"
 
 
 def _is_significant_discovery(da) -> bool:
@@ -67,34 +96,36 @@ def _describe_tactics(ann) -> list[str]:
     if "fork" in new:
         for fork in tactics.forks:
             targets = ", ".join(fork.targets)
-            descriptions.append(f"fork by {fork.forking_piece} on {fork.forking_square} targeting {targets}")
+            descriptions.append(
+                f"fork by {_colored(fork.forking_piece)} on {fork.forking_square} "
+                f"targeting {targets}")
 
     if "pin" in new:
         for pin in tactics.pins:
             descriptions.append(
-                f"pin: {pin.pinned_piece} on {pin.pinned_square} pinned by "
-                f"{pin.pinner_piece} on {pin.pinner_square} to {pin.pinned_to}"
+                f"pin: {_colored(pin.pinned_piece)} on {pin.pinned_square} pinned by "
+                f"{_colored(pin.pinner_piece)} on {pin.pinner_square} to {pin.pinned_to}"
             )
 
     if "skewer" in new:
         for skewer in tactics.skewers:
             descriptions.append(
-                f"skewer by {skewer.attacker_piece} on {skewer.attacker_square}: "
-                f"{skewer.front_piece} on {skewer.front_square}, "
-                f"{skewer.behind_piece} on {skewer.behind_square}"
+                f"skewer by {_colored(skewer.attacker_piece)} on {skewer.attacker_square}: "
+                f"{_colored(skewer.front_piece)} on {skewer.front_square}, "
+                f"{_colored(skewer.behind_piece)} on {skewer.behind_square}"
             )
 
     if "hanging_piece" in new:
         for hp in tactics.hanging:
-            descriptions.append(f"hanging {hp.piece} on {hp.square}")
+            descriptions.append(f"hanging {_colored(hp.piece)} on {hp.square}")
 
     if "discovered_attack" in new:
         significant = [da for da in tactics.discovered_attacks if _is_significant_discovery(da)]
         for da in significant[:3]:  # cap at 3 to prevent prompt bloat
             descriptions.append(
-                f"discovered attack: {da.blocker_piece} on {da.blocker_square} "
-                f"reveals {da.slider_piece} on {da.slider_square} targeting "
-                f"{da.target_piece} on {da.target_square}"
+                f"discovered attack: {_colored(da.blocker_piece)} on {da.blocker_square} "
+                f"reveals {_colored(da.slider_piece)} on {da.slider_square} targeting "
+                f"{_colored(da.target_piece)} on {da.target_square}"
             )
 
     if "checkmate" in new:
@@ -140,7 +171,9 @@ def _format_ply_annotations(annotations: list, side_to_move_is_white: bool | Non
         if tactic_descs:
             parts.extend(tactic_descs)
 
-        if ann.material_change != 0:
+        # Skip material changes on checkmate plies — irrelevant and confusing
+        is_checkmate = "checkmate" in (ann.new_motifs or [])
+        if not is_checkmate and ann.material_change != 0:
             mc = ann.material_change
             # Flip sign for black so positive = good for student
             if side_to_move_is_white is not None and not side_to_move_is_white:
@@ -150,7 +183,8 @@ def _format_ply_annotations(annotations: list, side_to_move_is_white: bool | Non
 
         # Only emit this ply if there's something to say
         if parts:
-            lines.append(f"  Ply {ann.ply + 1} ({ann.move_san}): {'; '.join(parts)}")
+            side_label = "student" if ann.ply % 2 == 0 else "opponent"
+            lines.append(f"  Ply {ann.ply + 1} ({ann.move_san}, {side_label}): {'; '.join(parts)}")
     return lines
 
 
@@ -197,6 +231,12 @@ def format_coaching_prompt(ctx: CoachingContext) -> str:
             lines.extend(ply_lines)
         else:
             lines.append("  No notable tactics in this line.")
+
+        # Check if opponent delivers checkmate in student's continuation
+        for ann in pm.annotations:
+            if "checkmate" in (ann.new_motifs or []) and ann.ply % 2 == 1:
+                lines.append("  ⚠ This move leads to checkmate AGAINST the student!")
+                break
         lines.append("")
 
     # Best alternative lines — filter out the player's own move
@@ -219,6 +259,12 @@ def format_coaching_prompt(ctx: CoachingContext) -> str:
             lines.extend(ply_lines)
         else:
             lines.append("  No notable tactics in this line.")
+
+        # Check if student delivers checkmate in this alternative
+        for ann in alt.annotations:
+            if "checkmate" in (ann.new_motifs or []) and ann.ply % 2 == 0:
+                lines.append("  ★ This alternative delivers checkmate for the student!")
+                break
         lines.append("")
 
     # RAG context
