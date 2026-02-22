@@ -32,4 +32,5 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 markers = [
     "integration: marks tests that require external services (deselect with '-m \"not integration\"')",
+    "live: marks tests that call a real LLM (run with '-m live')",
 ]
