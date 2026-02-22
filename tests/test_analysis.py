@@ -483,6 +483,67 @@ class TestExposedKing:
 
 
 # ---------------------------------------------------------------------------
+# Overloaded Pieces
+# ---------------------------------------------------------------------------
+
+
+class TestOverloadedPieces:
+    def test_overloaded_detected(self):
+        # White knight on d4 sole-defends both e6 bishop and c6 bishop,
+        # both attacked by Black
+        # Setup: White Nd4, White Be6, White Bc6, Black Re8 attacks e6, Black Rc8 attacks c6
+        board = chess.Board("2r1r1k1/8/2B1B3/8/3N4/8/8/4K3 b - - 0 1")
+        t = analyze_tactics(board)
+        overloaded = [o for o in t.overloaded_pieces if o.square == "d4"]
+        assert len(overloaded) >= 1
+        assert len(overloaded[0].defended_squares) >= 2
+
+    def test_not_overloaded_with_second_defender(self):
+        # Same setup but add a second defender — no longer overloaded
+        # White Nd4, White Ng5, White Be6, White Bc6, Black Re8, Black Rc8
+        # Ng5 also defends e6 (but not c6), so d4 still sole-defends c6 only → not overloaded (only 1)
+        board = chess.Board("2r1r1k1/8/2B1B3/6N1/3N4/8/8/4K3 b - - 0 1")
+        t = analyze_tactics(board)
+        overloaded = [o for o in t.overloaded_pieces if o.square == "d4"]
+        # d4 sole-defends c6 only (e6 also defended by f5) → needs 2+ to be overloaded
+        assert len(overloaded) == 0
+
+    def test_no_overloaded_starting(self):
+        board = chess.Board(STARTING)
+        t = analyze_tactics(board)
+        assert len(t.overloaded_pieces) == 0
+
+
+# ---------------------------------------------------------------------------
+# Capturable Defenders
+# ---------------------------------------------------------------------------
+
+
+class TestCapturableDefenders:
+    def test_capturable_defender_detected(self):
+        # White Nd4 defends White Be6 (attacked by Black Re8).
+        # Black Qc4 attacks the knight on d4. If Qxd4, bishop on e6 hangs.
+        board = chess.Board("4r1k1/8/4B3/8/2qN4/8/8/4K3 b - - 0 1")
+        t = analyze_tactics(board)
+        cd = [c for c in t.capturable_defenders if c.defender_square == "d4"]
+        assert len(cd) >= 1
+        assert cd[0].charge_square == "e6"
+
+    def test_not_capturable_if_two_defenders(self):
+        # White Nd4 and White Ng5 both defend Be6 — Nd4 is not sole defender
+        board = chess.Board("4r1k1/8/4B3/6N1/2qN4/8/8/4K3 b - - 0 1")
+        t = analyze_tactics(board)
+        cd = [c for c in t.capturable_defenders
+              if c.defender_square == "d4" and c.charge_square == "e6"]
+        assert len(cd) == 0
+
+    def test_no_capturable_defender_starting(self):
+        board = chess.Board(STARTING)
+        t = analyze_tactics(board)
+        assert len(t.capturable_defenders) == 0
+
+
+# ---------------------------------------------------------------------------
 # Open Files & Diagonals
 # ---------------------------------------------------------------------------
 

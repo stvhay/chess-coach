@@ -521,6 +521,22 @@ class ExposedKing:
 
 
 @dataclass
+class OverloadedPiece:
+    square: str
+    piece: str
+    defended_squares: list[str]  # attacked targets this piece sole-defends
+
+
+@dataclass
+class CapturableDefender:
+    defender_square: str
+    defender_piece: str
+    charge_square: str   # piece being defended
+    charge_piece: str
+    attacker_square: str  # who can capture the defender
+
+
+@dataclass
 class TacticalMotifs:
     pins: list[Pin] = field(default_factory=list)
     forks: list[Fork] = field(default_factory=list)
@@ -534,6 +550,8 @@ class TacticalMotifs:
     back_rank_weaknesses: list[BackRankWeakness] = field(default_factory=list)
     xray_attacks: list[XRayAttack] = field(default_factory=list)
     exposed_kings: list[ExposedKing] = field(default_factory=list)
+    overloaded_pieces: list[OverloadedPiece] = field(default_factory=list)
+    capturable_defenders: list[CapturableDefender] = field(default_factory=list)
 
 
 def _find_pins(board: chess.Board) -> list[Pin]:
@@ -930,6 +948,86 @@ def _find_exposed_kings(board: chess.Board) -> list[ExposedKing]:
     return exposed
 
 
+def _find_overloaded_pieces(board: chess.Board) -> list[OverloadedPiece]:
+    """Find pieces that are the sole defender of 2+ attacked targets."""
+    overloaded = []
+    for color in (chess.WHITE, chess.BLACK):
+        enemy = not color
+        for sq in chess.SquareSet(board.occupied_co[color]):
+            piece = board.piece_at(sq)
+            if piece is None or piece.piece_type in (chess.PAWN, chess.KING):
+                continue
+            # Find friendly pieces this piece defends that are attacked by enemy
+            sole_defended: list[int] = []
+            for defended_sq in board.attacks(sq):
+                defended_piece = board.piece_at(defended_sq)
+                if defended_piece is None or defended_piece.color != color:
+                    continue
+                if defended_piece.piece_type == chess.KING:
+                    continue
+                # Must be attacked by enemy
+                if not board.attackers(enemy, defended_sq):
+                    continue
+                # Check if this is the sole defender (no other same-color defenders)
+                all_defenders = board.attackers(color, defended_sq)
+                other_defenders = chess.SquareSet(all_defenders) - chess.SquareSet(chess.BB_SQUARES[sq])
+                if not other_defenders:
+                    sole_defended.append(defended_sq)
+            if len(sole_defended) >= 2:
+                overloaded.append(OverloadedPiece(
+                    square=chess.square_name(sq),
+                    piece=piece.symbol(),
+                    defended_squares=[chess.square_name(s) for s in sole_defended],
+                ))
+    return overloaded
+
+
+def _find_capturable_defenders(board: chess.Board) -> list[CapturableDefender]:
+    """Find defenders that can be captured, leaving their charge hanging."""
+    from server.lichess_tactics import is_hanging as _lichess_is_hanging
+
+    results = []
+    for color in (chess.WHITE, chess.BLACK):
+        enemy = not color
+        for def_sq in chess.SquareSet(board.occupied_co[color]):
+            defender = board.piece_at(def_sq)
+            if defender is None or defender.piece_type == chess.KING:
+                continue
+            # Defender must be capturable by enemy
+            enemy_attackers = board.attackers(enemy, def_sq)
+            if not enemy_attackers:
+                continue
+            # Find pieces this defender protects that are attacked
+            for charge_sq in board.attacks(def_sq):
+                charge = board.piece_at(charge_sq)
+                if charge is None or charge.color != color:
+                    continue
+                if charge.piece_type == chess.KING:
+                    continue
+                # Charge must be attacked by enemy
+                if not board.attackers(enemy, charge_sq):
+                    continue
+                # Must be sole defender
+                all_defenders = board.attackers(color, charge_sq)
+                other_defenders = chess.SquareSet(all_defenders) - chess.SquareSet(chess.BB_SQUARES[def_sq])
+                if other_defenders:
+                    continue
+                # The charge must be worth enough to matter
+                charge_val = PIECE_VALUES.get(charge.piece_type, 0)
+                if charge_val < 3:
+                    continue
+                # Pick the first attacker of the defender
+                first_attacker = list(enemy_attackers)[0]
+                results.append(CapturableDefender(
+                    defender_square=chess.square_name(def_sq),
+                    defender_piece=defender.symbol(),
+                    charge_square=chess.square_name(charge_sq),
+                    charge_piece=charge.symbol(),
+                    attacker_square=chess.square_name(first_attacker),
+                ))
+    return results
+
+
 def analyze_tactics(board: chess.Board) -> TacticalMotifs:
     return TacticalMotifs(
         pins=_find_pins(board),
@@ -944,6 +1042,8 @@ def analyze_tactics(board: chess.Board) -> TacticalMotifs:
         back_rank_weaknesses=_find_back_rank_weaknesses(board),
         xray_attacks=_find_xray_attacks(board),
         exposed_kings=_find_exposed_kings(board),
+        overloaded_pieces=_find_overloaded_pieces(board),
+        capturable_defenders=_find_capturable_defenders(board),
     )
 
 
@@ -1201,6 +1301,12 @@ def summarize_position(report: PositionReport) -> str:
     if tac.exposed_kings:
         ek = tac.exposed_kings[0]
         parts.append(f"{ek.color.capitalize()}'s king on {ek.king_square} is exposed.")
+    if tac.overloaded_pieces:
+        op = tac.overloaded_pieces[0]
+        parts.append(f"The {op.piece} on {op.square} is overloaded.")
+    if tac.capturable_defenders:
+        cd = tac.capturable_defenders[0]
+        parts.append(f"The {cd.defender_piece} on {cd.defender_square} is a capturable defender.")
 
     # Pawn weaknesses
     ps = report.pawn_structure

@@ -143,3 +143,58 @@ def test_position_summary_in_annotations():
     assert len(annotations) == 1
     assert isinstance(annotations[0].position_summary, str)
     assert len(annotations[0].position_summary) > 0
+
+
+def test_sacrifice_detection_with_checkmate():
+    """Line where player sacrifices material but delivers checkmate."""
+    from server.annotator import _detect_sacrifice, PlyAnnotation
+    from server.analysis import TacticalMotifs
+    annotations = [
+        PlyAnnotation(ply=0, fen="", move_san="Qxf7+", tactics=TacticalMotifs(),
+                      material_change=-800, new_motifs=[], position_summary=""),
+        PlyAnnotation(ply=1, fen="", move_san="Kxf7", tactics=TacticalMotifs(),
+                      material_change=0, new_motifs=[], position_summary=""),
+        PlyAnnotation(ply=2, fen="", move_san="Nf3+", tactics=TacticalMotifs(),
+                      material_change=0, new_motifs=["checkmate"], position_summary=""),
+    ]
+    assert _detect_sacrifice(annotations, score_mate=3) is True
+
+
+def test_sacrifice_detection_with_recovery():
+    """Line where player gives up material then wins it back."""
+    from server.annotator import _detect_sacrifice, PlyAnnotation
+    from server.analysis import TacticalMotifs
+    annotations = [
+        PlyAnnotation(ply=0, fen="", move_san="Bxf7+", tactics=TacticalMotifs(),
+                      material_change=-200, new_motifs=[], position_summary=""),
+        PlyAnnotation(ply=1, fen="", move_san="Kxf7", tactics=TacticalMotifs(),
+                      material_change=0, new_motifs=[], position_summary=""),
+        PlyAnnotation(ply=2, fen="", move_san="Nxe5+", tactics=TacticalMotifs(),
+                      material_change=300, new_motifs=[], position_summary=""),
+    ]
+    assert _detect_sacrifice(annotations, score_mate=None) is True
+
+
+def test_no_sacrifice_without_material_dip():
+    """Normal line without sacrifice pattern."""
+    from server.annotator import _detect_sacrifice, PlyAnnotation
+    from server.analysis import TacticalMotifs
+    annotations = [
+        PlyAnnotation(ply=0, fen="", move_san="Nf3", tactics=TacticalMotifs(),
+                      material_change=0, new_motifs=[], position_summary=""),
+        PlyAnnotation(ply=1, fen="", move_san="d5", tactics=TacticalMotifs(),
+                      material_change=0, new_motifs=[], position_summary=""),
+    ]
+    assert _detect_sacrifice(annotations, score_mate=None) is False
+
+
+def test_build_annotated_line_sets_sacrifice():
+    """build_annotated_line populates has_sacrifice field."""
+    board = chess.Board(ITALIAN_FEN)
+    line = LineInfo(
+        uci="g8f6", san="Nf6", score_cp=5, score_mate=None,
+        pv=ITALIAN_PV, depth=12,
+    )
+    annotated = build_annotated_line(board, line, max_ply=4)
+    # Normal Italian game line — no sacrifice
+    assert annotated.has_sacrifice is False

@@ -43,6 +43,7 @@ class AnnotatedLine:
     pv_san: list[str]               # full PV in SAN
     annotations: list[PlyAnnotation] = field(default_factory=list)
     interest_score: float = 0.0     # pedagogical interest (set by ranker)
+    has_sacrifice: bool = False     # material dip followed by recovery or mate
 
 
 def _motif_set(tactics: TacticalMotifs, board: chess.Board | None = None) -> set[str]:
@@ -72,6 +73,10 @@ def _motif_set(tactics: TacticalMotifs, board: chess.Board | None = None) -> set
         motifs.add("xray_attack")
     if tactics.exposed_kings:
         motifs.add("exposed_king")
+    if tactics.overloaded_pieces:
+        motifs.add("overloaded_piece")
+    if tactics.capturable_defenders:
+        motifs.add("capturable_defender")
     if board is not None and board.is_checkmate():
         motifs.add("checkmate")
     return motifs
@@ -148,6 +153,34 @@ def annotate_line(
     return annotations
 
 
+def _detect_sacrifice(annotations: list[PlyAnnotation], score_mate: int | None) -> bool:
+    """Detect sacrifice pattern: player gives up 200+ cp then line is still favorable.
+
+    Checks even plies (player moves) for cumulative material loss of 200+ cp
+    relative to start. The line must end favorably (checkmate or material recovery).
+    """
+    if not annotations:
+        return False
+    cumulative = 0
+    max_deficit = 0
+    has_checkmate = False
+    for ann in annotations:
+        cumulative += ann.material_change
+        # Player plies are even (0, 2, 4...) — material loss on player ply
+        if ann.ply % 2 == 0 and cumulative < max_deficit:
+            max_deficit = cumulative
+        if "checkmate" in (ann.new_motifs or []):
+            has_checkmate = True
+    # Sacrifice = gave up 200+ cp AND (recovered or checkmate)
+    if max_deficit <= -200:
+        if has_checkmate or score_mate is not None:
+            return True
+        # Material recovered: final cumulative is near or above starting
+        if cumulative >= max_deficit + 200:
+            return True
+    return False
+
+
 def build_annotated_line(
     board: chess.Board,
     line: LineInfo,
@@ -177,6 +210,7 @@ def build_annotated_line(
         score_mate=line.score_mate,
         pv_san=pv_san,
         annotations=annotations,
+        has_sacrifice=_detect_sacrifice(annotations, line.score_mate),
     )
 
 

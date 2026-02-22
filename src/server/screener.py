@@ -93,12 +93,16 @@ def rank_by_teachability(
 
         # High-value motifs get bonus scoring
         HIGH_VALUE_MOTIFS = {"double_check", "trapped_piece"}
+        MODERATE_VALUE_MOTIFS = {"xray_attack", "exposed_king", "overloaded_piece",
+                                 "capturable_defender"}
         MATE_PATTERN_PREFIX = "mate_"
         for motif in early_motifs:
             if motif.startswith(MATE_PATTERN_PREFIX):
                 score += 5.0
             elif motif in HIGH_VALUE_MOTIFS:
                 score += 3.0
+            elif motif in MODERATE_VALUE_MOTIFS:
+                score += 2.0
 
         # All tactics in reachable depth (including high-value, stacks with above)
         score += 3.0 * len(early_motifs)
@@ -119,6 +123,10 @@ def rank_by_teachability(
         # Penalty: motifs only appear deep
         only_deep = late_motifs - early_motifs
         score -= 2.0 * len(only_deep)
+
+        # Sacrifice lines are pedagogically interesting
+        if line.has_sacrifice:
+            score += 4.0
 
         # Penalty: large eval loss vs best
         if best_cp is not None and line.score_cp is not None:
