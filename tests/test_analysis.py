@@ -245,6 +245,13 @@ class TestTactics:
         assert pin.pinner_square == "e1"
         assert pin.pinned_to == "e8"  # king
 
+    def test_pin_is_absolute(self):
+        # Pin to king is always absolute
+        board = chess.Board(PIN_POSITION)
+        t = analyze_tactics(board)
+        pin = t.pins[0]
+        assert pin.is_absolute is True
+
     def test_fork(self):
         board = chess.Board(FORK_POSITION)
         t = analyze_tactics(board)
@@ -259,6 +266,12 @@ class TestTactics:
         t = analyze_tactics(board)
         hanging = [h for h in t.hanging if h.square == "e4"]
         assert len(hanging) >= 1
+
+    def test_hanging_piece_color(self):
+        board = chess.Board(PIN_POSITION)
+        t = analyze_tactics(board)
+        hanging = [h for h in t.hanging if h.square == "e4"]
+        assert hanging[0].color == "black"
 
     def test_no_tactics_starting(self):
         board = chess.Board(STARTING)
@@ -291,6 +304,182 @@ class TestTactics:
         t = analyze_tactics(board)
         disc = [d for d in t.discovered_attacks if d.slider_square == "a1"]
         assert len(disc) >= 1
+
+    def test_discovered_attack_significance(self):
+        # Pawn blocking rook targeting a pawn = low significance
+        # White rook on a1, white pawn on a3, black pawn on a7
+        board = chess.Board("8/p7/8/8/8/P7/8/R3K2k w - - 0 1")
+        t = analyze_tactics(board)
+        disc = [d for d in t.discovered_attacks
+                if d.slider_square == "a1" and d.blocker_square == "a3"]
+        assert len(disc) >= 1
+        assert disc[0].significance == "low"
+
+
+# ---------------------------------------------------------------------------
+# Double Check
+# ---------------------------------------------------------------------------
+
+
+class TestDoubleCheck:
+    def test_double_check_detected(self):
+        # Knight on f6 and bishop on b5 both give check to king on e8
+        # (no d-pawn blocking bishop)
+        board = chess.Board("r1bqk2r/ppp2ppp/5N2/1B6/4P3/8/PPPP1PPP/RNBQK2R b KQkq - 0 1")
+        t = analyze_tactics(board)
+        assert len(t.double_checks) == 1
+        assert len(t.double_checks[0].checker_squares) == 2
+
+    def test_single_check_not_double(self):
+        # Only one checker
+        board = chess.Board("4k3/8/8/8/8/8/8/4R2K b - - 0 1")
+        t = analyze_tactics(board)
+        assert len(t.double_checks) == 0
+
+    def test_no_check_no_double(self):
+        board = chess.Board(STARTING)
+        t = analyze_tactics(board)
+        assert len(t.double_checks) == 0
+
+
+# ---------------------------------------------------------------------------
+# Mate Patterns
+# ---------------------------------------------------------------------------
+
+
+class TestMatePatterns:
+    def test_back_rank_mate(self):
+        # Classic back-rank: Rd8#, king on g8, pawns f7 g7 h7
+        board = chess.Board("3R2k1/5ppp/8/8/8/8/8/4K3 b - - 0 1")
+        t = analyze_tactics(board)
+        assert any(mp.pattern == "back_rank" for mp in t.mate_patterns)
+
+    def test_smothered_mate(self):
+        # Philidor's legacy: Nf7#, king on g8 surrounded by own pieces
+        board = chess.Board("6rk/5Npp/8/8/8/8/8/4K3 b - - 0 1")
+        # Verify it's actually checkmate
+        assert board.is_checkmate()
+        t = analyze_tactics(board)
+        assert any(mp.pattern == "smothered" for mp in t.mate_patterns)
+
+    def test_no_mate_pattern_when_not_checkmate(self):
+        board = chess.Board(STARTING)
+        t = analyze_tactics(board)
+        assert len(t.mate_patterns) == 0
+
+
+# ---------------------------------------------------------------------------
+# Mate Threats
+# ---------------------------------------------------------------------------
+
+
+class TestMateThreats:
+    def test_mate_threat_detected(self):
+        # White rook on d1, black king on g8 with pawns f7/g7/h7
+        # White threatens Rd8# (back-rank mate)
+        board = chess.Board("6k1/5ppp/8/8/8/8/8/3RK3 w - - 0 1")
+        t = analyze_tactics(board)
+        assert len(t.mate_threats) >= 1
+        assert t.mate_threats[0].threatening_color == "white"
+
+    def test_no_mate_threat(self):
+        board = chess.Board(STARTING)
+        t = analyze_tactics(board)
+        assert len(t.mate_threats) == 0
+
+
+# ---------------------------------------------------------------------------
+# Back Rank Weakness
+# ---------------------------------------------------------------------------
+
+
+class TestBackRankWeakness:
+    def test_back_rank_weakness_detected(self):
+        # Black king on g8, pawns f7 g7 h7, White has a rook
+        board = chess.Board("6k1/5ppp/8/8/8/8/8/R3K3 w - - 0 1")
+        t = analyze_tactics(board)
+        weak = [w for w in t.back_rank_weaknesses if w.weak_color == "black"]
+        assert len(weak) >= 1
+        assert weak[0].king_square == "g8"
+
+    def test_no_weakness_with_escape(self):
+        # King on g8, f7 pawn, but g7 and h7 open — not weak
+        board = chess.Board("6k1/5p2/8/8/8/8/8/R3K3 w - - 0 1")
+        t = analyze_tactics(board)
+        weak = [w for w in t.back_rank_weaknesses if w.weak_color == "black"]
+        assert len(weak) == 0
+
+    def test_no_weakness_without_heavy_piece(self):
+        # Back rank blocked but opponent has no rook/queen
+        board = chess.Board("6k1/5ppp/8/8/8/8/8/4K3 w - - 0 1")
+        t = analyze_tactics(board)
+        weak = [w for w in t.back_rank_weaknesses if w.weak_color == "black"]
+        assert len(weak) == 0
+
+
+# ---------------------------------------------------------------------------
+# X-Ray Attacks
+# ---------------------------------------------------------------------------
+
+
+class TestXRayAttacks:
+    def test_rook_xray_through_enemy(self):
+        # White rook on a1, black knight on a4, black rook on a8
+        # Rook x-rays through knight to target rook
+        board = chess.Board("r7/8/8/8/n7/8/8/R3K2k w - - 0 1")
+        t = analyze_tactics(board)
+        xrays = [x for x in t.xray_attacks
+                 if x.slider_square == "a1" and x.target_square == "a8"]
+        assert len(xrays) >= 1
+        assert xrays[0].through_square == "a4"
+
+    def test_bishop_xray_through_enemy(self):
+        # White bishop on a1, black pawn on d4, black queen on g7
+        board = chess.Board("8/6q1/8/8/3p4/8/8/B3K2k w - - 0 1")
+        t = analyze_tactics(board)
+        xrays = [x for x in t.xray_attacks
+                 if x.slider_square == "a1" and x.target_square == "g7"]
+        assert len(xrays) >= 1
+
+    def test_no_xray_when_unblocked(self):
+        # Rook directly attacks — not an x-ray
+        board = chess.Board("r7/8/8/8/8/8/8/R3K2k w - - 0 1")
+        t = analyze_tactics(board)
+        # Direct attack, not x-ray (through_square would need an enemy piece)
+        xrays = [x for x in t.xray_attacks
+                 if x.slider_square == "a1" and x.target_square == "a8"]
+        assert len(xrays) == 0
+
+    def test_no_xray_starting_position(self):
+        board = chess.Board(STARTING)
+        t = analyze_tactics(board)
+        assert len(t.xray_attacks) == 0
+
+
+# ---------------------------------------------------------------------------
+# Exposed King
+# ---------------------------------------------------------------------------
+
+
+class TestExposedKing:
+    def test_exposed_king_detected(self):
+        # Black king on d3 (advanced, no pawn shield) — exposed from White's POV
+        board = chess.Board("8/8/8/8/8/3k4/8/4K3 w - - 0 1")
+        t = analyze_tactics(board)
+        exposed = [e for e in t.exposed_kings if e.color == "black"]
+        assert len(exposed) >= 1
+
+    def test_king_on_home_rank_not_exposed(self):
+        board = chess.Board(STARTING)
+        t = analyze_tactics(board)
+        assert len(t.exposed_kings) == 0
+
+    def test_king_with_pawn_shield_not_exposed(self):
+        # Black king advanced to d3 with pawns on d4/e4 (shield rank behind king)
+        board = chess.Board("8/8/8/8/3pp3/3k4/8/4K3 w - - 0 1")
+        t = analyze_tactics(board)
+        exposed = [e for e in t.exposed_kings if e.color == "black"]
+        assert len(exposed) == 0
 
 
 # ---------------------------------------------------------------------------

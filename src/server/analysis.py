@@ -505,6 +505,22 @@ class BackRankWeakness:
 
 
 @dataclass
+class XRayAttack:
+    slider_square: str
+    slider_piece: str
+    through_square: str  # enemy piece being x-rayed through
+    through_piece: str
+    target_square: str   # valuable target behind
+    target_piece: str
+
+
+@dataclass
+class ExposedKing:
+    color: str  # "white" or "black" — whose king is exposed
+    king_square: str
+
+
+@dataclass
 class TacticalMotifs:
     pins: list[Pin] = field(default_factory=list)
     forks: list[Fork] = field(default_factory=list)
@@ -516,6 +532,8 @@ class TacticalMotifs:
     mate_patterns: list[MatePattern] = field(default_factory=list)
     mate_threats: list[MateThreat] = field(default_factory=list)
     back_rank_weaknesses: list[BackRankWeakness] = field(default_factory=list)
+    xray_attacks: list[XRayAttack] = field(default_factory=list)
+    exposed_kings: list[ExposedKing] = field(default_factory=list)
 
 
 def _find_pins(board: chess.Board) -> list[Pin]:
@@ -833,6 +851,85 @@ def _find_back_rank_weaknesses(board: chess.Board) -> list[BackRankWeakness]:
     return weaknesses
 
 
+def _find_xray_attacks(board: chess.Board) -> list[XRayAttack]:
+    """Find x-ray attacks: slider attacks through an enemy piece to a target behind."""
+    xrays = []
+    for color in (chess.WHITE, chess.BLACK):
+        enemy = not color
+        for pt in (chess.BISHOP, chess.ROOK, chess.QUEEN):
+            for slider_sq in board.pieces(pt, color):
+                slider_piece = board.piece_at(slider_sq)
+                if slider_piece is None:
+                    continue
+                # Check rays to enemy pieces that have another enemy piece behind
+                for through_sq in chess.SquareSet(board.occupied_co[enemy]):
+                    through_piece = board.piece_at(through_sq)
+                    if through_piece is None:
+                        continue
+                    ray = chess.ray(slider_sq, through_sq)
+                    if not ray:
+                        continue
+                    # Verify slider type matches the ray direction
+                    if pt == chess.BISHOP:
+                        if chess.square_file(slider_sq) == chess.square_file(through_sq):
+                            continue
+                        if chess.square_rank(slider_sq) == chess.square_rank(through_sq):
+                            continue
+                    elif pt == chess.ROOK:
+                        if chess.square_file(slider_sq) != chess.square_file(through_sq) and \
+                           chess.square_rank(slider_sq) != chess.square_rank(through_sq):
+                            continue
+                    # Must be a direct attack on through_sq (no pieces between)
+                    between = chess.between(slider_sq, through_sq)
+                    if chess.SquareSet(between & board.occupied):
+                        continue
+                    # Look for an enemy target behind through_sq on the same ray
+                    file_diff = chess.square_file(through_sq) - chess.square_file(slider_sq)
+                    rank_diff = chess.square_rank(through_sq) - chess.square_rank(slider_sq)
+                    df = (1 if file_diff > 0 else -1) if file_diff != 0 else 0
+                    dr = (1 if rank_diff > 0 else -1) if rank_diff != 0 else 0
+                    cur_f = chess.square_file(through_sq) + df
+                    cur_r = chess.square_rank(through_sq) + dr
+                    while 0 <= cur_f <= 7 and 0 <= cur_r <= 7:
+                        csq = chess.square(cur_f, cur_r)
+                        occ = board.piece_at(csq)
+                        if occ is not None:
+                            if occ.color == enemy:
+                                target_val = PIECE_VALUES.get(occ.piece_type, 0)
+                                through_val = PIECE_VALUES.get(through_piece.piece_type, 0)
+                                # Only interesting if target is valuable (>= through piece or king)
+                                if target_val >= through_val or occ.piece_type == chess.KING:
+                                    xrays.append(XRayAttack(
+                                        slider_square=chess.square_name(slider_sq),
+                                        slider_piece=slider_piece.symbol(),
+                                        through_square=chess.square_name(through_sq),
+                                        through_piece=through_piece.symbol(),
+                                        target_square=chess.square_name(csq),
+                                        target_piece=occ.symbol(),
+                                    ))
+                            break  # blocked by any piece
+                        cur_f += df
+                        cur_r += dr
+    return xrays
+
+
+def _find_exposed_kings(board: chess.Board) -> list[ExposedKing]:
+    """Find exposed kings (advanced past rank 4 with no pawn shield)."""
+    from server.lichess_tactics._cook import exposed_king as _lichess_exposed_king
+
+    exposed = []
+    for pov in (chess.WHITE, chess.BLACK):
+        if _lichess_exposed_king(board, pov):
+            opponent = not pov
+            king_sq = board.king(opponent)
+            if king_sq is not None:
+                exposed.append(ExposedKing(
+                    color="white" if opponent == chess.WHITE else "black",
+                    king_square=chess.square_name(king_sq),
+                ))
+    return exposed
+
+
 def analyze_tactics(board: chess.Board) -> TacticalMotifs:
     return TacticalMotifs(
         pins=_find_pins(board),
@@ -845,6 +942,8 @@ def analyze_tactics(board: chess.Board) -> TacticalMotifs:
         mate_patterns=_find_mate_patterns(board),
         mate_threats=_find_mate_threats(board),
         back_rank_weaknesses=_find_back_rank_weaknesses(board),
+        xray_attacks=_find_xray_attacks(board),
+        exposed_kings=_find_exposed_kings(board),
     )
 
 
@@ -1096,6 +1195,12 @@ def summarize_position(report: PositionReport) -> str:
     if tac.back_rank_weaknesses:
         bw = tac.back_rank_weaknesses[0]
         parts.append(f"{bw.weak_color.capitalize()}'s back rank is weak.")
+    if tac.xray_attacks:
+        xa = tac.xray_attacks[0]
+        parts.append(f"The {xa.slider_piece} on {xa.slider_square} has an x-ray through {xa.through_square} to {xa.target_square}.")
+    if tac.exposed_kings:
+        ek = tac.exposed_kings[0]
+        parts.append(f"{ek.color.capitalize()}'s king on {ek.king_square} is exposed.")
 
     # Pawn weaknesses
     ps = report.pawn_structure

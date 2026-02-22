@@ -68,6 +68,10 @@ def _motif_set(tactics: TacticalMotifs, board: chess.Board | None = None) -> set
         motifs.add("mate_threat")
     if tactics.back_rank_weaknesses:
         motifs.add("back_rank_weakness")
+    if tactics.xray_attacks:
+        motifs.add("xray_attack")
+    if tactics.exposed_kings:
+        motifs.add("exposed_king")
     if board is not None and board.is_checkmate():
         motifs.add("checkmate")
     return motifs
