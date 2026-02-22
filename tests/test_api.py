@@ -71,3 +71,21 @@ def test_analysis_invalid_fen(client):
         "fen": "not valid",
     })
     assert response.status_code == 400
+
+
+def test_evaluate_illegal_fen(client):
+    """Illegal position (opposite check) returns 400, not a crash."""
+    response = client.post("/api/engine/evaluate", json={
+        "fen": "8/8/8/8/8/8/6k1/r3K3 b - - 0 1",
+    })
+    assert response.status_code == 400
+    assert "Illegal position" in response.json()["detail"]
+
+
+def test_best_moves_illegal_fen(client):
+    """Illegal position (opposite check) returns 400, not a crash."""
+    response = client.post("/api/engine/best-moves", json={
+        "fen": "8/8/8/8/8/8/6k1/r3K3 b - - 0 1",
+    })
+    assert response.status_code == 400
+    assert "Illegal position" in response.json()["detail"]

@@ -88,6 +88,8 @@ async def evaluate(req: EvalRequest):
         result = await engine.evaluate(req.fen, depth=req.depth)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
     return {
         "score_cp": result.score_cp,
         "score_mate": result.score_mate,
@@ -103,6 +105,8 @@ async def best_moves(req: BestMovesRequest):
         moves = await engine.best_moves(req.fen, n=req.n, depth=req.depth)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
     return [
         {"uci": m.uci, "score_cp": m.score_cp, "score_mate": m.score_mate}
         for m in moves
@@ -124,6 +128,8 @@ async def game_move(req: MoveRequest):
         raise HTTPException(status_code=404, detail="Session not found")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
     return result
 
 

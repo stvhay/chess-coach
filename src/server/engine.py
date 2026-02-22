@@ -1,8 +1,11 @@
 from dataclasses import dataclass
 import asyncio
+import logging
 
 import chess
 import chess.engine
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -29,6 +32,12 @@ class EngineAnalysis:
         self._lock = asyncio.Lock()
 
     async def start(self):
+        if self._engine is not None:
+            try:
+                await self._engine.quit()
+            except Exception:
+                pass
+            self._engine = None
         _, self._engine = await chess.engine.popen_uci(self._path)
         await self._engine.configure({"Hash": self._hash_mb})
 
@@ -37,15 +46,36 @@ class EngineAnalysis:
             await self._engine.quit()
             self._engine = None
 
-    async def evaluate(self, fen: str, depth: int = 20) -> Evaluation:
-        if self._engine is None:
-            raise RuntimeError("Engine not started. Call start() first.")
+    def _validate_board(self, fen: str) -> chess.Board:
         try:
             board = chess.Board(fen)
         except ValueError as e:
             raise ValueError(f"Invalid FEN: {fen}") from e
+        if not board.is_valid():
+            raise ValueError(f"Illegal position: {fen}")
+        return board
+
+    async def _analyse_with_retry(self, board: chess.Board, limit: chess.engine.Limit, **kwargs):
+        """Run engine.analyse with one restart attempt on engine crash."""
+        try:
+            return await self._engine.analyse(board, limit, **kwargs)
+        except chess.engine.EngineTerminatedError:
+            logger.warning("Stockfish crashed, attempting restart")
+            try:
+                await self.start()
+            except Exception as e:
+                raise RuntimeError("Engine restart failed") from e
+            try:
+                return await self._engine.analyse(board, limit, **kwargs)
+            except chess.engine.EngineTerminatedError as e:
+                raise RuntimeError("Engine restart failed") from e
+
+    async def evaluate(self, fen: str, depth: int = 20) -> Evaluation:
+        if self._engine is None:
+            raise RuntimeError("Engine not started. Call start() first.")
+        board = self._validate_board(fen)
         async with self._lock:
-            result = await self._engine.analyse(board, chess.engine.Limit(depth=depth))
+            result = await self._analyse_with_retry(board, chess.engine.Limit(depth=depth))
         score = result["score"].white()
         pv = result.get("pv", [])
         return Evaluation(
@@ -59,12 +89,9 @@ class EngineAnalysis:
     async def best_moves(self, fen: str, n: int = 3, depth: int = 20) -> list[MoveInfo]:
         if self._engine is None:
             raise RuntimeError("Engine not started. Call start() first.")
-        try:
-            board = chess.Board(fen)
-        except ValueError as e:
-            raise ValueError(f"Invalid FEN: {fen}") from e
+        board = self._validate_board(fen)
         async with self._lock:
-            results = await self._engine.analyse(
+            results = await self._analyse_with_retry(
                 board, chess.engine.Limit(depth=depth), multipv=n
             )
         if not isinstance(results, list):

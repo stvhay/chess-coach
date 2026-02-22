@@ -1,6 +1,10 @@
 import chess
+import chess.engine
 import pytest
 from server.engine import EngineAnalysis, Evaluation
+
+# Illegal FEN: black to move, white king in check from a1 rook (opposite check)
+ILLEGAL_FEN = "8/8/8/8/8/8/6k1/r3K3 b - - 0 1"
 
 
 @pytest.fixture
@@ -44,3 +48,53 @@ async def test_best_moves(engine):
 async def test_evaluate_invalid_fen(engine):
     with pytest.raises(ValueError):
         await engine.evaluate("not a valid fen")
+
+
+async def test_evaluate_illegal_position(engine):
+    with pytest.raises(ValueError, match="Illegal position"):
+        await engine.evaluate(ILLEGAL_FEN)
+
+
+async def test_best_moves_illegal_position(engine):
+    with pytest.raises(ValueError, match="Illegal position"):
+        await engine.best_moves(ILLEGAL_FEN)
+
+
+async def test_engine_restart_on_crash(engine):
+    """Engine transparently recovers after a single EngineTerminatedError."""
+    original_analyse = engine._engine.analyse
+    call_count = 0
+
+    async def crash_once(board, limit, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise chess.engine.EngineTerminatedError()
+        return await original_analyse(board, limit, **kwargs)
+
+    engine._engine.analyse = crash_once
+    result = await engine.evaluate(
+        "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", depth=5
+    )
+    assert result.best_move is not None
+
+
+async def test_engine_double_crash_raises(engine):
+    """Two consecutive crashes raise RuntimeError."""
+    async def always_crash(board, limit, **kwargs):
+        raise chess.engine.EngineTerminatedError()
+
+    engine._engine.analyse = always_crash
+    # After restart, start() gives a fresh engine, but we need that to also crash.
+    # Patch start() to install the crashing mock on the new engine too.
+    original_start = engine.start
+
+    async def start_with_crash():
+        await original_start()
+        engine._engine.analyse = always_crash
+
+    engine.start = start_with_crash
+    with pytest.raises(RuntimeError, match="Engine restart failed"):
+        await engine.evaluate(
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", depth=5
+        )
