@@ -14,6 +14,7 @@ from server.analysis import analyze
 from server.engine import EngineAnalysis
 from server.game import GameManager
 from server.llm import ChessTeacher
+from server.puzzles import PuzzleDB
 from server.rag import ChessRAG
 
 
@@ -28,6 +29,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 engine = EngineAnalysis(hash_mb=64)
 teacher = ChessTeacher(ollama_url="https://ollama.st5ve.com")
 rag = ChessRAG(ollama_url="https://ollama.st5ve.com", persist_dir="data/chromadb")
+puzzle_db = PuzzleDB()
 games = GameManager(engine, teacher=teacher, rag=rag)
 
 
@@ -35,7 +37,9 @@ games = GameManager(engine, teacher=teacher, rag=rag)
 async def lifespan(app: FastAPI):
     await engine.start()
     await rag.start()
+    await puzzle_db.start()
     yield
+    await puzzle_db.close()
     await engine.stop()
 
 
@@ -131,6 +135,53 @@ async def game_move(req: MoveRequest):
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
     return result
+
+
+@app.get("/api/puzzle/random")
+async def puzzle_random(
+    theme: str | None = None,
+    rating_min: int | None = None,
+    rating_max: int | None = None,
+    limit: int = 1,
+):
+    if not puzzle_db.available:
+        raise HTTPException(status_code=503, detail="Puzzle database not available")
+    themes = [t.strip() for t in theme.split(",") if t.strip()] if theme else None
+    puzzles = await puzzle_db.get_random(
+        themes=themes, rating_min=rating_min, rating_max=rating_max, limit=min(limit, 50),
+    )
+    return [
+        {
+            "id": p.id,
+            "fen": p.fen,
+            "moves": p.moves,
+            "rating": p.rating,
+            "themes": p.themes,
+            "opening_tags": p.opening_tags,
+        }
+        for p in puzzles
+    ]
+
+
+@app.get("/api/puzzle/{puzzle_id}")
+async def puzzle_by_id(puzzle_id: str):
+    if not puzzle_db.available:
+        raise HTTPException(status_code=503, detail="Puzzle database not available")
+    puzzle = await puzzle_db.get_by_id(puzzle_id)
+    if not puzzle:
+        raise HTTPException(status_code=404, detail="Puzzle not found")
+    return {
+        "id": puzzle.id,
+        "fen": puzzle.fen,
+        "moves": puzzle.moves,
+        "rating": puzzle.rating,
+        "rating_deviation": puzzle.rating_deviation,
+        "popularity": puzzle.popularity,
+        "num_plays": puzzle.num_plays,
+        "themes": puzzle.themes,
+        "game_url": puzzle.game_url,
+        "opening_tags": puzzle.opening_tags,
+    }
 
 
 # Mount static files last — catches all non-API routes
