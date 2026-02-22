@@ -64,6 +64,7 @@ class BestMovesRequest(BaseModel):
 
 class NewGameRequest(BaseModel):
     depth: int = 10
+    elo_profile: str = "intermediate"
 
 
 class MoveRequest(BaseModel):
@@ -120,7 +121,8 @@ async def best_moves(req: BestMovesRequest):
 @app.post("/api/game/new")
 async def new_game(req: NewGameRequest | None = None):
     depth = req.depth if req else 10
-    session_id, fen, status = games.new_game(depth=depth)
+    elo_profile = req.elo_profile if req else "intermediate"
+    session_id, fen, status = games.new_game(depth=depth, elo_profile=elo_profile)
     return {"session_id": session_id, "fen": fen, "status": status}
 
 

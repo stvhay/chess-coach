@@ -54,6 +54,7 @@ class CoachingResponse:
     highlights: list[Highlight] = field(default_factory=list)
     severity: int = 0  # 0-100, higher = more urgent
     tactics_summary: str = ""
+    debug_prompt: str = ""  # the grounded prompt sent to the LLM
 
 
 # ---------------------------------------------------------------------------

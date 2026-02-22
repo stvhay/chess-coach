@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from fastapi.testclient import TestClient
-from server.engine import Evaluation, MoveInfo
+from server.engine import Evaluation, LineInfo, MoveInfo
 from server.game import GameManager
 from server.llm import ChessTeacher
 from server.main import app
@@ -106,6 +106,14 @@ def test_new_game_with_depth(client):
     assert "session_id" in data
 
 
+def test_new_game_with_elo_profile(client):
+    """POST /api/game/new accepts optional elo_profile parameter."""
+    response = client.post("/api/game/new", json={"elo_profile": "beginner"})
+    assert response.status_code == 200
+    data = response.json()
+    assert "session_id" in data
+
+
 def test_move_response_has_coaching_field(client):
     """Move response includes coaching field (may be null for good moves)."""
     new = client.post("/api/game/new").json()
@@ -153,10 +161,26 @@ def _mock_engine():
     """Create a mock EngineAnalysis that returns plausible evaluations."""
     engine = AsyncMock()
     # eval_before: White +100, best move is d2d4
+    # eval_after: White -200 (big drop -- triggers coaching)
+    # player move deep eval
+    # We need multiple evaluate calls: eval_before, eval_after, then screen/validate calls
     engine.evaluate = AsyncMock(side_effect=[
+        # eval_before
         Evaluation(score_cp=100, score_mate=None, depth=12, best_move="d2d4", pv=["d2d4"]),
-        # eval_after: White -200 (big drop — triggers coaching)
+        # eval_after
         Evaluation(score_cp=-200, score_mate=None, depth=12, best_move="d7d5", pv=["d7d5"]),
+        # screen_and_validate: validate pass deep evals (up to validate_breadth=4 candidates)
+        Evaluation(score_cp=100, score_mate=None, depth=14, best_move="e7e5", pv=["e7e5", "g1f3"]),
+        Evaluation(score_cp=90, score_mate=None, depth=14, best_move="d7d5", pv=["d7d5", "e4d5"]),
+        Evaluation(score_cp=80, score_mate=None, depth=14, best_move="g8f6", pv=["g8f6"]),
+        Evaluation(score_cp=70, score_mate=None, depth=14, best_move="f8c5", pv=["f8c5"]),
+        # player move annotation eval
+        Evaluation(score_cp=-200, score_mate=None, depth=14, best_move="d7d5", pv=["d7d5"]),
+    ])
+    # analyze_lines for screen pass
+    engine.analyze_lines = AsyncMock(return_value=[
+        LineInfo(uci="d2d4", san="d4", score_cp=100, score_mate=None, pv=["d2d4", "d7d5"], depth=10),
+        LineInfo(uci="g1f3", san="Nf3", score_cp=90, score_mate=None, pv=["g1f3", "b8c6"], depth=10),
     ])
     # Opponent reply
     engine.best_moves = AsyncMock(return_value=[
@@ -221,10 +245,11 @@ class TestGameManagerLLM:
 
         result = await gm.make_move(sid, "e2e4")
         assert result["coaching"] is not None
-        # Verify the teacher was called with RAG context in the MoveContext
+        # Verify the teacher was called with a prompt string containing RAG context
         teacher.explain_move.assert_called_once()
-        ctx = teacher.explain_move.call_args[0][0]
-        assert "fork attacks two pieces" in ctx.rag_context
+        prompt = teacher.explain_move.call_args[0][0]
+        assert isinstance(prompt, str)
+        assert "fork attacks two pieces" in prompt
 
     async def test_coaching_without_rag(self):
         """When RAG is None, coaching still works normally."""
@@ -238,8 +263,9 @@ class TestGameManagerLLM:
         result = await gm.make_move(sid, "e2e4")
         assert result["coaching"] is not None
         assert result["coaching"]["message"] == "No RAG but still coaching!"
-        ctx = teacher.explain_move.call_args[0][0]
-        assert ctx.rag_context == ""
+        prompt = teacher.explain_move.call_args[0][0]
+        assert isinstance(prompt, str)
+        assert "Relevant chess knowledge" not in prompt
 
     async def test_coaching_rag_failure_degrades_gracefully(self):
         """When RAG raises an exception, coaching continues without it."""
@@ -257,5 +283,6 @@ class TestGameManagerLLM:
         assert result["coaching"] is not None
         assert result["coaching"]["message"] == "Still works!"
         # RAG context should be empty due to graceful degradation
-        ctx = teacher.explain_move.call_args[0][0]
-        assert ctx.rag_context == ""
+        prompt = teacher.explain_move.call_args[0][0]
+        assert isinstance(prompt, str)
+        assert "Relevant chess knowledge" not in prompt
