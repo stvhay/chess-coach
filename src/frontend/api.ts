@@ -51,14 +51,21 @@ export async function sendMove(
   sessionId: string,
   moveUci: string,
 ): Promise<MoveResponse> {
-  const res = await fetch(`${API_BASE}/game/move`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ session_id: sessionId, move: moveUci }),
-  });
-  if (!res.ok) {
-    const detail = await res.json().catch(() => ({ detail: "Unknown error" }));
-    throw new Error(detail.detail || `Move failed: ${res.status}`);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30_000);
+  try {
+    const res = await fetch(`${API_BASE}/game/move`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: sessionId, move: moveUci }),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const detail = await res.json().catch(() => ({ detail: "Unknown error" }));
+      throw new Error(detail.detail || `Move failed: ${res.status}`);
+    }
+    return res.json();
+  } finally {
+    clearTimeout(timer);
   }
-  return res.json();
 }

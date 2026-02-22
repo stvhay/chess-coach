@@ -6,6 +6,7 @@ from server.engine import Evaluation, MoveInfo
 from server.game import GameManager
 from server.llm import ChessTeacher
 from server.main import app
+from server.rag import Result
 
 
 @pytest.fixture()
@@ -203,3 +204,58 @@ class TestGameManagerLLM:
         result = await gm.make_move(sid, "e2e4")
         assert result["coaching"] is not None
         assert "loses about" in result["coaching"]["message"]
+
+    async def test_coaching_with_rag_context(self):
+        """When RAG returns knowledge, it reaches the LLM prompt."""
+        teacher = AsyncMock(spec=ChessTeacher)
+        teacher.explain_move = AsyncMock(return_value="Using fork knowledge!")
+
+        rag = AsyncMock()
+        rag.query = AsyncMock(return_value=[
+            Result(id="1", text="A fork attacks two pieces.", metadata={"theme": "tactics"}, distance=0.1),
+        ])
+
+        engine = _mock_engine()
+        gm = GameManager(engine, teacher=teacher, rag=rag)
+        sid, _, _ = gm.new_game()
+
+        result = await gm.make_move(sid, "e2e4")
+        assert result["coaching"] is not None
+        # Verify the teacher was called with RAG context in the MoveContext
+        teacher.explain_move.assert_called_once()
+        ctx = teacher.explain_move.call_args[0][0]
+        assert "fork attacks two pieces" in ctx.rag_context
+
+    async def test_coaching_without_rag(self):
+        """When RAG is None, coaching still works normally."""
+        teacher = AsyncMock(spec=ChessTeacher)
+        teacher.explain_move = AsyncMock(return_value="No RAG but still coaching!")
+
+        engine = _mock_engine()
+        gm = GameManager(engine, teacher=teacher, rag=None)
+        sid, _, _ = gm.new_game()
+
+        result = await gm.make_move(sid, "e2e4")
+        assert result["coaching"] is not None
+        assert result["coaching"]["message"] == "No RAG but still coaching!"
+        ctx = teacher.explain_move.call_args[0][0]
+        assert ctx.rag_context == ""
+
+    async def test_coaching_rag_failure_degrades_gracefully(self):
+        """When RAG raises an exception, coaching continues without it."""
+        teacher = AsyncMock(spec=ChessTeacher)
+        teacher.explain_move = AsyncMock(return_value="Still works!")
+
+        rag = AsyncMock()
+        rag.query = AsyncMock(side_effect=Exception("RAG is down"))
+
+        engine = _mock_engine()
+        gm = GameManager(engine, teacher=teacher, rag=rag)
+        sid, _, _ = gm.new_game()
+
+        result = await gm.make_move(sid, "e2e4")
+        assert result["coaching"] is not None
+        assert result["coaching"]["message"] == "Still works!"
+        # RAG context should be empty due to graceful degradation
+        ctx = teacher.explain_move.call_args[0][0]
+        assert ctx.rag_context == ""

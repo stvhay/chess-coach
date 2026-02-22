@@ -1,13 +1,19 @@
 from __future__ import annotations
 
+import asyncio
+import logging
 import uuid
 from dataclasses import dataclass, field
 
 import chess
 
+from server.analysis import analyze
 from server.coach import assess_move
 from server.engine import EngineAnalysis
+from server.knowledge import query_knowledge
 from server.llm import ChessTeacher, MoveContext
+from server.opponent import select_opponent_move
+from server.rag import ChessRAG
 
 
 @dataclass
@@ -36,9 +42,15 @@ def _game_result(board: chess.Board) -> str | None:
 
 
 class GameManager:
-    def __init__(self, engine: EngineAnalysis, teacher: ChessTeacher | None = None):
+    def __init__(
+        self,
+        engine: EngineAnalysis,
+        teacher: ChessTeacher | None = None,
+        rag: ChessRAG | None = None,
+    ):
         self._engine = engine
         self._teacher = teacher
+        self._rag = rag
         self._sessions: dict[str, GameState] = {}
 
     def new_game(self, depth: int = 10) -> tuple[str, str, str]:
@@ -49,6 +61,41 @@ class GameManager:
 
     def get_game(self, session_id: str) -> GameState | None:
         return self._sessions.get(session_id)
+
+    async def _enrich_coaching(
+        self,
+        coaching_data,
+        board: chess.Board,
+        board_before: chess.Board,
+        player_san: str,
+        best_move_uci: str,
+    ) -> None:
+        """Query RAG + LLM to enrich coaching. Called under a timeout."""
+        rag_context = ""
+        if self._rag is not None:
+            report = analyze(board.copy())
+            rag_context = await query_knowledge(
+                self._rag, report,
+                coaching_data.quality.value,
+                coaching_data.tactics_summary,
+            )
+
+        if self._teacher is not None:
+            player_color = "White" if board_before.turn == chess.WHITE else "Black"
+            ctx = MoveContext(
+                fen_before=board_before.fen(),
+                fen_after=board.fen(),
+                player_move_san=player_san,
+                best_move_san=board_before.san(chess.Move.from_uci(best_move_uci)),
+                quality=coaching_data.quality.value,
+                cp_loss=coaching_data.severity,
+                tactics_summary=coaching_data.tactics_summary,
+                player_color=player_color,
+                rag_context=rag_context,
+            )
+            llm_message = await self._teacher.explain_move(ctx)
+            if llm_message is not None:
+                coaching_data.message = llm_message
 
     async def make_move(
         self, session_id: str, move_uci: str
@@ -95,22 +142,15 @@ class GameManager:
                 best_move_uci=best_move_uci,
             )
 
-        # Attempt LLM-powered explanation when coaching triggers.
-        if coaching_data is not None and self._teacher is not None:
-            player_color = "White" if board_before.turn == chess.WHITE else "Black"
-            ctx = MoveContext(
-                fen_before=board_before.fen(),
-                fen_after=board.fen(),
-                player_move_san=player_san,
-                best_move_san=board_before.san(chess.Move.from_uci(best_move_uci)),
-                quality=coaching_data.quality.value,
-                cp_loss=coaching_data.severity,
-                tactics_summary=coaching_data.tactics_summary,
-                player_color=player_color,
-            )
-            llm_message = await self._teacher.explain_move(ctx)
-            if llm_message is not None:
-                coaching_data.message = llm_message
+        # Enrich coaching with RAG + LLM (timeout so game never freezes).
+        if coaching_data is not None:
+            try:
+                await asyncio.wait_for(
+                    self._enrich_coaching(coaching_data, board, board_before, player_san, best_move_uci),
+                    timeout=20.0,
+                )
+            except asyncio.TimeoutError:
+                logging.getLogger(__name__).warning("Coaching enrichment timed out")
 
         coaching_dict = None
         if coaching_data is not None:
@@ -140,23 +180,16 @@ class GameManager:
                 "coaching": coaching_dict,
             }
 
-        moves = await self._engine.best_moves(
-            board.fen(), n=1, depth=state.depth
-        )
-        if not moves:
-            raise RuntimeError("Engine returned no moves")
-
-        opponent_uci = moves[0].uci
-        opponent_move = chess.Move.from_uci(opponent_uci)
-        opponent_san = board.san(opponent_move)
+        result = await select_opponent_move(board, self._engine, teacher=self._teacher)
+        opponent_move = chess.Move.from_uci(result.uci)
         board.push(opponent_move)
 
         status = _game_status(board)
         return {
             "fen": board.fen(),
             "player_move_san": player_san,
-            "opponent_move_uci": opponent_uci,
-            "opponent_move_san": opponent_san,
+            "opponent_move_uci": result.uci,
+            "opponent_move_san": result.san,
             "status": status,
             "result": _game_result(board),
             "coaching": coaching_dict,

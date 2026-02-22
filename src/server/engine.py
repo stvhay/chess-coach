@@ -1,4 +1,6 @@
 from dataclasses import dataclass
+import asyncio
+
 import chess
 import chess.engine
 
@@ -24,6 +26,7 @@ class EngineAnalysis:
         self._path = stockfish_path
         self._hash_mb = hash_mb
         self._engine: chess.engine.UciProtocol | None = None
+        self._lock = asyncio.Lock()
 
     async def start(self):
         _, self._engine = await chess.engine.popen_uci(self._path)
@@ -41,7 +44,8 @@ class EngineAnalysis:
             board = chess.Board(fen)
         except ValueError as e:
             raise ValueError(f"Invalid FEN: {fen}") from e
-        result = await self._engine.analyse(board, chess.engine.Limit(depth=depth))
+        async with self._lock:
+            result = await self._engine.analyse(board, chess.engine.Limit(depth=depth))
         score = result["score"].white()
         pv = result.get("pv", [])
         return Evaluation(
@@ -59,9 +63,10 @@ class EngineAnalysis:
             board = chess.Board(fen)
         except ValueError as e:
             raise ValueError(f"Invalid FEN: {fen}") from e
-        results = await self._engine.analyse(
-            board, chess.engine.Limit(depth=depth), multipv=n
-        )
+        async with self._lock:
+            results = await self._engine.analyse(
+                board, chess.engine.Limit(depth=depth), multipv=n
+            )
         if not isinstance(results, list):
             results = [results]
         moves = []

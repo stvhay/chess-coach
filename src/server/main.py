@@ -14,6 +14,7 @@ from server.analysis import analyze
 from server.engine import EngineAnalysis
 from server.game import GameManager
 from server.llm import ChessTeacher
+from server.rag import ChessRAG
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -26,12 +27,14 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 engine = EngineAnalysis(hash_mb=64)
 teacher = ChessTeacher(ollama_url="https://ollama.st5ve.com")
-games = GameManager(engine, teacher=teacher)
+rag = ChessRAG(ollama_url="https://ollama.st5ve.com", persist_dir="data/chromadb")
+games = GameManager(engine, teacher=teacher, rag=rag)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await engine.start()
+    await rag.start()
     yield
     await engine.stop()
 

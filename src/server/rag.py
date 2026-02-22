@@ -48,7 +48,7 @@ class ChessRAG:
             response = await client.post(
                 f"{self._ollama_url}/api/embed",
                 json={"model": self._model, "input": texts},
-                timeout=60.0,
+                timeout=10.0,
             )
             response.raise_for_status()
             return response.json()["embeddings"]

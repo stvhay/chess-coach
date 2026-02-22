@@ -870,6 +870,69 @@ class PositionReport:
     space: Space
 
 
+def summarize_position(report: PositionReport) -> str:
+    """Produce a 3-5 sentence summary of the most salient position features.
+
+    Selective — only mentions features that are noteworthy.
+    """
+    parts: list[str] = []
+
+    # Material
+    mat = report.material
+    if mat.imbalance > 0:
+        parts.append(f"White is up approximately {mat.imbalance} points of material.")
+    elif mat.imbalance < 0:
+        parts.append(f"Black is up approximately {-mat.imbalance} points of material.")
+
+    # Tactical motifs
+    tac = report.tactics
+    if tac.forks:
+        f = tac.forks[0]
+        targets = ", ".join(f.targets)
+        parts.append(f"There is a fork on {f.forking_square} targeting {targets}.")
+    if tac.pins:
+        p = tac.pins[0]
+        parts.append(f"The {p.pinned_piece} on {p.pinned_square} is pinned.")
+    if tac.hanging:
+        h = tac.hanging[0]
+        parts.append(f"The {h.piece} on {h.square} is hanging.")
+
+    # Pawn weaknesses
+    ps = report.pawn_structure
+    w_isolated = [p.square for p in ps.white if p.is_isolated]
+    b_isolated = [p.square for p in ps.black if p.is_isolated]
+    if w_isolated:
+        parts.append(f"White has isolated pawns on {', '.join(w_isolated)}.")
+    if b_isolated:
+        parts.append(f"Black has isolated pawns on {', '.join(b_isolated)}.")
+
+    w_passed = [p.square for p in ps.white if p.is_passed]
+    b_passed = [p.square for p in ps.black if p.is_passed]
+    if w_passed:
+        parts.append(f"White has passed pawns on {', '.join(w_passed)}.")
+    if b_passed:
+        parts.append(f"Black has passed pawns on {', '.join(b_passed)}.")
+
+    # King safety issues
+    for color, ks in [("White", report.king_safety_white), ("Black", report.king_safety_black)]:
+        if ks.open_files_near_king:
+            parts.append(f"{color}'s king has open files nearby.")
+
+    # Development
+    dev = report.development
+    if report.fullmove_number <= 15:
+        if dev.white_developed < 3:
+            parts.append("White has not fully developed minor pieces.")
+        if dev.black_developed < 3:
+            parts.append("Black has not fully developed minor pieces.")
+
+    # If nothing notable, say so
+    if not parts:
+        parts.append("The position is roughly balanced with no major imbalances.")
+
+    return " ".join(parts[:5])
+
+
 def analyze(board: chess.Board) -> PositionReport:
     return PositionReport(
         fen=board.fen(),

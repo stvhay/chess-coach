@@ -7,6 +7,8 @@ returns natural-language coaching messages.  Falls back gracefully
 
 from __future__ import annotations
 
+import json
+import re
 from dataclasses import dataclass
 
 import httpx
@@ -23,6 +25,17 @@ class MoveContext:
     cp_loss: int
     tactics_summary: str
     player_color: str     # "White" or "Black"
+    rag_context: str = ""
+
+
+@dataclass
+class OpponentMoveContext:
+    """Everything the LLM needs to select a teaching move."""
+    fen: str
+    game_phase: str
+    position_summary: str
+    candidates: list[dict]   # [{san, uci, score_cp}, ...]
+    player_color: str
 
 
 _SYSTEM_PROMPT = """\
@@ -48,11 +61,45 @@ def _build_user_prompt(ctx: MoveContext) -> str:
     ]
     if ctx.tactics_summary:
         lines.append(f"Tactical details: {ctx.tactics_summary}")
+    if ctx.rag_context:
+        lines.append(f"Relevant chess knowledge:\n{ctx.rag_context}")
     lines.append(
         "Explain this move to the student. "
         "If it was good, praise it briefly. "
         "If it was a mistake, explain what went wrong and why the best move is better."
     )
+    return "\n".join(lines)
+
+
+_OPPONENT_SYSTEM_PROMPT = """\
+You are a chess teacher selecting a move for the opponent (computer) side.
+Your goal is to choose the move that creates the most instructive position \
+for the student to learn from.
+
+Rules:
+- You MUST pick one of the provided candidate moves.
+- Prefer moves that create clear tactical or positional themes.
+- In the opening, prefer principled development moves.
+- In the middlegame, prefer moves that create instructive imbalances.
+- Avoid moves that are too tricky or engine-like for the student's level.
+- Respond with ONLY valid JSON: {"selected_move": "<SAN>", "reason": "..."}
+- Keep the reason under 30 words.\
+"""
+
+
+def _build_opponent_prompt(ctx: OpponentMoveContext) -> str:
+    """Build the user-message content for opponent move selection."""
+    lines = [
+        f"Position: {ctx.fen}",
+        f"Game phase: {ctx.game_phase}",
+        f"Student is playing: {ctx.player_color}",
+        f"Position summary: {ctx.position_summary}",
+        "Candidate moves (all are sound):",
+    ]
+    for c in ctx.candidates:
+        score_str = f"{c['score_cp']} cp" if c.get("score_cp") is not None else "mate"
+        lines.append(f"  {c['san']} ({score_str})")
+    lines.append("Select the most pedagogically valuable move. Respond with JSON only.")
     return "\n".join(lines)
 
 
@@ -77,15 +124,34 @@ class ChessTeacher:
         ]
         return await self._chat(messages)
 
-    async def _chat(self, messages: list[dict]) -> str | None:
+    async def select_teaching_move(
+        self, context: OpponentMoveContext
+    ) -> tuple[str, str] | None:
+        """Ask the LLM to pick a pedagogically valuable move.
+
+        Returns (selected_san, reason) or None on failure.
+        """
+        messages = [
+            {"role": "system", "content": _OPPONENT_SYSTEM_PROMPT},
+            {"role": "user", "content": _build_opponent_prompt(context)},
+        ]
+        text = await self._chat(messages, timeout=10.0)
+        if text is None:
+            return None
+        return _parse_move_selection(text)
+
+    async def _chat(
+        self, messages: list[dict], timeout: float | None = None
+    ) -> str | None:
         """POST to Ollama /api/chat and return the assistant content."""
+        t = timeout if timeout is not None else self._timeout
         payload = {
             "model": self._model,
             "messages": messages,
             "stream": False,
         }
         try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
+            async with httpx.AsyncClient(timeout=t) as client:
                 resp = await client.post(
                     f"{self._url}/api/chat", json=payload
                 )
@@ -94,3 +160,29 @@ class ChessTeacher:
                 return data["message"]["content"]
         except (httpx.HTTPError, KeyError, ValueError, TypeError):
             return None
+
+
+def _parse_move_selection(text: str) -> tuple[str, str] | None:
+    """Parse LLM JSON response for move selection.
+
+    Tries json.loads first, then regex fallback for messy output.
+    """
+    # Try clean JSON parse
+    try:
+        data = json.loads(text)
+        move = data["selected_move"]
+        reason = data.get("reason", "")
+        if isinstance(move, str) and move.strip():
+            return move.strip(), str(reason)
+    except (json.JSONDecodeError, KeyError, TypeError):
+        pass
+
+    # Regex fallback: look for "selected_move": "Nf3" pattern
+    m = re.search(r'"selected_move"\s*:\s*"([^"]+)"', text)
+    if m:
+        move = m.group(1).strip()
+        r = re.search(r'"reason"\s*:\s*"([^"]*)"', text)
+        reason = r.group(1) if r else ""
+        return move, reason
+
+    return None
