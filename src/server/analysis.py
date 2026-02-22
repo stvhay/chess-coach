@@ -543,8 +543,6 @@ def _find_skewers(board: chess.Board) -> list[Skewer]:
         for pt in (chess.BISHOP, chess.ROOK, chess.QUEEN):
             for sq in board.pieces(pt, color):
                 piece = board.piece_at(sq)
-                if piece is None:
-                    continue
                 attacks = board.attacks(sq)
                 for target_sq in attacks:
                     target_piece = board.piece_at(target_sq)

@@ -1,7 +1,6 @@
 """Tests for the position analysis module using well-known positions."""
 
 import chess
-import pytest
 
 from server.analysis import (
     analyze,
