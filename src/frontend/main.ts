@@ -33,6 +33,30 @@ function init() {
   menuNewGameBtn.textContent = "New Game";
   hamburgerMenu.appendChild(menuNewGameBtn);
 
+  // ELO profile selector
+  const eloLabel = document.createElement("div");
+  eloLabel.className = "menu-label";
+  eloLabel.textContent = "Skill Level";
+  hamburgerMenu.appendChild(eloLabel);
+
+  const eloSelect = document.createElement("select");
+  eloSelect.className = "elo-select";
+  const eloOptions: [string, string][] = [
+    ["beginner", "Beginner (600-800)"],
+    ["intermediate", "Intermediate (800-1000)"],
+    ["advancing", "Advancing (1000-1200)"],
+    ["club", "Club (1200-1400)"],
+    ["competitive", "Competitive (1400+)"],
+  ];
+  for (const [value, label] of eloOptions) {
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = label;
+    if (value === "intermediate") opt.selected = true;
+    eloSelect.appendChild(opt);
+  }
+  hamburgerMenu.appendChild(eloSelect);
+
   const menuFenInput = document.createElement("input");
   menuFenInput.type = "text";
   menuFenInput.placeholder = "Load FEN\u2026";
@@ -324,6 +348,26 @@ function init() {
 
   // --- Coaching display ---
   function showCoaching(coaching: CoachingData) {
+    // Debug: log the grounded prompt to console
+    if (coaching.debug_prompt) {
+      console.group(`%c[Coach Prompt] ply ${gc.getCurrentPly()}`, "color: #4ade80; font-weight: bold");
+      console.log(coaching.debug_prompt);
+      console.groupEnd();
+    }
+
+    // Collapsible debug bubble showing the prompt sent to LLM
+    if (coaching.debug_prompt) {
+      const debugBubble = document.createElement("details");
+      debugBubble.className = "coach-debug";
+      const summary = document.createElement("summary");
+      summary.textContent = "LLM prompt";
+      debugBubble.appendChild(summary);
+      const pre = document.createElement("pre");
+      pre.textContent = coaching.debug_prompt;
+      debugBubble.appendChild(pre);
+      coachMessages.appendChild(debugBubble);
+    }
+
     const msg = document.createElement("div");
     msg.className = `coach-message ${coaching.quality}`;
     msg.textContent = coaching.message;
@@ -419,6 +463,13 @@ function init() {
 
   // Menu: New game button
   menuNewGameBtn.addEventListener("click", () => {
+    resetUI();
+    hamburgerMenu.classList.remove("open");
+  });
+
+  // Menu: ELO profile change
+  eloSelect.addEventListener("change", () => {
+    gc.setEloProfile(eloSelect.value);
     resetUI();
     hamburgerMenu.classList.remove("open");
   });

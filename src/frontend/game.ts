@@ -71,6 +71,7 @@ export class GameController {
   private currentPly = 0;
   private maxPly = 0;
   private coachingByPly: Map<number, CoachingData> = new Map();
+  private eloProfile: string = "intermediate";
 
   constructor(board: Api, engine: BrowserEngine | null) {
     this.game = new Chess();
@@ -112,6 +113,11 @@ export class GameController {
   /** Register callback for MultiPV eval updates. */
   setMultiPVCallback(cb: MultiPVCallback): void {
     this.onMultiPV = cb;
+  }
+
+  /** Set ELO profile for coaching depth/style. */
+  setEloProfile(profile: string): void {
+    this.eloProfile = profile;
   }
 
   /**
@@ -195,7 +201,7 @@ export class GameController {
     this.board.setAutoShapes([]);
 
     try {
-      const resp = await createGame();
+      const resp = await createGame(10, this.eloProfile);
       this.sessionId = resp.session_id;
     } catch (err) {
       console.warn("Failed to create server session:", err);

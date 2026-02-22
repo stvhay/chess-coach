@@ -21,6 +21,7 @@ export interface CoachingData {
   arrows: ArrowData[];
   highlights: HighlightData[];
   severity: string;
+  debug_prompt?: string;
 }
 
 export interface MoveResponse {
@@ -35,11 +36,14 @@ export interface MoveResponse {
 
 const API_BASE = "/api";
 
-export async function createGame(depth: number = 10): Promise<NewGameResponse> {
+export async function createGame(
+  depth: number = 10,
+  eloProfile: string = "intermediate",
+): Promise<NewGameResponse> {
   const res = await fetch(`${API_BASE}/game/new`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ depth }),
+    body: JSON.stringify({ depth, elo_profile: eloProfile }),
   });
   if (!res.ok) {
     throw new Error(`Failed to create game: ${res.status}`);
