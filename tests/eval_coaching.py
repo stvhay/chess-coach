@@ -129,6 +129,90 @@ SCENARIOS = [
         "fen": "r1b2rk1/ppp2ppp/2n5/3qN3/8/8/PPPQ1PPP/R1B2RK1 w - - 0 10",
         "student_move": "d2d5",
     },
+
+    # ===================================================================
+    # Wave 2: broader coverage — d4 games, Sicilian, endgame, tactics
+    # ===================================================================
+
+    # --- Queen's pawn good moves ---
+    {
+        "name": "good_qga_accept",
+        "desc": "Accepts Queen's Gambit — perfectly sound opening choice",
+        "fen": "rnbqkbnr/ppp1pppp/8/3p4/2PP4/8/PP2PPPP/RNBQKBNR b KQkq - 0 2",
+        "student_move": "d5c4",
+    },
+    {
+        "name": "good_london_develop",
+        "desc": "Plays Bf4 in the London System — signature developing move",
+        "fen": "rnbqkb1r/ppp1pppp/5n2/3p4/3P4/5N2/PPP1PPPP/RNBQKB1R w KQkq - 2 3",
+        "student_move": "c1f4",
+    },
+
+    # --- Piece placement errors ---
+    {
+        "name": "premature_queen_sortie",
+        "desc": "Brings queen out early to e7 blocking bishop development",
+        "fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2",
+        "student_move": "d8e7",
+    },
+    {
+        "name": "knight_on_the_rim",
+        "desc": "Plays Na4 sending knight to the rim with no purpose",
+        "fen": "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/2N2N2/PPPP1PPP/R1BQK2R w KQkq - 4 4",
+        "student_move": "c3a4",
+    },
+
+    # --- Sicilian middlegame ---
+    {
+        "name": "sicilian_passive_bishop",
+        "desc": "Plays passive Be2 in Open Sicilian when Bg5/Bc4/Be3 are stronger",
+        "fen": "rnbqkb1r/1p2pppp/p2p1n2/8/3NP3/2N5/PPP2PPP/R1BQKB1R w KQkq - 0 6",
+        "student_move": "f1e2",
+    },
+
+    # --- Tactical blunders ---
+    {
+        "name": "premature_sacrifice",
+        "desc": "Sacrifices bishop on f7+ with no follow-up — loses piece for pawn",
+        "fen": "r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 2 3",
+        "student_move": "c4f7",
+    },
+    {
+        "name": "falls_for_legals_mate",
+        "desc": "Greedily captures queen — walks into Legal's Mate pattern",
+        "fen": "rn1qkbnr/ppp2p1p/3p2p1/4N3/2B1P1b1/2N5/PPPP1PPP/R1BQK2R b KQkq - 0 5",
+        "student_move": "g4d1",
+    },
+
+    # --- KID thematic play ---
+    {
+        "name": "good_kid_d5_break",
+        "desc": "Plays thematic d5 central break in King's Indian Defense",
+        "fen": "r1bq1rk1/pppn1pbp/3ppnp1/8/2PPP3/2N2N2/PP2BPPP/R1BQ1RK1 b - - 0 8",
+        "student_move": "d6d5",
+    },
+
+    # --- Rook ending ---
+    {
+        "name": "good_rook_cut_off_king",
+        "desc": "Cuts off enemy king along the 6th rank — textbook technique",
+        "fen": "8/8/4k3/8/2R5/5K2/4P3/8 w - - 0 1",
+        "student_move": "c4c6",
+    },
+
+    # --- Other openings ---
+    {
+        "name": "good_caro_kann_bf5",
+        "desc": "Develops bishop to f5 in the Caro-Kann — classical and strong",
+        "fen": "rnbqkbnr/pp2pppp/2p5/3pP3/3P4/8/PPP2PPP/RNBQKBNR b KQkq - 0 3",
+        "student_move": "c8f5",
+    },
+    {
+        "name": "good_scandinavian_qd6",
+        "desc": "Retreats queen to d6 in Scandinavian — solid modern main line",
+        "fen": "rnb1kbnr/ppp1pppp/8/3q4/8/2N5/PPPP1PPP/R1BQKBNR b KQkq - 1 3",
+        "student_move": "d5d6",
+    },
 ]
 
 
