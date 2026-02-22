@@ -1,0 +1,16 @@
+.venv/
+.git/
+.direnv/
+node_modules/
+__pycache__/
+*.pyc
+.pytest_cache/
+tests/
+.claude/
+.mcp.json
+docs/
+*.md
+flake.nix
+flake.lock
+data/chromadb/
+data/puzzles.db

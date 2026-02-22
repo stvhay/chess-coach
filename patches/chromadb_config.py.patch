@@ -1,0 +1,52 @@
+"""Patch chromadb config.py for Python 3.14 + pydantic v2 compatibility.
+
+Chromadb 1.5.1 has two issues on Python 3.14:
+1. Falls back to pydantic.v1.BaseSettings which can't infer types on 3.14
+2. Has unannotated fields that pydantic v2 BaseSettings rejects
+
+This script applies the same fixes that were applied to the local .venv.
+"""
+
+import glob
+import pathlib
+
+replacements = [
+    # Fix 1: Add pydantic_settings import path before pydantic.v1 fallback
+    (
+        "except ImportError:\n"
+        "    in_pydantic_v2 = True\n"
+        "    from pydantic.v1 import BaseSettings\n"
+        "    from pydantic.v1 import validator",
+        "except ImportError:\n"
+        "    in_pydantic_v2 = True\n"
+        "    try:\n"
+        "        from pydantic_settings import BaseSettings  # type: ignore\n"
+        "        from pydantic import validator  # type: ignore\n"
+        "    except ImportError:\n"
+        "        from pydantic.v1 import BaseSettings\n"
+        "        from pydantic.v1 import validator",
+    ),
+    # Fix 2: Add missing type annotations for pydantic v2 strict mode
+    (
+        '    chroma_coordinator_host = "localhost"',
+        '    chroma_coordinator_host: str = "localhost"',
+    ),
+    (
+        '    chroma_logservice_host = "localhost"',
+        '    chroma_logservice_host: str = "localhost"',
+    ),
+    (
+        "    chroma_logservice_port = 50052",
+        "    chroma_logservice_port: int = 50052",
+    ),
+]
+
+files = glob.glob(".venv/**/chromadb/config.py", recursive=True)
+for f in files:
+    p = pathlib.Path(f)
+    text = p.read_text()
+    for old, new in replacements:
+        text = text.replace(old, new)
+    p.write_text(text)
+
+print(f"Patched {len(files)} chromadb config.py file(s)")
