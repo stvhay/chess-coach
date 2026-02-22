@@ -36,7 +36,10 @@ def rank_by_teachability(
     Scoring heuristic (v1 -- designed to be replaced by trained model later):
     - Line contains checkmate for student: +100 (absolute priority)
     - Line contains checkmate for opponent: -50 (bad line)
-    - Tactic appears within max_concept_depth: +3 per motif type
+    - Named mate pattern (back_rank, smothered, etc.): +5
+    - Trapped piece in reachable depth: +3
+    - Double check in reachable depth: +3
+    - Other tactic appears within max_concept_depth: +3 per motif type
     - Simple material gain (hanging piece captured): +2
     - Clear positional theme (passed pawn, open file): +1
     - Requires deep calc to justify (motifs only after max_concept_depth): -2
@@ -88,7 +91,16 @@ def rank_by_teachability(
                 # score_mate is None but checkmate detected in annotations
                 score += 100.0
 
-        # Tactics in reachable depth
+        # High-value motifs get bonus scoring
+        HIGH_VALUE_MOTIFS = {"double_check", "trapped_piece"}
+        MATE_PATTERN_PREFIX = "mate_"
+        for motif in early_motifs:
+            if motif.startswith(MATE_PATTERN_PREFIX):
+                score += 5.0
+            elif motif in HIGH_VALUE_MOTIFS:
+                score += 3.0
+
+        # All tactics in reachable depth (including high-value, stacks with above)
         score += 3.0 * len(early_motifs)
 
         # Positional themes (detected via summary keywords)

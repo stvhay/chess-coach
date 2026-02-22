@@ -58,6 +58,16 @@ def _motif_set(tactics: TacticalMotifs, board: chess.Board | None = None) -> set
         motifs.add("hanging_piece")
     if tactics.discovered_attacks:
         motifs.add("discovered_attack")
+    if tactics.double_checks:
+        motifs.add("double_check")
+    if tactics.trapped_pieces:
+        motifs.add("trapped_piece")
+    for mp in tactics.mate_patterns:
+        motifs.add(f"mate_{mp.pattern}")
+    if tactics.mate_threats:
+        motifs.add("mate_threat")
+    if tactics.back_rank_weaknesses:
+        motifs.add("back_rank_weakness")
     if board is not None and board.is_checkmate():
         motifs.add("checkmate")
     return motifs

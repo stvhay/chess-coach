@@ -437,6 +437,7 @@ class Pin:
     pinner_square: str
     pinner_piece: str
     pinned_to: str  # square of the piece being shielded (king, queen, etc.)
+    is_absolute: bool = False  # pinned to king (piece cannot legally move)
 
 
 @dataclass
@@ -461,6 +462,7 @@ class HangingPiece:
     square: str
     piece: str
     attacker_squares: list[str]
+    color: str = ""  # "white" or "black" — whose piece is hanging
 
 
 @dataclass
@@ -471,6 +473,35 @@ class DiscoveredAttack:
     slider_piece: str
     target_square: str
     target_piece: str
+    significance: str = "normal"  # "low" for pawn-reveals-rook x-rays, "normal" otherwise
+
+
+@dataclass
+class DoubleCheck:
+    checker_squares: list[str]
+
+
+@dataclass
+class TrappedPiece:
+    square: str
+    piece: str
+
+
+@dataclass
+class MatePattern:
+    pattern: str  # e.g. "back_rank", "smothered", "arabian", "hook", etc.
+
+
+@dataclass
+class MateThreat:
+    threatening_color: str  # "white" or "black"
+    mating_square: str      # square where mate would be delivered
+
+
+@dataclass
+class BackRankWeakness:
+    weak_color: str  # "white" or "black" — whose back rank is vulnerable
+    king_square: str
 
 
 @dataclass
@@ -480,6 +511,11 @@ class TacticalMotifs:
     skewers: list[Skewer] = field(default_factory=list)
     hanging: list[HangingPiece] = field(default_factory=list)
     discovered_attacks: list[DiscoveredAttack] = field(default_factory=list)
+    double_checks: list[DoubleCheck] = field(default_factory=list)
+    trapped_pieces: list[TrappedPiece] = field(default_factory=list)
+    mate_patterns: list[MatePattern] = field(default_factory=list)
+    mate_threats: list[MateThreat] = field(default_factory=list)
+    back_rank_weaknesses: list[BackRankWeakness] = field(default_factory=list)
 
 
 def _find_pins(board: chess.Board) -> list[Pin]:
@@ -506,6 +542,7 @@ def _find_pins(board: chess.Board) -> list[Pin]:
                                 pinner_square=chess.square_name(esq),
                                 pinner_piece=ep.symbol(),
                                 pinned_to=chess.square_name(king_sq),
+                                is_absolute=(king_sq == board.king(color)),
                             ))
     return pins
 
@@ -600,6 +637,9 @@ def _find_skewers(board: chess.Board) -> list[Skewer]:
 
 
 def _find_hanging(board: chess.Board) -> list[HangingPiece]:
+    """Find hanging pieces using x-ray-aware defense detection from Lichess."""
+    from server.lichess_tactics import is_hanging as _lichess_is_hanging
+
     hanging = []
     for color in (chess.WHITE, chess.BLACK):
         enemy = not color
@@ -608,14 +648,13 @@ def _find_hanging(board: chess.Board) -> list[HangingPiece]:
             if piece is None or piece.piece_type == chess.KING:
                 continue
             attackers = board.attackers(enemy, sq)
-            if attackers:
-                defenders = board.attackers(color, sq)
-                if not defenders:
-                    hanging.append(HangingPiece(
-                        square=chess.square_name(sq),
-                        piece=piece.symbol(),
-                        attacker_squares=[chess.square_name(a) for a in attackers],
-                    ))
+            if attackers and _lichess_is_hanging(board, piece, sq):
+                hanging.append(HangingPiece(
+                    square=chess.square_name(sq),
+                    piece=piece.symbol(),
+                    attacker_squares=[chess.square_name(a) for a in attackers],
+                    color="white" if color == chess.WHITE else "black",
+                ))
     return hanging
 
 
@@ -652,6 +691,13 @@ def _find_discovered_attacks(board: chess.Board) -> list[DiscoveredAttack]:
                         blocker_sq = list(blockers)[0]
                         blocker_piece = board.piece_at(blocker_sq)
                         if blocker_piece and blocker_piece.color == color:
+                            # Significance: pawn blocking a rook on a distant
+                            # file is nearly always pedagogically worthless
+                            sig = "normal"
+                            if (blocker_piece.piece_type == chess.PAWN
+                                    and pt == chess.ROOK
+                                    and PIECE_VALUES.get(target_piece.piece_type, 0) <= 1):
+                                sig = "low"
                             discovered.append(DiscoveredAttack(
                                 blocker_square=chess.square_name(blocker_sq),
                                 blocker_piece=blocker_piece.symbol(),
@@ -659,8 +705,132 @@ def _find_discovered_attacks(board: chess.Board) -> list[DiscoveredAttack]:
                                 slider_piece=board.piece_at(slider_sq).symbol(),
                                 target_square=chess.square_name(target_sq),
                                 target_piece=target_piece.symbol(),
+                                significance=sig,
                             ))
     return discovered
+
+
+def _find_double_checks(board: chess.Board) -> list[DoubleCheck]:
+    """Detect double check (two pieces giving check simultaneously)."""
+    if board.is_check() and len(board.checkers()) > 1:
+        return [DoubleCheck(
+            checker_squares=[chess.square_name(sq) for sq in board.checkers()]
+        )]
+    return []
+
+
+def _find_trapped_pieces(board: chess.Board) -> list[TrappedPiece]:
+    """Find pieces with no safe escape using Lichess trapped-piece detection."""
+    from server.lichess_tactics import is_trapped as _lichess_is_trapped
+
+    trapped = []
+    # Only check pieces of the side to move (is_trapped iterates legal_moves)
+    for sq in chess.SquareSet(board.occupied_co[board.turn]):
+        piece = board.piece_at(sq)
+        if piece is None:
+            continue
+        if _lichess_is_trapped(board, sq):
+            trapped.append(TrappedPiece(
+                square=chess.square_name(sq),
+                piece=piece.symbol(),
+            ))
+    return trapped
+
+
+def _find_mate_patterns(board: chess.Board) -> list[MatePattern]:
+    """Detect named checkmate patterns using Lichess pattern detectors."""
+    if not board.is_checkmate():
+        return []
+
+    from server.lichess_tactics._cook import (
+        arabian_mate,
+        anastasia_mate,
+        back_rank_mate,
+        boden_or_double_bishop_mate,
+        dovetail_mate,
+        hook_mate,
+        smothered_mate,
+    )
+
+    patterns = []
+    if back_rank_mate(board):
+        patterns.append(MatePattern(pattern="back_rank"))
+    elif smothered_mate(board):
+        patterns.append(MatePattern(pattern="smothered"))
+    elif arabian_mate(board):
+        patterns.append(MatePattern(pattern="arabian"))
+    elif hook_mate(board):
+        patterns.append(MatePattern(pattern="hook"))
+    elif anastasia_mate(board):
+        patterns.append(MatePattern(pattern="anastasia"))
+    elif dovetail_mate(board):
+        patterns.append(MatePattern(pattern="dovetail"))
+    else:
+        boden_result = boden_or_double_bishop_mate(board)
+        if boden_result == "bodenMate":
+            patterns.append(MatePattern(pattern="boden"))
+        elif boden_result == "doubleBishopMate":
+            patterns.append(MatePattern(pattern="double_bishop"))
+
+    return patterns
+
+
+def _find_mate_threats(board: chess.Board) -> list[MateThreat]:
+    """Detect if one side threatens checkmate on the next move."""
+    threats = []
+    # Check if the side to move can deliver checkmate
+    for move in board.legal_moves:
+        board.push(move)
+        if board.is_checkmate():
+            color_name = "white" if board.turn == chess.BLACK else "black"
+            threats.append(MateThreat(
+                threatening_color=color_name,
+                mating_square=chess.square_name(move.to_square),
+            ))
+            board.pop()
+            break  # One threat is enough
+        board.pop()
+    return threats
+
+
+def _find_back_rank_weaknesses(board: chess.Board) -> list[BackRankWeakness]:
+    """Detect back rank vulnerability: king on back rank with no escape,
+    and opponent has a rook or queen that could threaten it."""
+    weaknesses = []
+    for color in (chess.WHITE, chess.BLACK):
+        king_sq = board.king(color)
+        if king_sq is None:
+            continue
+        back_rank = 0 if color == chess.WHITE else 7
+        if chess.square_rank(king_sq) != back_rank:
+            continue
+
+        # Check if escape squares (one rank forward) are all blocked by own pieces
+        forward_rank = 1 if color == chess.WHITE else 6
+        king_file = chess.square_file(king_sq)
+        all_blocked = True
+        for f in range(max(0, king_file - 1), min(8, king_file + 2)):
+            sq = chess.square(f, forward_rank)
+            piece = board.piece_at(sq)
+            if piece is None or piece.color != color:
+                all_blocked = False
+                break
+
+        if not all_blocked:
+            continue
+
+        # Opponent has a rook or queen (potential back-rank attacker)
+        enemy = not color
+        has_heavy = (
+            bool(board.pieces(chess.ROOK, enemy))
+            or bool(board.pieces(chess.QUEEN, enemy))
+        )
+        if has_heavy:
+            weaknesses.append(BackRankWeakness(
+                weak_color="white" if color == chess.WHITE else "black",
+                king_square=chess.square_name(king_sq),
+            ))
+    return weaknesses
 
 
 def analyze_tactics(board: chess.Board) -> TacticalMotifs:
@@ -670,6 +840,11 @@ def analyze_tactics(board: chess.Board) -> TacticalMotifs:
         skewers=_find_skewers(board),
         hanging=_find_hanging(board),
         discovered_attacks=_find_discovered_attacks(board),
+        double_checks=_find_double_checks(board),
+        trapped_pieces=_find_trapped_pieces(board),
+        mate_patterns=_find_mate_patterns(board),
+        mate_threats=_find_mate_threats(board),
+        back_rank_weaknesses=_find_back_rank_weaknesses(board),
     )
 
 
@@ -896,6 +1071,31 @@ def summarize_position(report: PositionReport) -> str:
     if tac.hanging:
         h = tac.hanging[0]
         parts.append(f"The {h.piece} on {h.square} is hanging.")
+    if tac.double_checks:
+        parts.append("There is a double check.")
+    if tac.trapped_pieces:
+        t = tac.trapped_pieces[0]
+        parts.append(f"The {t.piece} on {t.square} is trapped.")
+    if tac.mate_patterns:
+        pattern_names = {
+            "back_rank": "back-rank mate",
+            "smothered": "smothered mate",
+            "arabian": "Arabian mate",
+            "hook": "hook mate",
+            "anastasia": "Anastasia's mate",
+            "dovetail": "dovetail mate",
+            "boden": "Boden's mate",
+            "double_bishop": "double bishop mate",
+        }
+        mp = tac.mate_patterns[0]
+        name = pattern_names.get(mp.pattern, f"{mp.pattern} mate")
+        parts.append(f"This is a {name}.")
+    if tac.mate_threats:
+        mt = tac.mate_threats[0]
+        parts.append(f"{mt.threatening_color.capitalize()} threatens checkmate.")
+    if tac.back_rank_weaknesses:
+        bw = tac.back_rank_weaknesses[0]
+        parts.append(f"{bw.weak_color.capitalize()}'s back rank is weak.")
 
     # Pawn weaknesses
     ps = report.pawn_structure

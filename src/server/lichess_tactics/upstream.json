@@ -1,0 +1,144 @@
+{
+  "repo": "ornicar/lichess-puzzler",
+  "branch": "master",
+  "commit": "d021969ec326c83cfa357f3ad58dbd9cea44e64f",
+  "files": {
+    "tagger/util.py": {
+      "functions": {
+        "piece_value": {
+          "ast_hash": "110df5fe39d67d80",
+          "status": "vendored"
+        },
+        "material_count": {
+          "ast_hash": "cb934bd1db3ce974",
+          "status": "vendored"
+        },
+        "material_diff": {
+          "ast_hash": "2438796a6ac34de8",
+          "status": "vendored"
+        },
+        "attacked_opponent_squares": {
+          "ast_hash": "6d4203686eb27b8c",
+          "status": "vendored"
+        },
+        "is_defended": {
+          "ast_hash": "542004835727640b",
+          "status": "vendored"
+        },
+        "is_hanging": {
+          "ast_hash": "3657422509ee58b7",
+          "status": "vendored"
+        },
+        "can_be_taken_by_lower_piece": {
+          "ast_hash": "f8a15b93cb97cb32",
+          "status": "vendored"
+        },
+        "is_in_bad_spot": {
+          "ast_hash": "abd8201fdfbde070",
+          "status": "vendored"
+        },
+        "is_trapped": {
+          "ast_hash": "6bdd130286e6569b",
+          "status": "vendored"
+        },
+        "attacker_pieces": {
+          "ast_hash": "2c3a9577368f8c33",
+          "status": "vendored"
+        }
+      }
+    },
+    "tagger/cook.py": {
+      "functions": {
+        "double_check": {
+          "ast_hash": "0922451ade5cd959",
+          "status": "vendored"
+        },
+        "back_rank_mate": {
+          "ast_hash": "3a5e227a98c03a22",
+          "status": "vendored"
+        },
+        "smothered_mate": {
+          "ast_hash": "8d4ab0be0a6f05f7",
+          "status": "vendored"
+        },
+        "arabian_mate": {
+          "ast_hash": "ae6417171b712b33",
+          "status": "vendored"
+        },
+        "hook_mate": {
+          "ast_hash": "63ca010b4420e89d",
+          "status": "vendored"
+        },
+        "anastasia_mate": {
+          "ast_hash": "1958ab9940488e23",
+          "status": "vendored"
+        },
+        "dovetail_mate": {
+          "ast_hash": "973f1cdd5d04cd36",
+          "status": "vendored"
+        },
+        "boden_or_double_bishop_mate": {
+          "ast_hash": "57d36a02b2c5db5e",
+          "status": "vendored"
+        },
+        "exposed_king": {
+          "ast_hash": "cb08eaac4a35927f",
+          "status": "vendored"
+        },
+        "deflection": {
+          "ast_hash": "f93113adfb62f12b",
+          "status": "watching"
+        },
+        "interference": {
+          "ast_hash": "2e02a83594058324",
+          "status": "watching"
+        },
+        "attraction": {
+          "ast_hash": "9f24d9e8829d71df",
+          "status": "watching"
+        },
+        "intermezzo": {
+          "ast_hash": "e66ce93010180a08",
+          "status": "watching"
+        },
+        "overloading": {
+          "ast_hash": "9c18789a37d02c15",
+          "status": "watching"
+        },
+        "x_ray": {
+          "ast_hash": "04e572640b9c2bbe",
+          "status": "watching"
+        },
+        "sacrifice": {
+          "ast_hash": "ebf02f994a2ae1cb",
+          "status": "watching"
+        },
+        "quiet_move": {
+          "ast_hash": "206d03135aedda61",
+          "status": "watching"
+        },
+        "clearance": {
+          "ast_hash": "334e87a34f3cdb09",
+          "status": "watching"
+        },
+        "trapped_piece": {
+          "ast_hash": "49c47f4f924ab5fc",
+          "status": "watching"
+        },
+        "capturing_defender": {
+          "ast_hash": "f371d74f1a616ee6",
+          "status": "watching"
+        },
+        "self_interference": {
+          "ast_hash": "5245cd0629671e9f",
+          "status": "watching"
+        },
+        "fork": {
+          "ast_hash": "80024bd09e695614",
+          "status": "skipped",
+          "reason": "Puzzle-mainline oriented (iterates ChildNode moves). Reimplemented for static board analysis in analysis.py."
+        }
+      }
+    }
+  }
+}
