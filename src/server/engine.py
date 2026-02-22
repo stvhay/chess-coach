@@ -24,6 +24,17 @@ class MoveInfo:
     score_mate: int | None
 
 
+@dataclass
+class LineInfo:
+    """A single PV line with full continuation."""
+    uci: str                    # first move UCI
+    san: str                    # first move SAN
+    score_cp: int | None
+    score_mate: int | None
+    pv: list[str]               # full PV in UCI notation
+    depth: int
+
+
 class EngineAnalysis:
     def __init__(self, stockfish_path: str = "stockfish", hash_mb: int = 64):
         self._path = stockfish_path
@@ -85,6 +96,34 @@ class EngineAnalysis:
             best_move=pv[0].uci() if pv else None,
             pv=[m.uci() for m in pv],
         )
+
+    async def analyze_lines(
+        self, fen: str, n: int = 5, depth: int = 16
+    ) -> list[LineInfo]:
+        """MultiPV analysis returning full PV lines for each candidate."""
+        if self._engine is None:
+            raise RuntimeError("Engine not started. Call start() first.")
+        board = self._validate_board(fen)
+        async with self._lock:
+            results = await self._analyse_with_retry(
+                board, chess.engine.Limit(depth=depth), multipv=n
+            )
+        if not isinstance(results, list):
+            results = [results]
+        lines = []
+        for info in results:
+            score = info["score"].white()
+            pv = info.get("pv", [])
+            if pv:
+                lines.append(LineInfo(
+                    uci=pv[0].uci(),
+                    san=board.san(pv[0]),
+                    score_cp=score.score(),
+                    score_mate=score.mate(),
+                    pv=[m.uci() for m in pv],
+                    depth=info.get("depth", depth),
+                ))
+        return lines
 
     async def best_moves(self, fen: str, n: int = 3, depth: int = 20) -> list[MoveInfo]:
         if self._engine is None:
