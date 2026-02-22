@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import Response
+from starlette.responses import RedirectResponse, Response
 
 from server.analysis import analyze
 from server.engine import EngineAnalysis
@@ -16,6 +16,12 @@ from server.game import GameManager
 from server.llm import ChessTeacher
 from server.puzzles import PuzzleDB
 from server.rag import ChessRAG
+
+_ollama_url = os.environ.get("OLLAMA_URL", "https://ollama.st5ve.com")
+_chromadb_dir = os.environ.get("CHROMADB_DIR", "data/chromadb")
+_puzzle_db_path = os.environ.get("PUZZLE_DB_PATH", "data/puzzles.db")
+_stockfish_hash = int(os.environ.get("STOCKFISH_HASH_MB", "64"))
+_stockfish_path = os.environ.get("STOCKFISH_PATH", "stockfish")
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -26,10 +32,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
-engine = EngineAnalysis(hash_mb=64)
-teacher = ChessTeacher(ollama_url="https://ollama.st5ve.com")
-rag = ChessRAG(ollama_url="https://ollama.st5ve.com", persist_dir="data/chromadb")
-puzzle_db = PuzzleDB()
+engine = EngineAnalysis(stockfish_path=_stockfish_path, hash_mb=_stockfish_hash)
+teacher = ChessTeacher(ollama_url=_ollama_url)
+rag = ChessRAG(ollama_url=_ollama_url, persist_dir=_chromadb_dir)
+puzzle_db = PuzzleDB(db_path=_puzzle_db_path)
 games = GameManager(engine, teacher=teacher, rag=rag)
 
 
@@ -70,6 +76,11 @@ class NewGameRequest(BaseModel):
 class MoveRequest(BaseModel):
     session_id: str
     move: str
+
+
+@app.get("/")
+async def root():
+    return RedirectResponse(url="/static/index.html")
 
 
 @app.get("/api/health")
