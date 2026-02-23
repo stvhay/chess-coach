@@ -1,23 +1,15 @@
 """Tests for motifs.py — registry, renderers, tactic keys, motif labels, ray dedup."""
 
 import chess
-import pytest
 
 from server.analysis import (
     BackRankWeakness,
-    CapturableDefender,
-    DiscoveredAttack,
-    DoubleCheck,
-    ExposedKing,
     Fork,
     HangingPiece,
     MatePattern,
-    MateThreat,
-    OverloadedPiece,
     Pin,
     Skewer,
     TacticalMotifs,
-    TrappedPiece,
     XRayAttack,
 )
 from server.motifs import (
@@ -30,6 +22,7 @@ from server.motifs import (
     render_hanging,
     render_pin,
     render_skewer,
+    render_motifs,
     _colored,
     _piece_is_students,
     _dedup_ray_motifs,
@@ -68,6 +61,24 @@ class TestRegistry:
         t = TacticalMotifs()
         for spec in MOTIF_REGISTRY:
             assert hasattr(t, spec.field), f"TacticalMotifs has no field '{spec.field}'"
+
+
+# --- Observation flag tests ---
+
+class TestObservationFlags:
+    def test_observation_flags(self):
+        """Exactly discovered, back_rank, xray, exposed_king are observations."""
+        obs_keys = {s.diff_key for s in MOTIF_REGISTRY if s.is_observation}
+        assert obs_keys == {"discovered", "back_rank", "xray", "exposed_king"}
+
+    def test_non_observation_flags(self):
+        """All other motifs are not observations."""
+        non_obs = {s.diff_key for s in MOTIF_REGISTRY if not s.is_observation}
+        assert "pin" in non_obs
+        assert "fork" in non_obs
+        assert "skewer" in non_obs
+        assert "hanging" in non_obs
+        assert "mate_threat" in non_obs
 
 
 # --- Shared helper tests ---
@@ -140,6 +151,43 @@ class TestMotifRenderers:
         hp = HangingPiece(square="d5", piece="N", attacker_squares=["e3"], color="White")
         desc, is_opp = render_hanging(hp, _ctx(True))
         assert is_opp is False
+
+
+# --- render_motifs 3-bucket tests ---
+
+class TestRenderMotifsThreeBuckets:
+    def test_fork_goes_to_opportunities(self):
+        """Fork by student's piece should go to opportunities, not observations."""
+        tactics = TacticalMotifs(forks=[Fork("e5", "N", ["c6", "g6"], ["r", "q"])])
+        ctx = _ctx(True)
+        opps, thrs, obs = render_motifs(tactics, {"fork"}, ctx)
+        assert len(opps) == 1
+        assert len(thrs) == 0
+        assert len(obs) == 0
+        assert "fork" in opps[0].lower()
+
+    def test_back_rank_goes_to_observations(self):
+        """Back rank weakness should go to observations regardless of is_opp."""
+        tactics = TacticalMotifs(
+            back_rank_weaknesses=[BackRankWeakness(weak_color="Black", king_square="g8")]
+        )
+        ctx = _ctx(True)
+        opps, thrs, obs = render_motifs(tactics, {"back_rank"}, ctx)
+        assert len(obs) == 1
+        assert len(opps) == 0
+        assert len(thrs) == 0
+        assert "back rank" in obs[0].lower()
+
+    def test_mixed_motifs_three_buckets(self):
+        """Fork + back rank → fork in opps, back rank in obs."""
+        tactics = TacticalMotifs(
+            forks=[Fork("e5", "N", ["c6", "g6"], ["r", "q"])],
+            back_rank_weaknesses=[BackRankWeakness(weak_color="Black", king_square="g8")],
+        )
+        ctx = _ctx(True)
+        opps, thrs, obs = render_motifs(tactics, {"fork", "back_rank"}, ctx)
+        assert len(opps) == 1
+        assert len(obs) == 1
 
 
 # --- all_tactic_keys tests ---

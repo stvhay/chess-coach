@@ -67,7 +67,7 @@ SCENARIOS: dict[str, dict] = {
         ),
         "quality": "mistake",
         "cp_loss": 100,
-        "expect_in_prompt": ["# Move 4. Nc3", "Stronger Alternative: c3"],
+        "expect_in_prompt": ["# Student Move", "4. Nc3", "# Stronger Alternative"],
         "expect_not_in_prompt": ["You played"],
     },
     "missed_fork": {
@@ -93,7 +93,7 @@ SCENARIOS: dict[str, dict] = {
         ),
         "quality": "blunder",
         "cp_loss": 260,
-        "expect_in_prompt": ["# Move 4. Bd3", "Nxf7"],
+        "expect_in_prompt": ["# Student Move", "4. Bd3", "Nxf7"],
         "expect_not_in_prompt": ["You played"],
     },
     "good_move": {
@@ -118,8 +118,8 @@ SCENARIOS: dict[str, dict] = {
         ),
         "quality": "good",
         "cp_loss": 0,
-        "expect_in_prompt": ["# Move 1. e4", "good"],
-        "expect_not_in_prompt": ["You played", "Stronger Alternative: e4"],
+        "expect_in_prompt": ["# Student Move", "1. e4", "good"],
+        "expect_not_in_prompt": ["You played"],
     },
 }
 
@@ -171,7 +171,7 @@ class TestPromptStructure:
         """Prompt should use '# Move N.' or 'Student is playing', never 'You played'."""
         prompt, _ = await _build_prompt_for_scenario(scenario_name)
         assert "You played" not in prompt
-        assert "# Move " in prompt or "Student is playing" in prompt
+        assert "# Student Move" in prompt or "Student is playing" in prompt
 
     @pytest.mark.parametrize("scenario_name", SCENARIOS.keys())
     async def test_no_per_ply_labels(self, scenario_name):
@@ -210,9 +210,11 @@ class TestPromptStructure:
         assert "Stronger Alternative: Bd3" not in prompt
 
     async def test_move_header_has_number(self):
-        """Move header should include move number, not bare 'Move Played'."""
+        """Move header should use '# Student Move' with numbered move on own line."""
         prompt, _ = await _build_prompt_for_scenario("pin_and_hanging")
-        assert "# Move 4. Nc3" in prompt
+        assert "# Student Move" in prompt
+        lines = prompt.split("\n")
+        assert any(line.strip() == "4. Nc3" for line in lines)
         assert "Move Played" not in prompt
 
     async def test_good_move_filters_self(self):

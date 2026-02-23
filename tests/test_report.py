@@ -3,12 +3,15 @@
 import chess
 import pytest
 
+from server.analysis import MaterialCount
 from server.game_tree import GameNode, GameTree
 from server.report import (
     _describe_capture,
-    _format_move_header,
+    _describe_result,
+    _format_numbered_move,
     _format_pv_with_numbers,
     _game_pgn,
+    _piece_diff,
     serialize_report,
 )
 
@@ -69,21 +72,65 @@ class TestHelpers:
     def test_format_pv_empty(self):
         assert _format_pv_with_numbers([], 1, True) == ""
 
-    def test_format_move_header_white(self):
-        assert _format_move_header("Bb5", 4, True) == "# Move 4. Bb5"
+    def test_format_numbered_move_white(self):
+        assert _format_numbered_move("Bb5", 4, True) == "4. Bb5"
 
-    def test_format_move_header_black(self):
-        assert _format_move_header("c6", 4, False) == "# Move 4...c6"
-
-    def test_format_move_header_capture(self):
-        result = _format_move_header("Nxe4", 3, True)
-        assert "knight captures on e4 (Nxe4)" in result
+    def test_format_numbered_move_black(self):
+        assert _format_numbered_move("c6", 4, False) == "4...c6"
 
     def test_game_pgn(self):
         tree = _tree_with_history()
         pgn = _game_pgn(tree)
         assert "1. e4" in pgn
         assert "e5" in pgn
+
+
+# --- Piece diff tests ---
+
+class TestPieceDiff:
+    def test_no_change(self):
+        before = MaterialCount(pawns=8, knights=2, bishops=2, rooks=2, queens=1)
+        after = MaterialCount(pawns=8, knights=2, bishops=2, rooks=2, queens=1)
+        diff = _piece_diff(before, after)
+        assert all(v == 0 for v in diff.values())
+
+    def test_lost_a_knight(self):
+        before = MaterialCount(pawns=8, knights=2, bishops=2, rooks=2, queens=1)
+        after = MaterialCount(pawns=8, knights=1, bishops=2, rooks=2, queens=1)
+        diff = _piece_diff(before, after)
+        assert diff["knights"] == -1
+
+
+# --- _describe_result tests ---
+
+class TestDescribeResult:
+    def test_result_describes_pieces(self):
+        """When material is exchanged, result should use piece names."""
+        # Build a tree where white captures a knight
+        board1 = chess.Board("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1")
+        root = GameNode(board=chess.Board(), source="played")
+        # e4
+        e4 = root.add_child(chess.Move.from_uci("e2e4"), "played")
+        # e5
+        e5 = e4.add_child(chess.Move.from_uci("e7e5"), "played")
+        # Nf3
+        nf3 = e5.add_child(chess.Move.from_uci("g1f3"), "played")
+        # Nc6
+        nc6 = nf3.add_child(chess.Move.from_uci("b8c6"), "played")
+        # Nxe5 (captures pawn)
+        nxe5 = nc6.add_child(chess.Move.from_uci("f3e5"), "played")
+
+        chain = [nxe5]
+        result = _describe_result(chain, True)
+        assert "Result:" in result
+
+    def test_equal_material(self):
+        """No captures → equal material."""
+        root = GameNode(board=chess.Board(), source="played")
+        e4 = root.add_child(chess.Move.from_uci("e2e4"), "played")
+        chain = [e4]
+        result = _describe_result(chain, True)
+        assert "Equal material" in result
 
 
 # --- serialize_report structure tests ---
@@ -94,10 +141,16 @@ class TestSerializeReport:
         report = serialize_report(tree, "mistake", 60)
         assert "Student is playing: White" in report
 
-    def test_contains_move_header(self):
+    def test_contains_student_move_section(self):
         tree = _simple_tree()
         report = serialize_report(tree, "mistake", 60)
-        assert "# Move 1. e4" in report
+        assert "# Student Move" in report
+
+    def test_contains_move_on_own_line(self):
+        tree = _simple_tree()
+        report = serialize_report(tree, "mistake", 60)
+        lines = report.split("\n")
+        assert any(line.strip() == "1. e4" for line in lines)
 
     def test_contains_quality(self):
         tree = _simple_tree()
@@ -109,22 +162,29 @@ class TestSerializeReport:
         report = serialize_report(tree, "mistake", 60)
         assert "You played" not in report
 
-    def test_contains_alternative(self):
+    def test_contains_stronger_alternative(self):
         tree = _simple_tree()
         report = serialize_report(tree, "mistake", 60)
-        assert "Stronger Alternative: d4" in report
+        assert "# Stronger Alternative" in report
 
     def test_good_move_uses_other_option(self):
         tree = _simple_tree()
         report = serialize_report(tree, "good", 0)
-        assert "Other option: d4" in report
-        assert "Stronger Alternative" not in report
+        assert "# Other option" in report
+        assert "# Stronger Alternative" not in report
 
     def test_player_move_not_in_alternatives(self):
         """Player's move should not appear as an alternative."""
         tree = _simple_tree()
         report = serialize_report(tree, "mistake", 60)
-        assert "Stronger Alternative: e4" not in report
+        # e4 should not appear after "# Stronger Alternative"
+        lines = report.split("\n")
+        in_alt = False
+        for line in lines:
+            if "# Stronger Alternative" in line:
+                in_alt = True
+            if in_alt and line.strip() == "1. e4":
+                pytest.fail("Player's move appeared as alternative")
 
     def test_rag_context_included(self):
         tree = _simple_tree()
@@ -146,7 +206,7 @@ class TestSerializeReport:
     def test_position_section_present(self):
         tree = _simple_tree()
         report = serialize_report(tree, "good", 0)
-        assert "# Position" in report
+        assert "# Position Before White's Move" in report
 
     def test_prompt_length_reasonable(self):
         tree = _simple_tree()
@@ -164,9 +224,9 @@ class TestSerializeReport:
                 section_indices["color"] = i
             elif line == "# Game":
                 section_indices["game"] = i
-            elif line == "# Position":
+            elif line.startswith("# Position Before"):
                 section_indices["position"] = i
-            elif line.startswith("# Move "):
+            elif line == "# Student Move":
                 section_indices["move"] = i
             elif line.startswith("# Stronger") or line.startswith("# Other") or line.startswith("# Also"):
                 section_indices.setdefault("alt", i)
@@ -177,9 +237,17 @@ class TestSerializeReport:
         if "alt" in section_indices:
             assert section_indices["move"] < section_indices["alt"]
 
+    def test_position_has_observations(self):
+        """Position section should have Observations category."""
+        tree = _simple_tree()
+        report = serialize_report(tree, "good", 0)
+        assert "Observations:" in report
+
 
 class TestSerializeReportMoveNumbers:
     def test_move_2_has_correct_number(self):
         tree = _tree_with_history()
         report = serialize_report(tree, "good", 0)
-        assert "# Move 2. Nf3" in report
+        assert "# Student Move" in report
+        lines = report.split("\n")
+        assert any(line.strip() == "2. Nf3" for line in lines)

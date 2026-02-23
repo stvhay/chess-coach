@@ -53,7 +53,9 @@ def _sample_report(**overrides) -> str:
 class TestSerializeReport:
     def test_contains_player_move(self):
         report = _sample_report()
-        assert "# Move 1. e4" in report
+        assert "# Student Move" in report
+        lines = report.split("\n")
+        assert any(line.strip() == "1. e4" for line in lines)
 
     def test_contains_best_line(self):
         report = _sample_report()
@@ -76,10 +78,17 @@ class TestSerializeReport:
         assert "Relevant chess knowledge" not in report
 
     def test_filters_player_move_from_alternatives(self):
-        """Player's own move should not appear as 'Stronger move'."""
+        """Player's own move should not appear as 'Stronger Alternative'."""
         report = _sample_report()
-        assert "Stronger Alternative: e4" not in report
-        assert "Stronger Alternative: d4" in report
+        assert "# Stronger Alternative" in report
+        # e4 (player move) should not appear after the alternative header
+        lines = report.split("\n")
+        in_alt = False
+        for line in lines:
+            if "# Stronger Alternative" in line:
+                in_alt = True
+            if in_alt and line.strip() == "1. e4":
+                assert False, "Player's move appeared as alternative"
 
 
 class TestExplainMove:

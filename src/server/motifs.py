@@ -64,6 +64,7 @@ class RenderContext:
     student_is_white: bool | None
     player_color: str           # "White" or "Black"
     is_threat: bool = False     # True for ply 1+ annotations
+    is_position_description: bool = False  # True when rendering static position
 
 
 # ---------------------------------------------------------------------------
@@ -127,11 +128,21 @@ def render_hanging(hp, ctx: RenderContext) -> tuple[str, bool]:
 
 
 def render_discovered_attack(da, ctx: RenderContext) -> tuple[str, bool]:
-    """Render a discovered attack."""
+    """Render a discovered attack.
+
+    In position context (is_position_description=True) uses "x-ray alignment"
+    since nothing has been "discovered" yet. In change context uses
+    "discovered attack" since a move just created this.
+    """
     is_student = _piece_is_students(da.slider_piece, ctx.student_is_white)
-    desc = (f"discovered attack: {_colored(da.blocker_piece)} on {da.blocker_square} "
-            f"reveals {_colored(da.slider_piece)} on {da.slider_square} targeting "
-            f"{_colored(da.target_piece)} on {da.target_square}")
+    if ctx.is_position_description:
+        desc = (f"x-ray alignment: {_colored(da.slider_piece)} on {da.slider_square} "
+                f"behind {_colored(da.blocker_piece)} on {da.blocker_square} toward "
+                f"{_colored(da.target_piece)} on {da.target_square}")
+    else:
+        desc = (f"discovered attack: {_colored(da.blocker_piece)} on {da.blocker_square} "
+                f"reveals {_colored(da.slider_piece)} on {da.slider_square} targeting "
+                f"{_colored(da.target_piece)} on {da.target_square}")
     return desc, is_student
 
 
@@ -259,6 +270,7 @@ class MotifSpec:
     render_fn: Callable[[Any, RenderContext], tuple[str, bool]]
     filter_fn: Callable[[list, TacticalMotifs], list] | None = None
     cap: int | None = None
+    is_observation: bool = False  # True for latent/structural motifs
 
 
 def _pin_filter(items: list, tactics: TacticalMotifs) -> list:
@@ -303,6 +315,7 @@ MOTIF_REGISTRY: list[MotifSpec] = [
         render_fn=render_discovered_attack,
         filter_fn=_discovered_filter,
         cap=3,
+        is_observation=True,
     ),
     MotifSpec(
         diff_key="double_check", field="double_checks",
@@ -328,6 +341,7 @@ MOTIF_REGISTRY: list[MotifSpec] = [
         diff_key="back_rank", field="back_rank_weaknesses",
         key_fn=lambda t: ("back_rank", t.weak_color, t.king_square),
         render_fn=render_back_rank_weakness,
+        is_observation=True,
     ),
     MotifSpec(
         diff_key="xray", field="xray_attacks",
@@ -335,11 +349,13 @@ MOTIF_REGISTRY: list[MotifSpec] = [
         render_fn=render_xray_attack,
         filter_fn=_xray_filter,
         cap=3,
+        is_observation=True,
     ),
     MotifSpec(
         diff_key="exposed_king", field="exposed_kings",
         key_fn=lambda t: ("exposed_king", t.color, t.king_square),
         render_fn=render_exposed_king,
+        is_observation=True,
     ),
     MotifSpec(
         diff_key="overloaded", field="overloaded_pieces",
@@ -395,13 +411,15 @@ def render_motifs(
     tactics: TacticalMotifs,
     new_types: set[str],
     ctx: RenderContext,
-) -> tuple[list[str], list[str]]:
-    """Render all new motifs, returning (opportunities, threats).
+) -> tuple[list[str], list[str], list[str]]:
+    """Render all new motifs, returning (opportunities, threats, observations).
 
-    Replaces the 14-block if/elif dispatch in describe_changes.
+    Items from specs with is_observation=True go to observations regardless
+    of the opportunity/threat classification.
     """
     opps: list[str] = []
     thrs: list[str] = []
+    obs: list[str] = []
     for spec in MOTIF_REGISTRY:
         if spec.diff_key not in new_types:
             continue
@@ -412,5 +430,10 @@ def render_motifs(
             items = items[:spec.cap]
         for item in items:
             desc, is_opp = spec.render_fn(item, ctx)
-            (opps if is_opp else thrs).append(desc)
-    return opps, thrs
+            if spec.is_observation:
+                obs.append(desc)
+            elif is_opp:
+                opps.append(desc)
+            else:
+                thrs.append(desc)
+    return opps, thrs, obs
