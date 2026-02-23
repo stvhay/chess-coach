@@ -1,4 +1,4 @@
-"""Tests for descriptions.py — motif renderers, tactic diffing, describe functions."""
+"""Tests for descriptions.py — tactic diffing, describe functions."""
 
 import chess
 import pytest
@@ -11,13 +11,15 @@ from server.analysis import (
     TacticalMotifs,
 )
 from server.descriptions import (
-    RenderContext,
     TacticDiff,
-    _colored,
-    _piece_is_students,
     diff_tactics,
     describe_changes,
     describe_position,
+)
+from server.motifs import (
+    RenderContext,
+    _colored,
+    _piece_is_students,
     render_fork,
     render_hanging,
     render_pin,

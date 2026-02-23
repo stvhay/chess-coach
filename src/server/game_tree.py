@@ -23,6 +23,7 @@ from server.analysis import (
 )
 from server.elo_profiles import EloProfile
 from server.engine import EngineAnalysis, Evaluation, LineInfo
+from server.motifs import motif_labels as _motif_labels
 
 
 @dataclass
@@ -442,8 +443,8 @@ def _rank_nodes_by_teachability(
                 score += 100.0
 
         # High-value motifs
-        HIGH_VALUE = {"double_check", "trapped_piece"}
-        MODERATE_VALUE = {"xray_attack", "exposed_king", "overloaded_piece",
+        HIGH_VALUE = {"double_check", "trapped"}
+        MODERATE_VALUE = {"xray", "exposed_king", "overloaded",
                           "capturable_defender"}
         MATE_PREFIX = "mate_"
 
@@ -492,37 +493,3 @@ def _get_continuation_chain(node: GameNode) -> list[GameNode]:
     return chain
 
 
-def _motif_labels(tactics: TacticalMotifs, board: chess.Board | None = None) -> set[str]:
-    """Extract motif type labels from TacticalMotifs — same logic as annotator._motif_set."""
-    motifs: set[str] = set()
-    if tactics.pins:
-        motifs.add("pin")
-    if tactics.forks:
-        motifs.add("fork")
-    if tactics.skewers:
-        motifs.add("skewer")
-    if tactics.hanging:
-        motifs.add("hanging_piece")
-    if tactics.discovered_attacks:
-        motifs.add("discovered_attack")
-    if tactics.double_checks:
-        motifs.add("double_check")
-    if tactics.trapped_pieces:
-        motifs.add("trapped_piece")
-    for mp in tactics.mate_patterns:
-        motifs.add(f"mate_{mp.pattern}")
-    if tactics.mate_threats:
-        motifs.add("mate_threat")
-    if tactics.back_rank_weaknesses:
-        motifs.add("back_rank_weakness")
-    if tactics.xray_attacks:
-        motifs.add("xray_attack")
-    if tactics.exposed_kings:
-        motifs.add("exposed_king")
-    if tactics.overloaded_pieces:
-        motifs.add("overloaded_piece")
-    if tactics.capturable_defenders:
-        motifs.add("capturable_defender")
-    if board is not None and board.is_checkmate():
-        motifs.add("checkmate")
-    return motifs
