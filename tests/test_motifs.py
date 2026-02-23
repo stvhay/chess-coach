@@ -4,6 +4,7 @@ import chess
 
 from server.analysis import (
     BackRankWeakness,
+    DiscoveredAttack,
     Fork,
     HangingPiece,
     MatePattern,
@@ -12,6 +13,7 @@ from server.analysis import (
     TacticalMotifs,
     XRayAttack,
 )
+from server.analysis import _colored
 from server.motifs import (
     MOTIF_REGISTRY,
     MotifSpec,
@@ -23,7 +25,6 @@ from server.motifs import (
     render_pin,
     render_skewer,
     render_motifs,
-    _colored,
     _piece_is_students,
     _dedup_ray_motifs,
 )
@@ -271,6 +272,36 @@ class TestRayDedup:
         assert len(result["pins"]) == 1
         assert len(result["xray_attacks"]) == 1
 
+    def test_discovered_deduped_against_xray(self):
+        """X-ray and discovered attack on same ray -> keep x-ray only."""
+        # B on g4 x-rays through Nf3 to Qd1
+        xa = XRayAttack(
+            slider_square="g4", slider_piece="b",
+            through_square="f3", through_piece="N",
+            target_square="d1", target_piece="Q",
+        )
+        # Q on d1 discovers through Nf3 to Bg4
+        da = DiscoveredAttack(
+            blocker_square="f3", blocker_piece="N",
+            slider_square="d1", slider_piece="Q",
+            target_square="g4", target_piece="b",
+        )
+        tactics = TacticalMotifs(xray_attacks=[xa], discovered_attacks=[da])
+        result = _dedup_ray_motifs(tactics)
+        assert len(result["xray_attacks"]) == 1
+        assert len(result["discovered_attacks"]) == 0
+
+    def test_discovered_kept_when_no_xray(self):
+        """Discovered attack with no competing motif survives dedup."""
+        da = DiscoveredAttack(
+            blocker_square="f3", blocker_piece="N",
+            slider_square="d1", slider_piece="Q",
+            target_square="g4", target_piece="b",
+        )
+        tactics = TacticalMotifs(discovered_attacks=[da])
+        result = _dedup_ray_motifs(tactics)
+        assert len(result["discovered_attacks"]) == 1
+
     def test_empty_tactics_empty_result(self):
         result = _dedup_ray_motifs(TacticalMotifs())
-        assert result == {"pins": [], "skewers": [], "xray_attacks": []}
+        assert result == {"pins": [], "skewers": [], "xray_attacks": [], "discovered_attacks": []}

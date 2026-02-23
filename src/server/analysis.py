@@ -15,19 +15,36 @@ import chess
 
 CENTER_SQUARES = [chess.D4, chess.E4, chess.D5, chess.E5]
 
-PIECE_VALUES = {
-    chess.PAWN: 1,
-    chess.KNIGHT: 3,
-    chess.BISHOP: 3,
-    chess.ROOK: 5,
-    chess.QUEEN: 9,
-    chess.KING: 0,
-}
+def get_piece_value(piece_type: chess.PieceType, *, king=None) -> int:
+    """Get standard piece value. King value must be explicitly provided.
+
+    king=None (default) causes TypeError if caller forgets to handle king,
+    which is the desired behavior — forces explicit handling.
+    """
+    return {
+        chess.PAWN: 1, chess.KNIGHT: 3, chess.BISHOP: 3,
+        chess.ROOK: 5, chess.QUEEN: 9, chess.KING: king,
+    }[piece_type]
+
+
+# Shared field mapping for MaterialCount ↔ piece values
+_PIECE_FIELDS: list[tuple[str, chess.PieceType, int]] = [
+    ("pawns", chess.PAWN, 1),
+    ("knights", chess.KNIGHT, 3),
+    ("bishops", chess.BISHOP, 3),
+    ("rooks", chess.ROOK, 5),
+    ("queens", chess.QUEEN, 9),
+]
 
 def _colored(piece_char: str) -> str:
     """Add color prefix: 'N' → 'White N', 'p' → 'Black P'."""
     color = "White" if piece_char.isupper() else "Black"
     return f"{color} {piece_char.upper()}"
+
+
+def _color_name(color: chess.Color) -> str:
+    """Convert chess.Color bool to lowercase string."""
+    return "white" if color == chess.WHITE else "black"
 
 
 STARTING_MINORS = {
@@ -86,13 +103,7 @@ def _count_material(board: chess.Board, color: chess.Color) -> MaterialCount:
 
 
 def _material_total(mc: MaterialCount) -> int:
-    return (
-        mc.pawns * 1
-        + mc.knights * 3
-        + mc.bishops * 3
-        + mc.rooks * 5
-        + mc.queens * 9
-    )
+    return sum(getattr(mc, fname) * val for fname, _, val in _PIECE_FIELDS)
 
 
 def analyze_material(board: chess.Board) -> MaterialInfo:
@@ -106,8 +117,14 @@ def analyze_material(board: chess.Board) -> MaterialInfo:
         white_total=wt,
         black_total=bt,
         imbalance=wt - bt,
-        white_bishop_pair=wc.bishops >= 2,
-        black_bishop_pair=bc.bishops >= 2,
+        white_bishop_pair=(
+            bool(board.pieces(chess.BISHOP, chess.WHITE) & chess.BB_LIGHT_SQUARES)
+            and bool(board.pieces(chess.BISHOP, chess.WHITE) & chess.BB_DARK_SQUARES)
+        ),
+        black_bishop_pair=(
+            bool(board.pieces(chess.BISHOP, chess.BLACK) & chess.BB_LIGHT_SQUARES)
+            and bool(board.pieces(chess.BISHOP, chess.BLACK) & chess.BB_DARK_SQUARES)
+        ),
     )
 
 
@@ -135,161 +152,135 @@ class PawnStructure:
     black_islands: int = 0
 
 
-def _pawn_files(board: chess.Board, color: chess.Color) -> set[int]:
-    """Return set of file indices (0-7) that have pawns of the given color."""
-    return {chess.square_file(sq) for sq in board.pieces(chess.PAWN, color)}
+@dataclass
+class _FilePawnInfo:
+    """Per-file pawn data for one color."""
+    white_ranks: list[int]  # ranks of white pawns on this file (sorted)
+    black_ranks: list[int]  # ranks of black pawns on this file (sorted)
 
 
-def _count_islands(files: set[int]) -> int:
-    if not files:
+def _build_file_pawn_info(board: chess.Board) -> list[_FilePawnInfo]:
+    """Pass 1: Build per-file pawn data for both colors."""
+    files = []
+    for f in range(8):
+        file_bb = chess.BB_FILES[f]
+        w_pawns = board.pieces(chess.PAWN, chess.WHITE) & file_bb
+        b_pawns = board.pieces(chess.PAWN, chess.BLACK) & file_bb
+        files.append(_FilePawnInfo(
+            white_ranks=sorted(chess.square_rank(sq) for sq in w_pawns),
+            black_ranks=sorted(chess.square_rank(sq) for sq in b_pawns),
+        ))
+    return files
+
+
+def _count_islands(file_info: list[_FilePawnInfo], color: chess.Color) -> int:
+    """Count pawn islands from file info."""
+    occupied = []
+    for f in range(8):
+        ranks = file_info[f].white_ranks if color == chess.WHITE else file_info[f].black_ranks
+        if ranks:
+            occupied.append(f)
+    if not occupied:
         return 0
-    sorted_files = sorted(files)
     islands = 1
-    for i in range(1, len(sorted_files)):
-        if sorted_files[i] > sorted_files[i - 1] + 1:
+    for i in range(1, len(occupied)):
+        if occupied[i] > occupied[i - 1] + 1:
             islands += 1
     return islands
 
 
-def _is_isolated(board: chess.Board, sq: int, color: chess.Color) -> bool:
-    f = chess.square_file(sq)
-    adj_files = [af for af in (f - 1, f + 1) if 0 <= af <= 7]
-    for af in adj_files:
-        file_bb = chess.BB_FILES[af]
-        if board.pieces(chess.PAWN, color) & file_bb:
-            return False
-    return True
-
-
-def _is_doubled(board: chess.Board, sq: int, color: chess.Color) -> bool:
-    f = chess.square_file(sq)
-    file_bb = chess.BB_FILES[f]
-    pawns_on_file = board.pieces(chess.PAWN, color) & file_bb
-    return len(pawns_on_file) > 1
-
-
-def _is_passed(board: chess.Board, sq: int, color: chess.Color) -> bool:
-    f = chess.square_file(sq)
-    r = chess.square_rank(sq)
+def _annotate_pawns(
+    board: chess.Board,
+    color: chess.Color,
+    file_info: list[_FilePawnInfo],
+) -> list[PawnDetail]:
+    """Pass 2: Annotate each pawn using precomputed file data."""
     enemy = not color
-    check_files = [af for af in (f - 1, f, f + 1) if 0 <= af <= 7]
+    direction = 1 if color == chess.WHITE else -1  # pawn advance direction
 
-    for af in check_files:
-        file_bb = chess.BB_FILES[af]
-        enemy_pawns = board.pieces(chess.PAWN, enemy) & file_bb
-        for ep in enemy_pawns:
-            er = chess.square_rank(ep)
-            if color == chess.WHITE and er > r:
-                return False
-            if color == chess.BLACK and er < r:
-                return False
-    return True
+    def _own(f: int) -> list[int]:
+        return file_info[f].white_ranks if color == chess.WHITE else file_info[f].black_ranks
 
+    def _enemy(f: int) -> list[int]:
+        return file_info[f].black_ranks if color == chess.WHITE else file_info[f].white_ranks
 
-def _is_backward(board: chess.Board, sq: int, color: chess.Color) -> bool:
-    f = chess.square_file(sq)
-    r = chess.square_rank(sq)
-    enemy = not color
-
-    # Stop square: one rank ahead
-    if color == chess.WHITE:
-        if r >= 7:
-            return False
-        stop_sq = chess.square(f, r + 1)
-    else:
-        if r <= 0:
-            return False
-        stop_sq = chess.square(f, r - 1)
-
-    # Stop square must be attacked by enemy pawns
-    enemy_pawn_attackers = board.attackers(enemy, stop_sq) & board.pieces(chess.PAWN, enemy)
-    if not enemy_pawn_attackers:
-        return False
-
-    # No friendly pawn on adjacent files behind or equal rank that could support
-    adj_files = [af for af in (f - 1, f + 1) if 0 <= af <= 7]
-    for af in adj_files:
-        file_bb = chess.BB_FILES[af]
-        friendly_pawns = board.pieces(chess.PAWN, color) & file_bb
-        for fp in friendly_pawns:
-            fr = chess.square_rank(fp)
-            if color == chess.WHITE and fr <= r:
-                return False
-            if color == chess.BLACK and fr >= r:
-                return False
-    return True
-
-
-def _is_chain_member(board: chess.Board, sq: int, color: chess.Color) -> bool:
-    """A pawn is a chain member if a friendly pawn is diagonally behind it."""
-    f = chess.square_file(sq)
-    r = chess.square_rank(sq)
-
-    if color == chess.WHITE:
-        behind_rank = r - 1
-    else:
-        behind_rank = r + 1
-
-    if behind_rank < 0 or behind_rank > 7:
-        return False
-
-    for af in (f - 1, f + 1):
-        if 0 <= af <= 7:
-            behind_sq = chess.square(af, behind_rank)
-            piece = board.piece_at(behind_sq)
-            if piece and piece.piece_type == chess.PAWN and piece.color == color:
-                return True
-    return False
-
-
-def _analyze_pawns_for_color(board: chess.Board, color: chess.Color) -> list[PawnDetail]:
     details = []
     for sq in board.pieces(chess.PAWN, color):
-        isolated = _is_isolated(board, sq, color)
-        doubled = _is_doubled(board, sq, color)
-        passed = _is_passed(board, sq, color)
-        backward = _is_backward(board, sq, color)
-        chain_mem = _is_chain_member(board, sq, color)
-        # Chain base: is a chain member but no friendly pawn diagonally behind
-        # supporting it — i.e., it supports others but is not itself supported.
-        # Actually: chain base = chain member that is NOT supported from behind.
-        # We define "chain base" as a pawn that has a friendly pawn diagonally
-        # ahead but NOT one diagonally behind.
-        chain_base = False
-        if not chain_mem:
-            # Check if this pawn supports another pawn ahead (making it a base)
-            f = chess.square_file(sq)
-            r = chess.square_rank(sq)
-            ahead_rank = r + 1 if color == chess.WHITE else r - 1
-            if 0 <= ahead_rank <= 7:
+        f = chess.square_file(sq)
+        r = chess.square_rank(sq)
+
+        # Doubled: more than one own pawn on this file
+        is_doubled = len(_own(f)) > 1
+
+        # Isolated: no own pawns on adjacent files
+        is_isolated = True
+        for af in (f - 1, f + 1):
+            if 0 <= af <= 7 and _own(af):
+                is_isolated = False
+                break
+
+        # Passed: no enemy pawns on same or adjacent files ahead
+        is_passed = True
+        for cf in range(max(0, f - 1), min(8, f + 2)):
+            for er in _enemy(cf):
+                if (er - r) * direction > 0:  # enemy pawn is ahead
+                    is_passed = False
+                    break
+            if not is_passed:
+                break
+
+        # Backward: stop square attacked by enemy pawn, no friendly pawn on adj files at or behind
+        is_backward = False
+        stop_rank = r + direction
+        if 0 <= stop_rank <= 7:
+            stop_sq = chess.square(f, stop_rank)
+            enemy_pawn_attackers = board.attackers(enemy, stop_sq) & board.pieces(chess.PAWN, enemy)
+            if enemy_pawn_attackers:
+                is_backward = True
                 for af in (f - 1, f + 1):
                     if 0 <= af <= 7:
-                        ahead_sq = chess.square(af, ahead_rank)
-                        piece = board.piece_at(ahead_sq)
-                        if piece and piece.piece_type == chess.PAWN and piece.color == color:
-                            chain_base = True
+                        if any((r - fr) * direction >= 0 for fr in _own(af)):
+                            is_backward = False
                             break
+
+        # Chain member: friendly pawn diagonally behind
+        is_chain_member = False
+        behind_rank = r - direction
+        if 0 <= behind_rank <= 7:
+            for af in (f - 1, f + 1):
+                if 0 <= af <= 7 and behind_rank in _own(af):
+                    is_chain_member = True
+                    break
+
+        # Chain base: not a chain member, but supports a pawn ahead
+        is_chain_base = False
+        if not is_chain_member:
+            ahead_rank = r + direction
+            if 0 <= ahead_rank <= 7:
+                for af in (f - 1, f + 1):
+                    if 0 <= af <= 7 and ahead_rank in _own(af):
+                        is_chain_base = True
+                        break
 
         details.append(PawnDetail(
             square=chess.square_name(sq),
-            is_isolated=isolated,
-            is_doubled=doubled,
-            is_passed=passed,
-            is_backward=backward,
-            is_chain_base=chain_base,
-            is_chain_member=chain_mem,
+            is_isolated=is_isolated,
+            is_doubled=is_doubled,
+            is_passed=is_passed,
+            is_backward=is_backward,
+            is_chain_base=is_chain_base,
+            is_chain_member=is_chain_member,
         ))
     return details
 
 
 def analyze_pawn_structure(board: chess.Board) -> PawnStructure:
-    w_files = _pawn_files(board, chess.WHITE)
-    b_files = _pawn_files(board, chess.BLACK)
+    file_info = _build_file_pawn_info(board)
     return PawnStructure(
-        white=_analyze_pawns_for_color(board, chess.WHITE),
-        black=_analyze_pawns_for_color(board, chess.BLACK),
-        white_islands=_count_islands(w_files),
-        black_islands=_count_islands(b_files),
+        white=_annotate_pawns(board, chess.WHITE, file_info),
+        black=_annotate_pawns(board, chess.BLACK, file_info),
+        white_islands=_count_islands(file_info, chess.WHITE),
+        black_islands=_count_islands(file_info, chess.BLACK),
     )
 
 
@@ -328,18 +319,13 @@ def analyze_king_safety(board: chess.Board, color: chess.Color) -> KingSafety:
     king_rank = chess.square_rank(king_sq)
 
     # Castled heuristic
-    if color == chess.WHITE:
-        castled = "none"
-        if king_sq in (chess.G1, chess.H1):
-            castled = "kingside"
-        elif king_sq in (chess.C1, chess.B1):
-            castled = "queenside"
-    else:
-        castled = "none"
-        if king_sq in (chess.G8, chess.H8):
-            castled = "kingside"
-        elif king_sq in (chess.C8, chess.B8):
-            castled = "queenside"
+    _CASTLED = {
+        chess.G1: "kingside", chess.H1: "kingside",
+        chess.C1: "queenside", chess.B1: "queenside",
+        chess.G8: "kingside", chess.H8: "kingside",
+        chess.C8: "queenside", chess.B8: "queenside",
+    }
+    castled = _CASTLED.get(king_sq, "none")
 
     # Pawn shield: friendly pawns 1-2 ranks ahead on king file +/- 1
     shield_squares = []
@@ -445,6 +431,7 @@ class Pin:
     pinned_to: str  # square of the piece being shielded (king, queen, etc.)
     pinned_to_piece: str = ""  # piece symbol on pinned_to square (e.g. "K", "q")
     is_absolute: bool = False  # pinned to king (piece cannot legally move)
+    color: str = ""  # "white" or "black" — color of the pinner
 
 
 @dataclass
@@ -453,6 +440,7 @@ class Fork:
     forking_piece: str
     targets: list[str]  # squares being forked
     target_pieces: list[str] = field(default_factory=list)  # piece chars on target squares
+    color: str = ""  # "white" or "black" — color of the forking piece
 
 
 @dataclass
@@ -463,6 +451,8 @@ class Skewer:
     front_piece: str
     behind_square: str
     behind_piece: str
+    color: str = ""  # "white" or "black" — color of the attacker
+    is_absolute: bool = False  # True when front piece is the king
 
 
 @dataclass
@@ -483,17 +473,20 @@ class DiscoveredAttack:
     target_square: str
     target_piece: str
     significance: str = "normal"  # "low" for pawn-reveals-rook x-rays, "normal" otherwise
+    color: str = ""  # "white" or "black" — color of the attacking side (slider owner)
 
 
 @dataclass
 class DoubleCheck:
     checker_squares: list[str]
+    color: str = ""  # "white" or "black" — color of the checking side
 
 
 @dataclass
 class TrappedPiece:
     square: str
     piece: str
+    color: str = ""  # "white" or "black" — color of the trapped piece
 
 
 @dataclass
@@ -521,6 +514,18 @@ class XRayAttack:
     through_piece: str
     target_square: str   # valuable target behind
     target_piece: str
+    color: str = ""  # "white" or "black" — color of the slider
+
+
+@dataclass
+class XRayDefense:
+    slider_square: str
+    slider_piece: str
+    through_square: str   # enemy piece between slider and defended piece
+    through_piece: str
+    defended_square: str   # friendly piece being defended through the enemy
+    defended_piece: str
+    color: str = ""  # "white" or "black" — color of the slider
 
 
 @dataclass
@@ -534,6 +539,7 @@ class OverloadedPiece:
     square: str
     piece: str
     defended_squares: list[str]  # attacked targets this piece sole-defends
+    color: str = ""  # "white" or "black" — color of the overloaded piece
 
 
 @dataclass
@@ -543,6 +549,7 @@ class CapturableDefender:
     charge_square: str   # piece being defended
     charge_piece: str
     attacker_square: str  # who can capture the defender
+    color: str = ""  # "white" or "black" — color of the defender
 
 
 @dataclass
@@ -558,50 +565,202 @@ class TacticalMotifs:
     mate_threats: list[MateThreat] = field(default_factory=list)
     back_rank_weaknesses: list[BackRankWeakness] = field(default_factory=list)
     xray_attacks: list[XRayAttack] = field(default_factory=list)
+    xray_defenses: list[XRayDefense] = field(default_factory=list)
     exposed_kings: list[ExposedKing] = field(default_factory=list)
     overloaded_pieces: list[OverloadedPiece] = field(default_factory=list)
     capturable_defenders: list[CapturableDefender] = field(default_factory=list)
 
 
-def _find_pins(board: chess.Board) -> list[Pin]:
-    pins = []
+@dataclass
+class _RayMotifs:
+    """Internal result container for unified ray detection."""
+    pins: list[Pin]
+    skewers: list[Skewer]
+    xray_attacks: list[XRayAttack]
+    xray_defenses: list[XRayDefense]
+    discovered_attacks: list[DiscoveredAttack]
+
+
+_ORTHOGONAL = [(0, 1), (0, -1), (1, 0), (-1, 0)]
+_DIAGONAL = [(1, 1), (1, -1), (-1, 1), (-1, -1)]
+
+_RAY_DIRS: dict[chess.PieceType, list[tuple[int, int]]] = {
+    chess.ROOK: _ORTHOGONAL,
+    chess.BISHOP: _DIAGONAL,
+    chess.QUEEN: _ORTHOGONAL + _DIAGONAL,
+}
+
+
+def _walk_ray(
+    board: chess.Board,
+    start_sq: int,
+    direction: tuple[int, int],
+) -> tuple[int | None, int | None]:
+    """Walk a ray from start_sq, return (first_hit_sq, second_hit_sq) or None."""
+    df, dr = direction
+    f = chess.square_file(start_sq) + df
+    r = chess.square_rank(start_sq) + dr
+    first = None
+    while 0 <= f <= 7 and 0 <= r <= 7:
+        sq = chess.square(f, r)
+        if board.piece_at(sq) is not None:
+            if first is None:
+                first = sq
+            else:
+                return first, sq
+        f += df
+        r += dr
+    return first, None
+
+
+def _find_ray_motifs(board: chess.Board) -> _RayMotifs:
+    """Single-pass ray analysis producing pins, skewers, x-rays, discovered attacks.
+
+    For each slider, walk each ray direction. When two pieces are found along
+    the ray, classify by the colors and values of the intervening and beyond pieces.
+    """
+    pins: list[Pin] = []
+    skewers: list[Skewer] = []
+    xray_attacks: list[XRayAttack] = []
+    xray_defenses: list[XRayDefense] = []
+    discovered: list[DiscoveredAttack] = []
+
     for color in (chess.WHITE, chess.BLACK):
-        king_sq = board.king(color)
-        if king_sq is None:
-            continue
-        for sq in chess.SquareSet(board.occupied_co[color]):
-            if sq == king_sq:
-                continue
-            if board.is_pinned(color, sq):
-                pin_mask = board.pin(color, sq)
-                # Find the pinner: enemy piece on the pin ray
-                enemy = not color
-                for esq in chess.SquareSet(board.occupied_co[enemy]):
-                    if esq in pin_mask:
-                        ep = board.piece_at(esq)
-                        pp = board.piece_at(sq)
-                        if ep and pp and ep.piece_type in (chess.BISHOP, chess.ROOK, chess.QUEEN):
-                            shielded = board.piece_at(king_sq)
+        enemy = not color
+        color_name = _color_name(color)
+
+        for pt in (chess.BISHOP, chess.ROOK, chess.QUEEN):
+            for slider_sq in board.pieces(pt, color):
+                slider_piece = board.piece_at(slider_sq)
+                if slider_piece is None:
+                    continue
+
+                for direction in _RAY_DIRS[pt]:
+                    first_sq, second_sq = _walk_ray(board, slider_sq, direction)
+                    if first_sq is None or second_sq is None:
+                        continue
+
+                    first_piece = board.piece_at(first_sq)
+                    second_piece = board.piece_at(second_sq)
+                    if first_piece is None or second_piece is None:
+                        continue
+
+                    first_color = first_piece.color
+                    second_color = second_piece.color
+
+                    if first_color == enemy and second_color == enemy:
+                        # Both enemy: pin, skewer, or x-ray attack
+                        first_val = get_piece_value(first_piece.piece_type, king=1000)
+                        second_val = get_piece_value(second_piece.piece_type, king=1000)
+
+                        if second_piece.piece_type == chess.KING:
+                            # Absolute pin
                             pins.append(Pin(
-                                pinned_square=chess.square_name(sq),
-                                pinned_piece=pp.symbol(),
-                                pinner_square=chess.square_name(esq),
-                                pinner_piece=ep.symbol(),
-                                pinned_to=chess.square_name(king_sq),
-                                pinned_to_piece=shielded.symbol() if shielded else "",
-                                is_absolute=(king_sq == board.king(color)),
+                                pinned_square=chess.square_name(first_sq),
+                                pinned_piece=first_piece.symbol(),
+                                pinner_square=chess.square_name(slider_sq),
+                                pinner_piece=slider_piece.symbol(),
+                                pinned_to=chess.square_name(second_sq),
+                                pinned_to_piece=second_piece.symbol(),
+                                is_absolute=True,
+                                color=color_name,
                             ))
-    return pins
+                        elif first_val < second_val:
+                            # Relative pin — lower value pinned to higher value
+                            pins.append(Pin(
+                                pinned_square=chess.square_name(first_sq),
+                                pinned_piece=first_piece.symbol(),
+                                pinner_square=chess.square_name(slider_sq),
+                                pinner_piece=slider_piece.symbol(),
+                                pinned_to=chess.square_name(second_sq),
+                                pinned_to_piece=second_piece.symbol(),
+                                is_absolute=False,
+                                color=color_name,
+                            ))
+                        elif first_piece.piece_type == chess.KING:
+                            # Absolute skewer — king must move
+                            skewers.append(Skewer(
+                                attacker_square=chess.square_name(slider_sq),
+                                attacker_piece=slider_piece.symbol(),
+                                front_square=chess.square_name(first_sq),
+                                front_piece=first_piece.symbol(),
+                                behind_square=chess.square_name(second_sq),
+                                behind_piece=second_piece.symbol(),
+                                color=color_name,
+                                is_absolute=True,
+                            ))
+                        elif first_val > second_val:
+                            # Skewer — higher value forced to move
+                            skewers.append(Skewer(
+                                attacker_square=chess.square_name(slider_sq),
+                                attacker_piece=slider_piece.symbol(),
+                                front_square=chess.square_name(first_sq),
+                                front_piece=first_piece.symbol(),
+                                behind_square=chess.square_name(second_sq),
+                                behind_piece=second_piece.symbol(),
+                                color=color_name,
+                                is_absolute=False,
+                            ))
+                        else:
+                            # Equal or lower front value, beyond not king = x-ray attack
+                            xray_attacks.append(XRayAttack(
+                                slider_square=chess.square_name(slider_sq),
+                                slider_piece=slider_piece.symbol(),
+                                through_square=chess.square_name(first_sq),
+                                through_piece=first_piece.symbol(),
+                                target_square=chess.square_name(second_sq),
+                                target_piece=second_piece.symbol(),
+                                color=color_name,
+                            ))
+
+                    elif first_color == enemy and second_color == color:
+                        # Enemy then friendly = x-ray defense
+                        xray_defenses.append(XRayDefense(
+                            slider_square=chess.square_name(slider_sq),
+                            slider_piece=slider_piece.symbol(),
+                            through_square=chess.square_name(first_sq),
+                            through_piece=first_piece.symbol(),
+                            defended_square=chess.square_name(second_sq),
+                            defended_piece=second_piece.symbol(),
+                            color=color_name,
+                        ))
+
+                    elif first_color == color and second_color == enemy:
+                        # Friendly then enemy = potential discovered attack
+                        # Significance based on target type
+                        sig = "normal"
+                        if second_piece.piece_type == chess.KING:
+                            sig = "check"
+                        elif (first_piece.piece_type == chess.PAWN
+                              and pt == chess.ROOK
+                              and get_piece_value(second_piece.piece_type, king=0) <= 1):
+                            sig = "low"
+                        discovered.append(DiscoveredAttack(
+                            blocker_square=chess.square_name(first_sq),
+                            blocker_piece=first_piece.symbol(),
+                            slider_square=chess.square_name(slider_sq),
+                            slider_piece=slider_piece.symbol(),
+                            target_square=chess.square_name(second_sq),
+                            target_piece=second_piece.symbol(),
+                            significance=sig,
+                            color=color_name,
+                        ))
+
+    return _RayMotifs(
+        pins=pins, skewers=skewers, xray_attacks=xray_attacks,
+        xray_defenses=xray_defenses, discovered_attacks=discovered,
+    )
 
 
 def _find_forks(board: chess.Board) -> list[Fork]:
     forks = []
     for color in (chess.WHITE, chess.BLACK):
+        color_name = _color_name(color)
         for sq in chess.SquareSet(board.occupied_co[color]):
             piece = board.piece_at(sq)
             if piece is None:
                 continue
-            piece_val = PIECE_VALUES.get(piece.piece_type, 0)
+            piece_val = get_piece_value(piece.piece_type, king=1000)
             attacks = board.attacks(sq)
             enemy = not color
             targets = []
@@ -609,7 +768,7 @@ def _find_forks(board: chess.Board) -> list[Fork]:
             for target_sq in attacks:
                 target_piece = board.piece_at(target_sq)
                 if target_piece and target_piece.color == enemy:
-                    target_val = PIECE_VALUES.get(target_piece.piece_type, 0)
+                    target_val = get_piece_value(target_piece.piece_type, king=1000)
                     if target_val >= piece_val or target_piece.piece_type == chess.KING:
                         targets.append(chess.square_name(target_sq))
                         target_pieces.append(target_piece.symbol())
@@ -619,71 +778,9 @@ def _find_forks(board: chess.Board) -> list[Fork]:
                     forking_piece=piece.symbol(),
                     targets=targets,
                     target_pieces=target_pieces,
+                    color=color_name,
                 ))
     return forks
-
-
-def _find_skewers(board: chess.Board) -> list[Skewer]:
-    skewers = []
-    for color in (chess.WHITE, chess.BLACK):
-        enemy = not color
-        for pt in (chess.BISHOP, chess.ROOK, chess.QUEEN):
-            for sq in board.pieces(pt, color):
-                piece = board.piece_at(sq)
-                attacks = board.attacks(sq)
-                for target_sq in attacks:
-                    target_piece = board.piece_at(target_sq)
-                    if target_piece is None or target_piece.color != enemy:
-                        continue
-                    # Check if there's an occupied square between attacker and target
-                    between_mask = chess.between(sq, target_sq) & board.occupied
-                    if between_mask:
-                        continue  # blocked, not a direct attack
-                    # Extend ray past target
-                    ray_mask = chess.ray(sq, target_sq)
-                    if not ray_mask:
-                        continue
-                    # Squares past target on the ray
-                    beyond = ray_mask & ~chess.BB_SQUARES[sq] & ~chess.BB_SQUARES[target_sq]
-                    # Remove squares between sq and target_sq
-                    beyond = beyond & ~chess.between(sq, target_sq)
-                    # Find the first enemy piece in the beyond direction
-                    # We need to iterate in order from target_sq outward
-                    file_diff = chess.square_file(target_sq) - chess.square_file(sq)
-                    rank_diff = chess.square_rank(target_sq) - chess.square_rank(sq)
-                    df = (1 if file_diff > 0 else -1) if file_diff != 0 else 0
-                    dr = (1 if rank_diff > 0 else -1) if rank_diff != 0 else 0
-
-                    cur_f = chess.square_file(target_sq) + df
-                    cur_r = chess.square_rank(target_sq) + dr
-                    found_behind = None
-                    while 0 <= cur_f <= 7 and 0 <= cur_r <= 7:
-                        csq = chess.square(cur_f, cur_r)
-                        occ = board.piece_at(csq)
-                        if occ is not None:
-                            if occ.color == enemy:
-                                found_behind = (csq, occ)
-                            break  # blocked
-                        cur_f += df
-                        cur_r += dr
-
-                    if found_behind:
-                        behind_sq, behind_piece = found_behind
-                        # Skewer: front piece is more valuable (or king),
-                        # so it must move, exposing the piece behind
-                        front_val = PIECE_VALUES.get(target_piece.piece_type, 0)
-                        behind_val = PIECE_VALUES.get(behind_piece.piece_type, 0)
-                        if front_val < behind_val and target_piece.piece_type != chess.KING:
-                            continue
-                        skewers.append(Skewer(
-                            attacker_square=chess.square_name(sq),
-                            attacker_piece=piece.symbol(),
-                            front_square=chess.square_name(target_sq),
-                            front_piece=target_piece.symbol(),
-                            behind_square=chess.square_name(behind_sq),
-                            behind_piece=behind_piece.symbol(),
-                        ))
-    return skewers
 
 
 def _find_hanging(board: chess.Board) -> list[HangingPiece]:
@@ -715,69 +812,20 @@ def _find_hanging(board: chess.Board) -> list[HangingPiece]:
                     square=chess.square_name(sq),
                     piece=piece.symbol(),
                     attacker_squares=[chess.square_name(a) for a in attackers],
-                    color="white" if color == chess.WHITE else "black",
+                    color=_color_name(color),
                     can_retreat=can_retreat,
                 ))
     return hanging
 
 
-def _find_discovered_attacks(board: chess.Board) -> list[DiscoveredAttack]:
-    discovered = []
-    for color in (chess.WHITE, chess.BLACK):
-        enemy = not color
-        # For each friendly slider, check if a single friendly piece blocks its ray to an enemy
-        for pt in (chess.BISHOP, chess.ROOK, chess.QUEEN):
-            for slider_sq in board.pieces(pt, color):
-                # Check rays to enemy pieces
-                for target_sq in chess.SquareSet(board.occupied_co[enemy]):
-                    target_piece = board.piece_at(target_sq)
-                    if target_piece is None:
-                        continue
-                    ray = chess.ray(slider_sq, target_sq)
-                    if not ray:
-                        continue
-                    # Verify the slider can actually attack along this ray
-                    # (bishops on diagonals, rooks on ranks/files)
-                    if pt == chess.BISHOP:
-                        if chess.square_file(slider_sq) == chess.square_file(target_sq):
-                            continue
-                        if chess.square_rank(slider_sq) == chess.square_rank(target_sq):
-                            continue
-                    elif pt == chess.ROOK:
-                        if chess.square_file(slider_sq) != chess.square_file(target_sq) and \
-                           chess.square_rank(slider_sq) != chess.square_rank(target_sq):
-                            continue
-
-                    between_mask = chess.between(slider_sq, target_sq)
-                    blockers = chess.SquareSet(between_mask & board.occupied)
-                    if len(blockers) == 1:
-                        blocker_sq = list(blockers)[0]
-                        blocker_piece = board.piece_at(blocker_sq)
-                        if blocker_piece and blocker_piece.color == color:
-                            # Significance: pawn blocking a rook on a distant
-                            # file is nearly always pedagogically worthless
-                            sig = "normal"
-                            if (blocker_piece.piece_type == chess.PAWN
-                                    and pt == chess.ROOK
-                                    and PIECE_VALUES.get(target_piece.piece_type, 0) <= 1):
-                                sig = "low"
-                            discovered.append(DiscoveredAttack(
-                                blocker_square=chess.square_name(blocker_sq),
-                                blocker_piece=blocker_piece.symbol(),
-                                slider_square=chess.square_name(slider_sq),
-                                slider_piece=board.piece_at(slider_sq).symbol(),
-                                target_square=chess.square_name(target_sq),
-                                target_piece=target_piece.symbol(),
-                                significance=sig,
-                            ))
-    return discovered
-
-
 def _find_double_checks(board: chess.Board) -> list[DoubleCheck]:
     """Detect double check (two pieces giving check simultaneously)."""
     if board.is_check() and len(board.checkers()) > 1:
+        # The checking side is the side NOT to move (they just moved)
+        checking_color = _color_name(not board.turn)
         return [DoubleCheck(
-            checker_squares=[chess.square_name(sq) for sq in board.checkers()]
+            checker_squares=[chess.square_name(sq) for sq in board.checkers()],
+            color=checking_color,
         )]
     return []
 
@@ -796,6 +844,7 @@ def _find_trapped_pieces(board: chess.Board) -> list[TrappedPiece]:
             trapped.append(TrappedPiece(
                 square=chess.square_name(sq),
                 piece=piece.symbol(),
+                color=_color_name(board.turn),
             ))
     return trapped
 
@@ -845,7 +894,7 @@ def _find_mate_threats(board: chess.Board) -> list[MateThreat]:
     for move in board.legal_moves:
         board.push(move)
         if board.is_checkmate():
-            color_name = "white" if board.turn == chess.BLACK else "black"
+            color_name = _color_name(not board.turn)
             threats.append(MateThreat(
                 threatening_color=color_name,
                 mating_square=chess.square_name(move.to_square),
@@ -890,72 +939,10 @@ def _find_back_rank_weaknesses(board: chess.Board) -> list[BackRankWeakness]:
         )
         if has_heavy:
             weaknesses.append(BackRankWeakness(
-                weak_color="white" if color == chess.WHITE else "black",
+                weak_color=_color_name(color),
                 king_square=chess.square_name(king_sq),
             ))
     return weaknesses
-
-
-def _find_xray_attacks(board: chess.Board) -> list[XRayAttack]:
-    """Find x-ray attacks: slider attacks through an enemy piece to a target behind."""
-    xrays = []
-    for color in (chess.WHITE, chess.BLACK):
-        enemy = not color
-        for pt in (chess.BISHOP, chess.ROOK, chess.QUEEN):
-            for slider_sq in board.pieces(pt, color):
-                slider_piece = board.piece_at(slider_sq)
-                if slider_piece is None:
-                    continue
-                # Check rays to enemy pieces that have another enemy piece behind
-                for through_sq in chess.SquareSet(board.occupied_co[enemy]):
-                    through_piece = board.piece_at(through_sq)
-                    if through_piece is None:
-                        continue
-                    ray = chess.ray(slider_sq, through_sq)
-                    if not ray:
-                        continue
-                    # Verify slider type matches the ray direction
-                    if pt == chess.BISHOP:
-                        if chess.square_file(slider_sq) == chess.square_file(through_sq):
-                            continue
-                        if chess.square_rank(slider_sq) == chess.square_rank(through_sq):
-                            continue
-                    elif pt == chess.ROOK:
-                        if chess.square_file(slider_sq) != chess.square_file(through_sq) and \
-                           chess.square_rank(slider_sq) != chess.square_rank(through_sq):
-                            continue
-                    # Must be a direct attack on through_sq (no pieces between)
-                    between = chess.between(slider_sq, through_sq)
-                    if chess.SquareSet(between & board.occupied):
-                        continue
-                    # Look for an enemy target behind through_sq on the same ray
-                    file_diff = chess.square_file(through_sq) - chess.square_file(slider_sq)
-                    rank_diff = chess.square_rank(through_sq) - chess.square_rank(slider_sq)
-                    df = (1 if file_diff > 0 else -1) if file_diff != 0 else 0
-                    dr = (1 if rank_diff > 0 else -1) if rank_diff != 0 else 0
-                    cur_f = chess.square_file(through_sq) + df
-                    cur_r = chess.square_rank(through_sq) + dr
-                    while 0 <= cur_f <= 7 and 0 <= cur_r <= 7:
-                        csq = chess.square(cur_f, cur_r)
-                        occ = board.piece_at(csq)
-                        if occ is not None:
-                            if occ.color == enemy:
-                                target_val = PIECE_VALUES.get(occ.piece_type, 0)
-                                through_val = PIECE_VALUES.get(through_piece.piece_type, 0)
-                                # Only interesting if target is valuable (>= through piece or king)
-                                if target_val >= through_val or occ.piece_type == chess.KING:
-                                    xrays.append(XRayAttack(
-                                        slider_square=chess.square_name(slider_sq),
-                                        slider_piece=slider_piece.symbol(),
-                                        through_square=chess.square_name(through_sq),
-                                        through_piece=through_piece.symbol(),
-                                        target_square=chess.square_name(csq),
-                                        target_piece=occ.symbol(),
-                                    ))
-                            break  # blocked by any piece
-                        cur_f += df
-                        cur_r += dr
-    return xrays
 
 
 def _find_exposed_kings(board: chess.Board) -> list[ExposedKing]:
@@ -969,7 +956,7 @@ def _find_exposed_kings(board: chess.Board) -> list[ExposedKing]:
             king_sq = board.king(opponent)
             if king_sq is not None:
                 exposed.append(ExposedKing(
-                    color="white" if opponent == chess.WHITE else "black",
+                    color=_color_name(opponent),
                     king_square=chess.square_name(king_sq),
                 ))
     return exposed
@@ -1005,14 +992,13 @@ def _find_overloaded_pieces(board: chess.Board) -> list[OverloadedPiece]:
                     square=chess.square_name(sq),
                     piece=piece.symbol(),
                     defended_squares=[chess.square_name(s) for s in sole_defended],
+                    color=_color_name(color),
                 ))
     return overloaded
 
 
 def _find_capturable_defenders(board: chess.Board) -> list[CapturableDefender]:
     """Find defenders that can be captured, leaving their charge hanging."""
-    from server.lichess_tactics import is_hanging as _lichess_is_hanging
-
     results = []
     for color in (chess.WHITE, chess.BLACK):
         enemy = not color
@@ -1040,7 +1026,7 @@ def _find_capturable_defenders(board: chess.Board) -> list[CapturableDefender]:
                 if other_defenders:
                     continue
                 # The charge must be worth enough to matter
-                charge_val = PIECE_VALUES.get(charge.piece_type, 0)
+                charge_val = get_piece_value(charge.piece_type, king=0)
                 if charge_val < 3:
                     continue
                 # Pick the first attacker of the defender
@@ -1051,23 +1037,26 @@ def _find_capturable_defenders(board: chess.Board) -> list[CapturableDefender]:
                     charge_square=chess.square_name(charge_sq),
                     charge_piece=charge.symbol(),
                     attacker_square=chess.square_name(first_attacker),
+                    color=_color_name(color),
                 ))
     return results
 
 
 def analyze_tactics(board: chess.Board) -> TacticalMotifs:
+    ray = _find_ray_motifs(board)
     return TacticalMotifs(
-        pins=_find_pins(board),
+        pins=ray.pins,
         forks=_find_forks(board),
-        skewers=_find_skewers(board),
+        skewers=ray.skewers,
         hanging=_find_hanging(board),
-        discovered_attacks=_find_discovered_attacks(board),
+        discovered_attacks=ray.discovered_attacks,
         double_checks=_find_double_checks(board),
         trapped_pieces=_find_trapped_pieces(board),
         mate_patterns=_find_mate_patterns(board),
         mate_threats=_find_mate_threats(board),
         back_rank_weaknesses=_find_back_rank_weaknesses(board),
-        xray_attacks=_find_xray_attacks(board),
+        xray_attacks=ray.xray_attacks,
+        xray_defenses=ray.xray_defenses,
         exposed_kings=_find_exposed_kings(board),
         overloaded_pieces=_find_overloaded_pieces(board),
         capturable_defenders=_find_capturable_defenders(board),
@@ -1423,7 +1412,7 @@ def summarize_position(report: PositionReport) -> str:
 def analyze(board: chess.Board) -> PositionReport:
     return PositionReport(
         fen=board.fen(),
-        turn="white" if board.turn == chess.WHITE else "black",
+        turn=_color_name(board.turn),
         fullmove_number=board.fullmove_number,
         is_check=board.is_check(),
         is_checkmate=board.is_checkmate(),

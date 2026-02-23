@@ -14,17 +14,12 @@ from typing import Any, Callable
 
 import chess
 
-from server.analysis import TacticalMotifs
+from server.analysis import TacticalMotifs, _colored
 
 
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
-
-def _colored(piece_char: str) -> str:
-    """Add color prefix: 'N' -> 'White N', 'p' -> 'Black P'."""
-    color = "White" if piece_char.isupper() else "Black"
-    return f"{color} {piece_char.upper()}"
 
 
 def _piece_is_students(piece_char: str, student_is_white: bool | None) -> bool:
@@ -218,33 +213,46 @@ def render_capturable_defender(cd, ctx: RenderContext) -> tuple[str, bool]:
 # Ray deduplication
 # ---------------------------------------------------------------------------
 
-def _dedup_ray_motifs(tactics: TacticalMotifs) -> dict[str, list]:
-    """Remove geometric duplicates among pins, skewers, and x-rays.
+def _canonical_ray_key(sq_a: str, sq_b: str) -> tuple[str, str]:
+    """Canonical key for a ray — sorted endpoint pair.
 
-    Groups by (attacker_square, normalized_direction) and keeps highest priority:
-    absolute pin > non-absolute pin > skewer > x-ray.
-
-    Returns dict with keys "pins", "skewers", "xray_attacks" -> filtered lists.
+    Using sorted endpoints means opposite-direction motifs on the same
+    physical ray share a key (e.g. Bg4→Qd1 and Qd1→Bg4).
     """
-    groups: dict[tuple[str, tuple[int, int]], list[tuple[int, str, object]]] = {}
+    return tuple(sorted([sq_a, sq_b]))
+
+
+def _dedup_ray_motifs(tactics: TacticalMotifs) -> dict[str, list]:
+    """Remove geometric duplicates among pins, skewers, x-rays, and discovered attacks.
+
+    Groups by canonical ray endpoints and keeps highest priority:
+    absolute pin (0) > non-absolute pin (1) > skewer (2) > x-ray (3) > discovered (4).
+
+    Returns dict with keys "pins", "skewers", "xray_attacks",
+    "discovered_attacks" -> filtered lists.
+    """
+    groups: dict[tuple[str, str], list[tuple[int, str, object]]] = {}
 
     for pin in tactics.pins:
-        direction = _ray_direction(pin.pinner_square, pin.pinned_square)
-        key = (pin.pinner_square, direction)
+        key = _canonical_ray_key(pin.pinner_square, pin.pinned_to)
         priority = 0 if pin.is_absolute else 1
         groups.setdefault(key, []).append((priority, "pins", pin))
 
     for skewer in tactics.skewers:
-        direction = _ray_direction(skewer.attacker_square, skewer.front_square)
-        key = (skewer.attacker_square, direction)
+        key = _canonical_ray_key(skewer.attacker_square, skewer.behind_square)
         groups.setdefault(key, []).append((2, "skewers", skewer))
 
     for xa in tactics.xray_attacks:
-        direction = _ray_direction(xa.slider_square, xa.through_square)
-        key = (xa.slider_square, direction)
+        key = _canonical_ray_key(xa.slider_square, xa.target_square)
         groups.setdefault(key, []).append((3, "xray_attacks", xa))
 
-    result: dict[str, list] = {"pins": [], "skewers": [], "xray_attacks": []}
+    for da in tactics.discovered_attacks:
+        key = _canonical_ray_key(da.slider_square, da.target_square)
+        groups.setdefault(key, []).append((4, "discovered_attacks", da))
+
+    result: dict[str, list] = {
+        "pins": [], "skewers": [], "xray_attacks": [], "discovered_attacks": [],
+    }
     for entries in groups.values():
         entries.sort(key=lambda e: e[0])
         _, typ, obj = entries[0]
@@ -283,7 +291,8 @@ def _xray_filter(items: list, tactics: TacticalMotifs) -> list:
     return _dedup_ray_motifs(tactics)["xray_attacks"]
 
 def _discovered_filter(items: list, tactics: TacticalMotifs) -> list:
-    return [da for da in items if _is_significant_discovery(da)]
+    deduped = _dedup_ray_motifs(tactics)["discovered_attacks"]
+    return [da for da in deduped if _is_significant_discovery(da)]
 
 
 MOTIF_REGISTRY: list[MotifSpec] = [

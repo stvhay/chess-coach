@@ -1,6 +1,7 @@
 """Tests for the position analysis module using well-known positions."""
 
 import chess
+import pytest
 
 from server.analysis import (
     analyze,
@@ -13,6 +14,7 @@ from server.analysis import (
     analyze_pawn_structure,
     analyze_space,
     analyze_tactics,
+    get_piece_value,
 )
 
 
@@ -72,6 +74,46 @@ class TestMaterial:
         assert m.white_total == 0
         assert m.black_total == 0
         assert m.white_bishop_pair is False
+
+    def test_bishop_pair_requires_opposite_colors(self):
+        """Two bishops on same color squares is not a bishop pair."""
+        # c3 is dark (file 2 + rank 2 = even), e3 is dark (file 4 + rank 2 = even)
+        board = chess.Board("8/8/8/8/8/2B1B3/8/4K2k w - - 0 1")
+        m = analyze_material(board)
+        assert m.white_bishop_pair is False
+
+    def test_bishop_pair_opposite_colors(self):
+        """Two bishops on different color squares is a bishop pair."""
+        # c1 is dark (file 2 + rank 0 = even), f1 is light (file 5 + rank 0 = odd)
+        # python-chess: BB_LIGHT_SQUARES has squares where file+rank is odd
+        board = chess.Board("8/8/8/8/8/8/8/2B2BK1 b - - 0 1")
+        m = analyze_material(board)
+        assert m.white_bishop_pair is True
+
+
+# ---------------------------------------------------------------------------
+# get_piece_value
+# ---------------------------------------------------------------------------
+
+
+class TestGetPieceValue:
+    def test_standard_pieces(self):
+        assert get_piece_value(chess.PAWN) == 1
+        assert get_piece_value(chess.KNIGHT) == 3
+        assert get_piece_value(chess.BISHOP) == 3
+        assert get_piece_value(chess.ROOK) == 5
+        assert get_piece_value(chess.QUEEN) == 9
+
+    def test_king_requires_explicit(self):
+        """King value must be explicitly provided — None default causes TypeError in comparisons."""
+        val = get_piece_value(chess.KING)
+        assert val is None
+        with pytest.raises(TypeError):
+            val >= 3  # using None in comparison raises TypeError
+
+    def test_king_explicit(self):
+        assert get_piece_value(chess.KING, king=0) == 0
+        assert get_piece_value(chess.KING, king=1000) == 1000
 
 
 # ---------------------------------------------------------------------------
@@ -298,6 +340,17 @@ class TestTactics:
         assert skewer.front_square == "a5"
         assert skewer.behind_square == "a8"
 
+    def test_skewer_rejects_equal_value_pieces(self):
+        # Bishop on c1 attacks pawns on e3 and g5 along same diagonal
+        # Both are pawns (value 1) — equal value means no skewer
+        board = chess.Board("7k/8/8/6p1/8/4p3/8/2B1K3 w - - 0 1")
+        t = analyze_tactics(board)
+        skewers = [s for s in t.skewers
+                    if s.attacker_square == "c1"
+                    and s.front_square == "e3"
+                    and s.behind_square == "g5"]
+        assert len(skewers) == 0
+
     def test_discovered_attack(self):
         # White bishop on a1, white knight on d4 blocks diagonal to black queen on h8
         board = chess.Board("7q/8/8/8/3N4/8/8/B3K2k w - - 0 1")
@@ -314,6 +367,86 @@ class TestTactics:
                 if d.slider_square == "a1" and d.blocker_square == "a3"]
         assert len(disc) >= 1
         assert disc[0].significance == "low"
+
+
+# ---------------------------------------------------------------------------
+# Ray Motif Classification (unified _find_ray_motifs)
+# ---------------------------------------------------------------------------
+
+
+class TestRayMotifClassification:
+    def test_absolute_pin(self):
+        """Bishop pins knight to king = absolute pin."""
+        # Bb5 pins Nd7 to Ke8 along b5-e8 diagonal
+        board = chess.Board("4k3/3n4/8/1B6/8/8/8/4K3 w - - 0 1")
+        t = analyze_tactics(board)
+        pins = [p for p in t.pins if p.pinned_square == "d7"]
+        assert len(pins) >= 1
+        assert pins[0].is_absolute is True
+        assert pins[0].pinned_to == "e8"
+
+    def test_relative_pin(self):
+        """Bishop pins knight to queen = relative pin (can legally move)."""
+        # Ba4 pins Nc6 to Qe8 along a4-e8 diagonal (no king on ray)
+        board = chess.Board("4q2k/8/2n5/8/B7/8/8/4K3 w - - 0 1")
+        t = analyze_tactics(board)
+        pins = [p for p in t.pins if p.pinned_square == "c6"]
+        assert len(pins) >= 1
+        assert pins[0].is_absolute is False
+
+    def test_absolute_skewer(self):
+        """Rook skewers king, exposing piece behind = absolute skewer."""
+        # Ra4 → Kd4 → Qg4 on rank 4. King must move, exposing queen.
+        board = chess.Board("8/8/8/8/R2k2q1/8/8/4K3 w - - 0 1")
+        t = analyze_tactics(board)
+        skewers = [s for s in t.skewers if s.front_square == "d4"]
+        assert len(skewers) >= 1
+        assert skewers[0].is_absolute is True
+
+    def test_xray_not_skewer_equal_value(self):
+        """Rook 'skewer' of two rooks = x-ray attack, not skewer (equal value)."""
+        board = chess.Board("8/8/8/8/R2r2r1/8/8/4K2k w - - 0 1")
+        t = analyze_tactics(board)
+        skewers = [s for s in t.skewers
+                   if s.attacker_square == "a4" and s.front_square == "d4"]
+        assert len(skewers) == 0
+        xrays = [x for x in t.xray_attacks
+                 if x.slider_square == "a4" and x.through_square == "d4"]
+        assert len(xrays) >= 1
+
+    def test_xray_defense(self):
+        """Slider defends own piece through enemy piece."""
+        # Ra4 → rd4 → Ng4. White rook defends white knight through black rook.
+        board = chess.Board("8/8/8/8/R2r2N1/8/8/4K2k w - - 0 1")
+        t = analyze_tactics(board)
+        xd = [d for d in t.xray_defenses if d.defended_square == "g4"]
+        assert len(xd) >= 1
+        assert xd[0].slider_square == "a4"
+
+    def test_discovered_check_significance(self):
+        """Moving blocker reveals attack on king = 'check' significance."""
+        # Bg2 behind Ne4, king on a8. g2-e4-d5-c6-b7-a8 diagonal.
+        board = chess.Board("k7/8/8/8/4N3/8/6B1/4K3 w - - 0 1")
+        t = analyze_tactics(board)
+        discovered = [d for d in t.discovered_attacks
+                      if d.blocker_square == "e4" and d.target_square == "a8"]
+        assert len(discovered) >= 1
+        assert discovered[0].significance == "check"
+
+    def test_skewer_has_color(self):
+        """Skewers have color field populated."""
+        board = chess.Board("8/8/8/8/R2k2q1/8/8/4K3 w - - 0 1")
+        t = analyze_tactics(board)
+        skewers = [s for s in t.skewers if s.front_square == "d4"]
+        assert len(skewers) >= 1
+        assert skewers[0].color == "white"
+
+    def test_pin_has_color(self):
+        """Pins have color field populated."""
+        board = chess.Board(PIN_POSITION)
+        t = analyze_tactics(board)
+        assert len(t.pins) >= 1
+        assert t.pins[0].color == "white"
 
 
 # ---------------------------------------------------------------------------
@@ -425,20 +558,32 @@ class TestBackRankWeakness:
 class TestXRayAttacks:
     def test_rook_xray_through_enemy(self):
         # White rook on a1, black knight on a4, black rook on a8
-        # Rook x-rays through knight to target rook
+        # Unified ray detector: knight(3) < rook(5) → relative pin (not x-ray)
         board = chess.Board("r7/8/8/8/n7/8/8/R3K2k w - - 0 1")
         t = analyze_tactics(board)
-        xrays = [x for x in t.xray_attacks
-                 if x.slider_square == "a1" and x.target_square == "a8"]
-        assert len(xrays) >= 1
-        assert xrays[0].through_square == "a4"
+        # This is now classified as a relative pin (knight pinned to rook)
+        pins = [p for p in t.pins
+                if p.pinner_square == "a1" and p.pinned_square == "a4"]
+        assert len(pins) >= 1
+        assert pins[0].is_absolute is False
+        assert pins[0].pinned_to == "a8"
 
     def test_bishop_xray_through_enemy(self):
         # White bishop on a1, black pawn on d4, black queen on g7
+        # Unified ray detector: pawn(1) < queen(9) → relative pin (not x-ray)
         board = chess.Board("8/6q1/8/8/3p4/8/8/B3K2k w - - 0 1")
         t = analyze_tactics(board)
+        pins = [p for p in t.pins
+                if p.pinner_square == "a1" and p.pinned_square == "d4"]
+        assert len(pins) >= 1
+        assert pins[0].is_absolute is False
+
+    def test_xray_equal_value(self):
+        # Equal value: rook through rook to rook → x-ray attack (not pin or skewer)
+        board = chess.Board("r7/8/8/8/r7/8/8/R3K2k w - - 0 1")
+        t = analyze_tactics(board)
         xrays = [x for x in t.xray_attacks
-                 if x.slider_square == "a1" and x.target_square == "g7"]
+                 if x.slider_square == "a1" and x.through_square == "a4"]
         assert len(xrays) >= 1
 
     def test_no_xray_when_unblocked(self):
