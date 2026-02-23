@@ -6,7 +6,7 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     environment:
-      - OLLAMA_URL=http://<knuth-tailscale-ip>:11434
+      - OLLAMA_URL=http://ollama.example.com:11434
       - STOCKFISH_HASH_MB=128
     volumes:
       - chess-data:/app/data
