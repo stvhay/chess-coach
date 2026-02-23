@@ -4,8 +4,8 @@ Three layers:
 1. Structural tests (always run) — verify prompt format, length, perspective
    consistency, and tactical content from known positions with mocked engine.
 2. Integration tests (run with `pytest -m integration`) — use real Stockfish
-   engine to verify the full screen/validate/annotate/format pipeline across
-   15 diverse scenarios.
+   engine to verify the full build_coaching_tree/serialize_report pipeline across
+   diverse scenarios.
 3. Live LLM tests (run with `pytest -m live`) — send prompts to the real
    Ollama instance and print prompt/response pairs for human evaluation.
 
@@ -21,14 +21,13 @@ from unittest.mock import AsyncMock
 import chess
 import pytest
 
-from server.annotator import AnnotatedLine, PlyAnnotation, annotate_lines, build_annotated_line
 from server.analysis import TacticalMotifs
 from server.coach import _classify_move, _cp_value, MoveQuality
 from server.elo_profiles import get_profile
 from server.engine import EngineAnalysis, Evaluation, LineInfo
+from server.game_tree import GameTree, build_coaching_tree
 from server.llm import ChessTeacher
-from server.prompts import format_coaching_prompt
-from server.screener import CoachingContext, screen_and_validate
+from server.report import serialize_report
 
 
 # ---------------------------------------------------------------------------
@@ -136,8 +135,8 @@ def _mock_engine(scenario: dict) -> AsyncMock:
     return engine
 
 
-async def _build_prompt_for_scenario(name: str) -> tuple[str, CoachingContext]:
-    """Run the full screener pipeline for a scenario, return (prompt, ctx)."""
+async def _build_prompt_for_scenario(name: str) -> tuple[str, GameTree]:
+    """Run the full game tree pipeline for a scenario, return (prompt, tree)."""
     s = SCENARIOS[name]
     board = chess.Board(s["fen"])
     profile = get_profile("intermediate")
@@ -150,14 +149,14 @@ async def _build_prompt_for_scenario(name: str) -> tuple[str, CoachingContext]:
         pv=[s["screen_lines"][0].uci],
     )
 
-    ctx = await screen_and_validate(engine, board, s["player_move"], eval_before, profile)
-    ctx.quality = s["quality"]
-    ctx.cp_loss = s["cp_loss"]
-    ctx.player_color = "White" if board.turn == chess.WHITE else "Black"
-    ctx.move_number = board.fullmove_number
+    tree = await build_coaching_tree(engine, board, s["player_move"], eval_before, profile)
 
-    prompt = format_coaching_prompt(ctx)
-    return prompt, ctx
+    prompt = serialize_report(
+        tree,
+        quality=s["quality"],
+        cp_loss=s["cp_loss"],
+    )
+    return prompt, tree
 
 
 # ---------------------------------------------------------------------------
@@ -202,8 +201,7 @@ class TestPromptStructure:
 
     async def test_pin_scenario_has_pin_motif(self):
         """Pin scenario should mention pin in the annotations."""
-        prompt, ctx = await _build_prompt_for_scenario("pin_and_hanging")
-        # The position summary or annotations should mention pin
+        prompt, _ = await _build_prompt_for_scenario("pin_and_hanging")
         assert "pin" in prompt.lower(), f"Expected 'pin' in prompt:\n{prompt}"
 
     async def test_fork_scenario_filters_player_move(self):
@@ -532,7 +530,7 @@ async def _build_eval_scenario(scenario: dict) -> dict:
     try:
         await engine.start()
         eval_before = await engine.evaluate(scenario["fen"], depth=16)
-        ctx = await screen_and_validate(engine, board, student_uci, eval_before, profile)
+        tree = await build_coaching_tree(engine, board, student_uci, eval_before, profile)
 
         # Eval after student's move for cp loss
         temp = board.copy()
@@ -550,12 +548,11 @@ async def _build_eval_scenario(scenario: dict) -> dict:
         is_best = student_uci == (eval_before.best_move or "")
         quality = _classify_move(cp_loss, is_best, position_is_sharp=False)
 
-        ctx.quality = quality.value
-        ctx.cp_loss = cp_loss
-        ctx.player_color = "White" if board.turn == chess.WHITE else "Black"
-        ctx.move_number = board.fullmove_number
-
-        prompt = format_coaching_prompt(ctx)
+        prompt = serialize_report(
+            tree,
+            quality=quality.value,
+            cp_loss=cp_loss,
+        )
 
         best_san = "?"
         if eval_before.best_move:
@@ -571,7 +568,7 @@ async def _build_eval_scenario(scenario: dict) -> dict:
             "quality": quality.value,
             "cp_loss": cp_loss,
             "prompt": prompt,
-            "ctx": ctx,
+            "tree": tree,
         }
     finally:
         await engine.stop()
@@ -585,7 +582,7 @@ def _engine_results(request):
 
 @pytest.mark.integration
 class TestEvalScenarios:
-    """Integration tests with real Stockfish across 15 diverse scenarios.
+    """Integration tests with real Stockfish across diverse scenarios.
 
     Run with: uv run pytest tests/test_coaching_prompts.py -m integration -s
     """

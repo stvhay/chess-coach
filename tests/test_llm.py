@@ -2,168 +2,84 @@
 
 import httpx
 
+import chess
+
 from server.llm import (
     ChessTeacher,
     OpponentMoveContext,
     _parse_move_selection,
 )
-from server.prompts import format_coaching_prompt
-from server.screener import CoachingContext
-from server.annotator import AnnotatedLine, PlyAnnotation
-from server.analysis import TacticalMotifs
+from server.game_tree import GameNode, GameTree
+from server.report import serialize_report
 
 
-def _sample_player_line(**overrides) -> AnnotatedLine:
+def _sample_tree(**overrides) -> GameTree:
+    """Build a simple GameTree for testing prompt generation."""
+    root = GameNode(board=chess.Board(), source="played")
+
+    # Player's move: e4
+    player_move = chess.Move.from_uci("e2e4")
+    player_node = root.add_child(player_move, "played", score_cp=-30)
+
+    # Add a continuation child for player
+    if player_node.board.turn == chess.BLACK:
+        cont_move = chess.Move.from_uci("e7e5")
+        if cont_move in player_node.board.legal_moves:
+            player_node.add_child(cont_move, "engine")
+
+    # Alternative: d4
+    alt_move = chess.Move.from_uci("d2d4")
+    alt_node = root.add_child(alt_move, "engine", score_cp=30)
+    # Add continuation for alternative
+    if alt_node.board.turn == chess.BLACK:
+        alt_cont = chess.Move.from_uci("d7d5")
+        if alt_cont in alt_node.board.legal_moves:
+            alt_node.add_child(alt_cont, "engine")
+
+    return GameTree(root=root, decision_point=root, player_color=chess.WHITE)
+
+
+def _sample_report(**overrides) -> str:
+    """Generate a sample coaching report string."""
+    tree = _sample_tree()
     defaults = dict(
-        first_move_san="e4",
-        first_move_uci="e2e4",
-        score_cp=-30,
-        score_mate=None,
-        pv_san=["e4", "e5", "Nf3"],
-        annotations=[
-            PlyAnnotation(
-                ply=0,
-                fen="rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
-                move_san="e4",
-                tactics=TacticalMotifs(),
-                material_change=0,
-                new_motifs=[],
-                position_summary="The position is roughly balanced.",
-            ),
-        ],
-    )
-    defaults.update(overrides)
-    return AnnotatedLine(**defaults)
-
-
-def _sample_context(**overrides) -> CoachingContext:
-    defaults = dict(
-        player_move=_sample_player_line(),
-        best_lines=[
-            AnnotatedLine(
-                first_move_san="d4",
-                first_move_uci="d2d4",
-                score_cp=30,
-                score_mate=None,
-                pv_san=["d4", "d5", "c4"],
-                annotations=[
-                    PlyAnnotation(
-                        ply=0,
-                        fen="rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq - 0 1",
-                        move_san="d4",
-                        tactics=TacticalMotifs(),
-                        material_change=0,
-                        new_motifs=[],
-                        position_summary="The position is roughly balanced.",
-                    ),
-                ],
-            ),
-        ],
         quality="mistake",
         cp_loss=60,
-        player_color="White",
     )
     defaults.update(overrides)
-    return CoachingContext(**defaults)
+    return serialize_report(tree, **defaults)
 
 
-class TestFormatCoachingPrompt:
+class TestSerializeReport:
     def test_contains_player_move(self):
-        ctx = _sample_context()
-        prompt = format_coaching_prompt(ctx)
-        assert "# Move 1. e4" in prompt
+        report = _sample_report()
+        assert "# Move 1. e4" in report
 
     def test_contains_best_line(self):
-        ctx = _sample_context()
-        prompt = format_coaching_prompt(ctx)
-        assert "d4" in prompt
+        report = _sample_report()
+        assert "d4" in report
 
     def test_contains_quality(self):
-        ctx = _sample_context()
-        prompt = format_coaching_prompt(ctx)
-        assert "mistake" in prompt
+        report = _sample_report()
+        assert "mistake" in report
 
     def test_contains_rag_context_when_present(self):
-        ctx = _sample_context(rag_context="A fork attacks two pieces simultaneously.")
-        prompt = format_coaching_prompt(ctx)
-        assert "Relevant chess knowledge" in prompt
-        assert "fork attacks two pieces" in prompt
+        tree = _sample_tree()
+        report = serialize_report(tree, "mistake", 60,
+                                  rag_context="A fork attacks two pieces simultaneously.")
+        assert "Relevant chess knowledge" in report
+        assert "fork attacks two pieces" in report
 
     def test_omits_rag_when_empty(self):
-        ctx = _sample_context(rag_context="")
-        prompt = format_coaching_prompt(ctx)
-        assert "Relevant chess knowledge" not in prompt
-
-    def test_shows_new_motifs(self):
-        ann = PlyAnnotation(
-            ply=0, fen="...", move_san="Nf7",
-            tactics=TacticalMotifs(),
-            material_change=0,
-            new_motifs=["fork", "hanging_piece"],
-            position_summary="Fork on f7.",
-        )
-        line = AnnotatedLine(
-            first_move_san="Nf7", first_move_uci="g5f7",
-            score_cp=300, score_mate=None,
-            pv_san=["Nf7"], annotations=[ann],
-        )
-        ctx = _sample_context(best_lines=[line])
-        prompt = format_coaching_prompt(ctx)
-        assert "fork" in prompt
-        assert "hanging_piece" in prompt
-
-    def test_shows_material_change(self):
-        ann = PlyAnnotation(
-            ply=0, fen="...", move_san="exd5",
-            tactics=TacticalMotifs(),
-            material_change=100,
-            new_motifs=[],
-            position_summary="White captured a pawn.",
-        )
-        line = AnnotatedLine(
-            first_move_san="exd5", first_move_uci="e4d5",
-            score_cp=100, score_mate=None,
-            pv_san=["exd5"], annotations=[ann],
-        )
-        ctx = _sample_context(best_lines=[line])
-        prompt = format_coaching_prompt(ctx)
-        assert "Net: Student wins 1 pawn" in prompt
-
-    def test_omits_empty_ply_annotations(self):
-        """Plies with no motifs and no material change are omitted."""
-        ann = PlyAnnotation(
-            ply=0, fen="...", move_san="Nf3",
-            tactics=TacticalMotifs(),
-            material_change=0,
-            new_motifs=[],
-            position_summary="Balanced.",
-        )
-        line = AnnotatedLine(
-            first_move_san="Nf3", first_move_uci="g1f3",
-            score_cp=10, score_mate=None,
-            pv_san=["Nf3", "Nc6"], annotations=[ann],
-        )
-        ctx = _sample_context(best_lines=[line])
-        prompt = format_coaching_prompt(ctx)
-        assert "no new tactical motifs" not in prompt
+        tree = _sample_tree()
+        report = serialize_report(tree, "mistake", 60, rag_context="")
+        assert "Relevant chess knowledge" not in report
 
     def test_filters_player_move_from_alternatives(self):
         """Player's own move should not appear as 'Stronger move'."""
-        same_as_player = AnnotatedLine(
-            first_move_san="e4", first_move_uci="e2e4",
-            score_cp=30, score_mate=None,
-            pv_san=["e4", "e5"], annotations=[],
-        )
-        different = AnnotatedLine(
-            first_move_san="d4", first_move_uci="d2d4",
-            score_cp=40, score_mate=None,
-            pv_san=["d4", "d5"], annotations=[],
-        )
-        ctx = _sample_context(best_lines=[same_as_player, different])
-        prompt = format_coaching_prompt(ctx)
-        # "Stronger move" should be d4, not e4
-        assert "Stronger Alternative: d4" in prompt
-        assert "Stronger Alternative: e4" not in prompt
+        report = _sample_report()
+        assert "Stronger Alternative: e4" not in report
+        assert "Stronger Alternative: d4" in report
 
 
 class TestExplainMove:

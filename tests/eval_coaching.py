@@ -20,9 +20,9 @@ import chess
 from server.coach import _classify_move, _cp_value, MoveQuality
 from server.elo_profiles import get_profile
 from server.engine import EngineAnalysis
+from server.game_tree import build_coaching_tree
 from server.llm import ChessTeacher
-from server.prompts import format_coaching_prompt
-from server.screener import screen_and_validate
+from server.report import serialize_report
 
 
 # ---------------------------------------------------------------------------
@@ -236,7 +236,7 @@ async def evaluate_scenario(engine, teacher, scenario, profile):
     eval_before = await engine.evaluate(scenario["fen"], depth=16)
 
     # Run the coaching pipeline
-    ctx = await screen_and_validate(engine, board, student_uci, eval_before, profile)
+    tree = await build_coaching_tree(engine, board, student_uci, eval_before, profile)
 
     # Determine move quality from eval difference
     temp = board.copy()
@@ -255,12 +255,12 @@ async def evaluate_scenario(engine, teacher, scenario, profile):
     is_best = student_uci == (eval_before.best_move or "")
     quality = _classify_move(cp_loss, is_best, position_is_sharp=False)
 
-    ctx.quality = quality.value
-    ctx.cp_loss = cp_loss
-    ctx.player_color = "White" if board.turn == chess.WHITE else "Black"
-
     # Generate prompt
-    prompt = format_coaching_prompt(ctx)
+    prompt = serialize_report(
+        tree,
+        quality=quality.value,
+        cp_loss=cp_loss,
+    )
 
     # Get LLM response
     response = await teacher.explain_move(prompt)
@@ -271,6 +271,10 @@ async def evaluate_scenario(engine, teacher, scenario, profile):
             best_san = board.san(chess.Move.from_uci(eval_before.best_move))
         except Exception:
             best_san = eval_before.best_move
+
+    alts = tree.alternatives()
+    player_node = tree.player_move_node()
+    player_uci = player_node.move.uci() if player_node and player_node.move else ""
 
     return {
         "name": scenario["name"],
@@ -287,9 +291,7 @@ async def evaluate_scenario(engine, teacher, scenario, profile):
         "prompt": prompt,
         "prompt_length": len(prompt),
         "response": response,
-        "num_alternatives": len(
-            [l for l in ctx.best_lines if l.first_move_uci != student_uci]
-        ),
+        "num_alternatives": len([a for a in alts if a.move.uci() != player_uci]),
     }
 
 

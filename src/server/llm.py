@@ -46,7 +46,7 @@ class ChessTeacher:
     async def explain_move(self, prompt: str) -> str | None:
         """Ask the LLM to explain a move given a grounded prompt.
 
-        The prompt should be produced by format_coaching_prompt() and
+        The prompt should be produced by serialize_report() and
         contains only pre-computed facts for the LLM to reference.
         Returns None on any failure.
         """

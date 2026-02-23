@@ -7,16 +7,16 @@ from dataclasses import dataclass, field
 
 import chess
 
-from server.analysis import analyze, summarize_position
+from server.analysis import analyze
 from server.coach import Arrow, assess_move
 from server.elo_profiles import get_profile
 from server.engine import EngineAnalysis
+from server.game_tree import build_coaching_tree
 from server.knowledge import query_knowledge
 from server.llm import ChessTeacher
-from server.prompts import format_coaching_prompt
 from server.opponent import select_opponent_move
 from server.rag import ChessRAG
-from server.screener import screen_and_validate
+from server.report import serialize_report
 
 
 @dataclass
@@ -75,58 +75,43 @@ class GameManager:
         eval_before,
         elo_profile: str,
     ) -> None:
-        """Two-pass screen/validate coaching pipeline with RAG + LLM."""
+        """Game-tree coaching pipeline with RAG + LLM."""
         profile = get_profile(elo_profile)
 
-        ctx = await screen_and_validate(
+        tree = await build_coaching_tree(
             self._engine, board_before, player_move_uci, eval_before, profile
         )
-        ctx.quality = coaching_data.quality.value
-        ctx.cp_loss = coaching_data.severity
-        ctx.player_color = "White" if board_before.turn == chess.WHITE else "Black"
-
-        # PGN up to the decision point (excludes student's move)
-        temp_pgn = chess.Board()
-        pgn_parts = []
-        for i, m in enumerate(board_before.move_stack):
-            san = temp_pgn.san(m)
-            if i % 2 == 0:
-                pgn_parts.append(f"{i // 2 + 1}. {san}")
-            else:
-                pgn_parts.append(san)
-            temp_pgn.push(m)
-        ctx.game_pgn = " ".join(pgn_parts)
-        ctx.move_number = board_before.fullmove_number
-
-        # Position summary from pre-move board
-        pre_move_report = analyze(board_before)
-        ctx.position_summary = summarize_position(pre_move_report)
 
         # RAG enrichment
+        rag_context = ""
         if self._rag is not None:
             report = analyze(board.copy())
-            ctx.rag_context = await query_knowledge(
+            rag_context = await query_knowledge(
                 self._rag, report,
                 coaching_data.quality.value,
                 coaching_data.tactics_summary,
             )
 
-        # Update arrows to match screener's top recommendation (not just engine best)
-        player_uci = player_move_uci
-        alternatives = [l for l in ctx.best_lines if l.first_move_uci != player_uci]
-        if alternatives:
-            top_uci = alternatives[0].first_move_uci
-            # Replace the green "best move" arrow with the screener's pick
+        # Serialize report
+        prompt = serialize_report(
+            tree,
+            quality=coaching_data.quality.value,
+            cp_loss=coaching_data.severity,
+            rag_context=rag_context,
+        )
+        coaching_data.debug_prompt = prompt
+
+        # Update arrows from tree alternatives
+        alts = tree.alternatives()
+        if alts:
+            top_uci = alts[0].move.uci()
             coaching_data.arrows = [a for a in coaching_data.arrows if a.brush != "green"]
-            # Keep the red player-move arrow, add green for screener's top pick
             if len(top_uci) >= 4:
                 coaching_data.arrows.append(
                     Arrow(orig=top_uci[:2], dest=top_uci[2:4], brush="green")
                 )
 
-        # LLM with grounded context
-        prompt = format_coaching_prompt(ctx)
-        coaching_data.debug_prompt = prompt
+        # LLM
         if self._teacher is not None:
             llm_message = await self._teacher.explain_move(prompt)
             if llm_message is not None:

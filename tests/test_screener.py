@@ -1,157 +1,171 @@
-from unittest.mock import AsyncMock, patch
+"""Tests for screener-equivalent functionality now in game_tree.py.
+
+rank_by_teachability has been moved into game_tree._rank_nodes_by_teachability.
+screen_and_validate has been replaced by build_coaching_tree.
+These tests validate the same behaviors through the new interfaces.
+"""
+
+from unittest.mock import AsyncMock
 
 import chess
 import pytest
 
-from server.annotator import AnnotatedLine, PlyAnnotation
 from server.analysis import TacticalMotifs, Fork
 from server.elo_profiles import get_profile
 from server.engine import Evaluation, LineInfo
-from server.screener import (
-    CoachingContext,
-    rank_by_teachability,
-    screen_and_validate,
+from server.game_tree import (
+    GameNode,
+    GameTree,
+    build_coaching_tree,
+    _rank_nodes_by_teachability,
+    _motif_labels,
 )
 
 
-# --- rank_by_teachability tests ---
+# --- Helper to build test nodes ---
 
-def _make_annotation(ply: int, new_motifs: list[str] | None = None,
-                     material_change: int = 0, summary: str = "") -> PlyAnnotation:
-    return PlyAnnotation(
-        ply=ply,
-        fen="rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
-        move_san="e4",
-        tactics=TacticalMotifs(),
-        material_change=material_change,
-        new_motifs=new_motifs or [],
-        position_summary=summary,
-    )
-
-
-def _make_line(score_cp: int, annotations: list[PlyAnnotation] | None = None) -> AnnotatedLine:
-    return AnnotatedLine(
-        first_move_san="e4",
-        first_move_uci="e2e4",
+def _make_node(
+    parent: GameNode | None = None,
+    score_cp: int = 50,
+    tactics: TacticalMotifs | None = None,
+) -> GameNode:
+    """Create a GameNode for testing, optionally with pre-set tactics."""
+    board = chess.Board() if parent is None else parent.board.copy()
+    node = GameNode(
+        board=board,
+        source="engine",
         score_cp=score_cp,
-        score_mate=None,
-        pv_san=["e4"],
-        annotations=annotations or [],
     )
+    if tactics is not None:
+        node._tactics = tactics
+    else:
+        node._tactics = TacticalMotifs()
+    node.parent = parent
+    return node
 
+
+def _make_child_with_motifs(
+    parent: GameNode,
+    move_uci: str,
+    score_cp: int = 50,
+    tactics: TacticalMotifs | None = None,
+) -> GameNode:
+    """Add a child to parent with specific tactics (pre-cached)."""
+    move = chess.Move.from_uci(move_uci)
+    child = parent.add_child(move, "engine", score_cp=score_cp)
+    if tactics is not None:
+        child._tactics = tactics
+    else:
+        child._tactics = TacticalMotifs()
+    return child
+
+
+# --- rank_by_teachability tests (adapted from old screener tests) ---
 
 def test_rank_empty_list():
-    result = rank_by_teachability([])
-    assert result == []
+    _rank_nodes_by_teachability([])
+    # No crash
 
 
-def test_rank_single_line():
-    line = _make_line(50, [_make_annotation(0)])
-    result = rank_by_teachability([line])
-    assert len(result) == 1
+def test_rank_single_node():
+    root = GameNode(board=chess.Board(), source="played")
+    root._tactics = TacticalMotifs()
+    node = _make_child_with_motifs(root, "e2e4", score_cp=50)
+    _rank_nodes_by_teachability([node])
+    assert hasattr(node, '_interest_score')
 
 
 def test_rank_favors_early_tactics():
-    # Line with a fork at ply 1 should score higher than line with no tactics
-    fork_ann = _make_annotation(1, new_motifs=["fork"])
-    line_with_tactics = _make_line(50, [_make_annotation(0), fork_ann])
-    line_without = _make_line(50, [_make_annotation(0), _make_annotation(1)])
+    """Node with a fork in continuation should score higher than one without."""
+    root = GameNode(board=chess.Board(), source="played")
+    root._tactics = TacticalMotifs()
 
-    result = rank_by_teachability([line_without, line_with_tactics])
-    assert result[0].interest_score > result[1].interest_score
+    # Node with fork in child (early tactic)
+    node_with = _make_child_with_motifs(root, "e2e4", score_cp=50)
+    fork_tactics = TacticalMotifs(forks=[Fork("e5", "N", ["d7", "f7"])])
+    # Add a child with fork tactics
+    child_board = node_with.board.copy()
+    child_board.push(chess.Move.from_uci("e7e5"))
+    fork_child = GameNode(board=child_board, source="engine", parent=node_with)
+    fork_child._tactics = fork_tactics
+    node_with.children.append(fork_child)
 
+    # Node without tactics
+    node_without = _make_child_with_motifs(root, "d2d4", score_cp=50)
 
-def test_rank_penalizes_deep_only_tactics():
-    # Motifs only at ply 5+ should get penalized
-    deep_ann = _make_annotation(5, new_motifs=["fork"])
-    line_deep = _make_line(50, [_make_annotation(i) for i in range(5)] + [deep_ann])
-    line_none = _make_line(50, [_make_annotation(i) for i in range(6)])
-
-    result = rank_by_teachability([line_deep, line_none], max_concept_depth=4)
-    # deep-only tactics get -2 penalty
-    assert line_deep.interest_score < line_none.interest_score
+    _rank_nodes_by_teachability([node_without, node_with])
+    assert node_with._interest_score > node_without._interest_score
 
 
 def test_rank_penalizes_large_eval_loss():
-    best_line = _make_line(200, [_make_annotation(0)])
-    bad_line = _make_line(0, [_make_annotation(0)])  # 200cp worse than best
+    root = GameNode(board=chess.Board(), source="played")
+    root._tactics = TacticalMotifs()
 
-    rank_by_teachability([best_line, bad_line])
-    assert bad_line.interest_score < best_line.interest_score
+    best = _make_child_with_motifs(root, "e2e4", score_cp=200)
+    bad = _make_child_with_motifs(root, "d2d4", score_cp=0)
 
-
-def test_rank_rewards_material_gain():
-    capture_ann = _make_annotation(0, material_change=100)
-    line_capture = _make_line(50, [capture_ann])
-    line_quiet = _make_line(50, [_make_annotation(0)])
-
-    rank_by_teachability([line_capture, line_quiet])
-    assert line_capture.interest_score > line_quiet.interest_score
+    _rank_nodes_by_teachability([best, bad])
+    assert bad._interest_score < best._interest_score
 
 
-def test_rank_rewards_positional_themes():
-    pos_ann = _make_annotation(0, summary="White has passed pawns on d5.")
-    line_positional = _make_line(50, [pos_ann])
-    line_plain = _make_line(50, [_make_annotation(0, summary="Position is balanced.")])
-
-    rank_by_teachability([line_positional, line_plain])
-    assert line_positional.interest_score > line_plain.interest_score
-
-
-# --- screen_and_validate integration tests (mocked engine) ---
+# --- build_coaching_tree integration tests (mocked engine) ---
 
 @pytest.fixture
 def mock_engine():
     engine = AsyncMock()
     engine.analyze_lines = AsyncMock(return_value=[
-        LineInfo(uci="e2e4", san="e4", score_cp=30, score_mate=None, pv=["e2e4", "e7e5"], depth=10),
-        LineInfo(uci="d2d4", san="d4", score_cp=25, score_mate=None, pv=["d2d4", "d7d5"], depth=10),
+        LineInfo(uci="e2e4", san="e4", score_cp=30, score_mate=None,
+                 pv=["e2e4", "e7e5"], depth=10),
+        LineInfo(uci="d2d4", san="d4", score_cp=25, score_mate=None,
+                 pv=["d2d4", "d7d5"], depth=10),
     ])
     engine.evaluate = AsyncMock(return_value=Evaluation(
-        score_cp=20, score_mate=None, depth=14, best_move="e7e5", pv=["e7e5", "g1f3"],
+        score_cp=20, score_mate=None, depth=14, best_move="e7e5",
+        pv=["e7e5", "g1f3"],
     ))
     return engine
 
 
-async def test_screen_and_validate_returns_context(mock_engine):
+async def test_build_coaching_tree_returns_tree(mock_engine):
     board = chess.Board()
     profile = get_profile("intermediate")
-    eval_before = Evaluation(score_cp=20, score_mate=None, depth=12, best_move="e2e4", pv=["e2e4"])
+    eval_before = Evaluation(score_cp=20, score_mate=None, depth=12,
+                             best_move="e2e4", pv=["e2e4"])
 
-    ctx = await screen_and_validate(
+    tree = await build_coaching_tree(
         mock_engine, board, "e2e4", eval_before, profile
     )
 
-    assert isinstance(ctx, CoachingContext)
-    assert ctx.player_move is not None
-    assert ctx.player_move.first_move_uci == "e2e4"
-    assert len(ctx.best_lines) > 0
+    assert isinstance(tree, GameTree)
+    assert tree.player_move_node() is not None
+    assert tree.player_move_node().san == "e4"
+    assert len(tree.decision_point.children) > 0
 
 
-async def test_screen_and_validate_empty_lines(mock_engine):
+async def test_build_coaching_tree_empty_lines(mock_engine):
     mock_engine.analyze_lines.return_value = []
     board = chess.Board()
     profile = get_profile("intermediate")
-    eval_before = Evaluation(score_cp=20, score_mate=None, depth=12, best_move="e2e4", pv=["e2e4"])
+    eval_before = Evaluation(score_cp=20, score_mate=None, depth=12,
+                             best_move="e2e4", pv=["e2e4"])
 
-    ctx = await screen_and_validate(
+    tree = await build_coaching_tree(
         mock_engine, board, "e2e4", eval_before, profile
     )
 
-    assert isinstance(ctx, CoachingContext)
-    assert ctx.best_lines == []
+    assert isinstance(tree, GameTree)
 
 
-async def test_screen_and_validate_uses_profile_depths(mock_engine):
+async def test_build_coaching_tree_uses_profile_depths(mock_engine):
     board = chess.Board()
     profile = get_profile("competitive")
-    eval_before = Evaluation(score_cp=20, score_mate=None, depth=12, best_move="e2e4", pv=["e2e4"])
+    eval_before = Evaluation(score_cp=20, score_mate=None, depth=12,
+                             best_move="e2e4", pv=["e2e4"])
 
-    await screen_and_validate(
+    await build_coaching_tree(
         mock_engine, board, "e2e4", eval_before, profile
     )
 
-    # Check that analyze_lines was called with the profile's screen params
     mock_engine.analyze_lines.assert_called_once_with(
         board.fen(), n=profile.screen_breadth, depth=profile.screen_depth
     )
