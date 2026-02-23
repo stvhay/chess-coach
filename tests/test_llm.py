@@ -71,7 +71,7 @@ class TestFormatCoachingPrompt:
     def test_contains_player_move(self):
         ctx = _sample_context()
         prompt = format_coaching_prompt(ctx)
-        assert "Student played: e4" in prompt
+        assert "# Move 1. e4" in prompt
 
     def test_contains_best_line(self):
         ctx = _sample_context()
@@ -127,7 +127,7 @@ class TestFormatCoachingPrompt:
         )
         ctx = _sample_context(best_lines=[line])
         prompt = format_coaching_prompt(ctx)
-        assert "material gains 100 cp" in prompt
+        assert "Net: Student wins 1 pawn" in prompt
 
     def test_omits_empty_ply_annotations(self):
         """Plies with no motifs and no material change are omitted."""
@@ -162,8 +162,8 @@ class TestFormatCoachingPrompt:
         ctx = _sample_context(best_lines=[same_as_player, different])
         prompt = format_coaching_prompt(ctx)
         # "Stronger move" should be d4, not e4
-        assert "Stronger alternative: d4" in prompt
-        assert "Stronger alternative: e4" not in prompt
+        assert "Stronger Alternative: d4" in prompt
+        assert "Stronger Alternative: e4" not in prompt
 
 
 class TestExplainMove:

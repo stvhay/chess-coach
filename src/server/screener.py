@@ -24,6 +24,9 @@ class CoachingContext:
     cp_loss: int = 0
     player_color: str = ""
     rag_context: str = ""
+    position_summary: str = ""          # pre-move summarize_position() output
+    game_pgn: str = ""                  # PGN of moves up to the decision point
+    move_number: int = 1                # fullmove number of student's move
 
 
 def rank_by_teachability(

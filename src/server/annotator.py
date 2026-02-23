@@ -31,6 +31,8 @@ class PlyAnnotation:
     material_change: int            # cp gained/lost this ply
     new_motifs: list[str]           # motifs that appeared THIS ply (not before)
     position_summary: str           # 1-sentence from summarize_position()
+    is_check: bool = False          # position is in check after this move
+    is_checkmate: bool = False      # position is checkmate after this move
 
 
 @dataclass
@@ -145,6 +147,8 @@ def annotate_line(
             material_change=material_change,
             new_motifs=new_motifs,
             position_summary=summary,
+            is_check=temp.is_check(),
+            is_checkmate=temp.is_checkmate(),
         ))
 
         prev_material = current_material

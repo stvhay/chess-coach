@@ -24,6 +24,12 @@ PIECE_VALUES = {
     chess.KING: 0,
 }
 
+def _colored(piece_char: str) -> str:
+    """Add color prefix: 'N' → 'White N', 'p' → 'Black P'."""
+    color = "White" if piece_char.isupper() else "Black"
+    return f"{color} {piece_char.upper()}"
+
+
 STARTING_MINORS = {
     chess.WHITE: [
         (chess.B1, chess.KNIGHT),
@@ -437,6 +443,7 @@ class Pin:
     pinner_square: str
     pinner_piece: str
     pinned_to: str  # square of the piece being shielded (king, queen, etc.)
+    pinned_to_piece: str = ""  # piece symbol on pinned_to square (e.g. "K", "q")
     is_absolute: bool = False  # pinned to king (piece cannot legally move)
 
 
@@ -445,6 +452,7 @@ class Fork:
     forking_square: str
     forking_piece: str
     targets: list[str]  # squares being forked
+    target_pieces: list[str] = field(default_factory=list)  # piece chars on target squares
 
 
 @dataclass
@@ -463,6 +471,7 @@ class HangingPiece:
     piece: str
     attacker_squares: list[str]
     color: str = ""  # "white" or "black" — whose piece is hanging
+    can_retreat: bool = True  # piece owner moves next and can save it
 
 
 @dataclass
@@ -572,12 +581,14 @@ def _find_pins(board: chess.Board) -> list[Pin]:
                         ep = board.piece_at(esq)
                         pp = board.piece_at(sq)
                         if ep and pp and ep.piece_type in (chess.BISHOP, chess.ROOK, chess.QUEEN):
+                            shielded = board.piece_at(king_sq)
                             pins.append(Pin(
                                 pinned_square=chess.square_name(sq),
                                 pinned_piece=pp.symbol(),
                                 pinner_square=chess.square_name(esq),
                                 pinner_piece=ep.symbol(),
                                 pinned_to=chess.square_name(king_sq),
+                                pinned_to_piece=shielded.symbol() if shielded else "",
                                 is_absolute=(king_sq == board.king(color)),
                             ))
     return pins
@@ -594,17 +605,20 @@ def _find_forks(board: chess.Board) -> list[Fork]:
             attacks = board.attacks(sq)
             enemy = not color
             targets = []
+            target_pieces = []
             for target_sq in attacks:
                 target_piece = board.piece_at(target_sq)
                 if target_piece and target_piece.color == enemy:
                     target_val = PIECE_VALUES.get(target_piece.piece_type, 0)
                     if target_val >= piece_val or target_piece.piece_type == chess.KING:
                         targets.append(chess.square_name(target_sq))
+                        target_pieces.append(target_piece.symbol())
             if len(targets) >= 2:
                 forks.append(Fork(
                     forking_square=chess.square_name(sq),
                     forking_piece=piece.symbol(),
                     targets=targets,
+                    target_pieces=target_pieces,
                 ))
     return forks
 
@@ -674,7 +688,7 @@ def _find_skewers(board: chess.Board) -> list[Skewer]:
 
 def _find_hanging(board: chess.Board) -> list[HangingPiece]:
     """Find hanging pieces using x-ray-aware defense detection from Lichess."""
-    from server.lichess_tactics import is_hanging as _lichess_is_hanging
+    from server.lichess_tactics import is_hanging as _lichess_is_hanging, is_trapped as _lichess_is_trapped
 
     hanging = []
     for color in (chess.WHITE, chess.BLACK):
@@ -685,11 +699,24 @@ def _find_hanging(board: chess.Board) -> list[HangingPiece]:
                 continue
             attackers = board.attackers(enemy, sq)
             if attackers and _lichess_is_hanging(board, piece, sq):
+                # Can the piece be saved?
+                if color == board.turn:
+                    # Owner moves next — check if they have escape squares
+                    if board.is_pinned(color, sq):
+                        can_retreat = False
+                    elif piece.piece_type == chess.PAWN:
+                        can_retreat = any(m.from_square == sq for m in board.legal_moves)
+                    else:
+                        can_retreat = not _lichess_is_trapped(board, sq)
+                else:
+                    # Opponent moves next — can capture immediately
+                    can_retreat = False
                 hanging.append(HangingPiece(
                     square=chess.square_name(sq),
                     piece=piece.symbol(),
                     attacker_squares=[chess.square_name(a) for a in attackers],
                     color="white" if color == chess.WHITE else "black",
+                    can_retreat=can_retreat,
                 ))
     return hanging
 
@@ -1245,11 +1272,19 @@ class PositionReport:
 
 
 def summarize_position(report: PositionReport) -> str:
-    """Produce a 3-5 sentence summary of the most salient position features.
+    """Produce a concise summary of the most salient position features.
 
     Selective — only mentions features that are noteworthy.
+    All pieces are identified with color and square.
     """
     parts: list[str] = []
+
+    # Check / checkmate status first
+    if report.is_checkmate:
+        parts.append("Checkmate.")
+    elif report.is_check:
+        side_in_check = report.turn.capitalize()
+        parts.append(f"{side_in_check} is in check.")
 
     # Material
     mat = report.material
@@ -1258,23 +1293,59 @@ def summarize_position(report: PositionReport) -> str:
     elif mat.imbalance < 0:
         parts.append(f"Black is up approximately {-mat.imbalance} points of material.")
 
-    # Tactical motifs
+    # Tactical motifs — show up to 3 per type, with colored piece identification
     tac = report.tactics
-    if tac.forks:
-        f = tac.forks[0]
-        targets = ", ".join(f.targets)
-        parts.append(f"There is a fork on {f.forking_square} targeting {targets}.")
-    if tac.pins:
-        p = tac.pins[0]
-        parts.append(f"The {p.pinned_piece} on {p.pinned_square} is pinned.")
-    if tac.hanging:
-        h = tac.hanging[0]
-        parts.append(f"The {h.piece} on {h.square} is hanging.")
+    for fork in tac.forks[:3]:
+        if fork.target_pieces:
+            target_descs = [
+                f"{_colored(tp)} on {sq}"
+                for tp, sq in zip(fork.target_pieces, fork.targets)
+            ]
+        else:
+            target_descs = fork.targets
+        parts.append(
+            f"{_colored(fork.forking_piece)} on {fork.forking_square} "
+            f"forks {' and '.join(target_descs)}."
+        )
+    for pin in tac.pins[:3]:
+        abs_label = " (absolutely pinned, cannot move)" if pin.is_absolute else ""
+        if pin.pinned_to_piece:
+            to_desc = f"{_colored(pin.pinned_to_piece)} on {pin.pinned_to}"
+        else:
+            to_desc = pin.pinned_to
+        parts.append(
+            f"{_colored(pin.pinned_piece)} on {pin.pinned_square} is pinned by "
+            f"{_colored(pin.pinner_piece)} on {pin.pinner_square} "
+            f"to {to_desc}{abs_label}."
+        )
+    for skewer in tac.skewers[:3]:
+        parts.append(
+            f"{_colored(skewer.attacker_piece)} on {skewer.attacker_square} skewers "
+            f"{_colored(skewer.front_piece)} on {skewer.front_square} behind "
+            f"{_colored(skewer.behind_piece)} on {skewer.behind_square}."
+        )
+    for hp in tac.hanging[:3]:
+        color_label = hp.color.capitalize() if hp.color else ""
+        piece_desc = f"{color_label} {hp.piece.upper()}" if color_label else _colored(hp.piece)
+        if hp.can_retreat:
+            parts.append(f"{piece_desc} on {hp.square} is undefended (must move).")
+        else:
+            captor = "Black" if hp.color == "white" else "White"
+            parts.append(f"{piece_desc} on {hp.square} is hanging ({captor} can capture).")
+    for da in tac.discovered_attacks[:3]:
+        if da.significance == "low":
+            continue
+        parts.append(
+            f"{_colored(da.blocker_piece)} on {da.blocker_square} reveals "
+            f"{_colored(da.slider_piece)} on {da.slider_square} targeting "
+            f"{_colored(da.target_piece)} on {da.target_square}."
+        )
     if tac.double_checks:
-        parts.append("There is a double check.")
-    if tac.trapped_pieces:
-        t = tac.trapped_pieces[0]
-        parts.append(f"The {t.piece} on {t.square} is trapped.")
+        for dc in tac.double_checks[:3]:
+            squares = ", ".join(dc.checker_squares)
+            parts.append(f"Double check from {squares}.")
+    for tp in tac.trapped_pieces[:3]:
+        parts.append(f"{_colored(tp.piece)} on {tp.square} is trapped.")
     if tac.mate_patterns:
         pattern_names = {
             "back_rank": "back-rank mate",
@@ -1289,24 +1360,29 @@ def summarize_position(report: PositionReport) -> str:
         mp = tac.mate_patterns[0]
         name = pattern_names.get(mp.pattern, f"{mp.pattern} mate")
         parts.append(f"This is a {name}.")
-    if tac.mate_threats:
-        mt = tac.mate_threats[0]
-        parts.append(f"{mt.threatening_color.capitalize()} threatens checkmate.")
-    if tac.back_rank_weaknesses:
-        bw = tac.back_rank_weaknesses[0]
-        parts.append(f"{bw.weak_color.capitalize()}'s back rank is weak.")
-    if tac.xray_attacks:
-        xa = tac.xray_attacks[0]
-        parts.append(f"The {xa.slider_piece} on {xa.slider_square} has an x-ray through {xa.through_square} to {xa.target_square}.")
-    if tac.exposed_kings:
-        ek = tac.exposed_kings[0]
+    for mt in tac.mate_threats[:3]:
+        parts.append(f"{mt.threatening_color.capitalize()} threatens checkmate on {mt.mating_square}.")
+    for bw in tac.back_rank_weaknesses[:3]:
+        parts.append(f"{bw.weak_color.capitalize()}'s back rank is weak (king on {bw.king_square}).")
+    for xa in tac.xray_attacks[:3]:
+        parts.append(
+            f"{_colored(xa.slider_piece)} on {xa.slider_square} x-rays through "
+            f"{_colored(xa.through_piece)} on {xa.through_square} to "
+            f"{_colored(xa.target_piece)} on {xa.target_square}."
+        )
+    for ek in tac.exposed_kings[:3]:
         parts.append(f"{ek.color.capitalize()}'s king on {ek.king_square} is exposed.")
-    if tac.overloaded_pieces:
-        op = tac.overloaded_pieces[0]
-        parts.append(f"The {op.piece} on {op.square} is overloaded.")
-    if tac.capturable_defenders:
-        cd = tac.capturable_defenders[0]
-        parts.append(f"The {cd.defender_piece} on {cd.defender_square} is a capturable defender.")
+    for op in tac.overloaded_pieces[:3]:
+        charges = ", ".join(op.defended_squares)
+        parts.append(
+            f"{_colored(op.piece)} on {op.square} is overloaded, sole defender of {charges}."
+        )
+    for cd in tac.capturable_defenders[:3]:
+        parts.append(
+            f"{_colored(cd.defender_piece)} on {cd.defender_square} is a capturable defender "
+            f"(attacked by {cd.attacker_square}), defends "
+            f"{_colored(cd.charge_piece)} on {cd.charge_square}."
+        )
 
     # Pawn weaknesses
     ps = report.pawn_structure
@@ -1341,7 +1417,7 @@ def summarize_position(report: PositionReport) -> str:
     if not parts:
         parts.append("The position is roughly balanced with no major imbalances.")
 
-    return " ".join(parts[:5])
+    return " ".join(parts[:8])
 
 
 def analyze(board: chess.Board) -> PositionReport:

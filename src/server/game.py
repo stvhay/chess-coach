@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 import chess
 
-from server.analysis import analyze
+from server.analysis import analyze, summarize_position
 from server.coach import Arrow, assess_move
 from server.elo_profiles import get_profile
 from server.engine import EngineAnalysis
@@ -84,6 +84,23 @@ class GameManager:
         ctx.quality = coaching_data.quality.value
         ctx.cp_loss = coaching_data.severity
         ctx.player_color = "White" if board_before.turn == chess.WHITE else "Black"
+
+        # PGN up to the decision point (excludes student's move)
+        temp_pgn = chess.Board()
+        pgn_parts = []
+        for i, m in enumerate(board_before.move_stack):
+            san = temp_pgn.san(m)
+            if i % 2 == 0:
+                pgn_parts.append(f"{i // 2 + 1}. {san}")
+            else:
+                pgn_parts.append(san)
+            temp_pgn.push(m)
+        ctx.game_pgn = " ".join(pgn_parts)
+        ctx.move_number = board_before.fullmove_number
+
+        # Position summary from pre-move board
+        pre_move_report = analyze(board_before)
+        ctx.position_summary = summarize_position(pre_move_report)
 
         # RAG enrichment
         if self._rag is not None:

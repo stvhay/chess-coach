@@ -68,7 +68,7 @@ SCENARIOS: dict[str, dict] = {
         ),
         "quality": "mistake",
         "cp_loss": 100,
-        "expect_in_prompt": ["Student played: Nc3", "Stronger alternative: c3"],
+        "expect_in_prompt": ["# Move 4. Nc3", "Stronger Alternative: c3"],
         "expect_not_in_prompt": ["You played"],
     },
     "missed_fork": {
@@ -94,7 +94,7 @@ SCENARIOS: dict[str, dict] = {
         ),
         "quality": "blunder",
         "cp_loss": 260,
-        "expect_in_prompt": ["Student played: Bd3", "Nxf7"],
+        "expect_in_prompt": ["# Move 4. Bd3", "Nxf7"],
         "expect_not_in_prompt": ["You played"],
     },
     "good_move": {
@@ -119,8 +119,8 @@ SCENARIOS: dict[str, dict] = {
         ),
         "quality": "good",
         "cp_loss": 0,
-        "expect_in_prompt": ["Student played: e4", "good"],
-        "expect_not_in_prompt": ["You played", "Stronger alternative: e4"],
+        "expect_in_prompt": ["# Move 1. e4", "good"],
+        "expect_not_in_prompt": ["You played", "Stronger Alternative: e4"],
     },
 }
 
@@ -154,6 +154,7 @@ async def _build_prompt_for_scenario(name: str) -> tuple[str, CoachingContext]:
     ctx.quality = s["quality"]
     ctx.cp_loss = s["cp_loss"]
     ctx.player_color = "White" if board.turn == chess.WHITE else "Black"
+    ctx.move_number = board.fullmove_number
 
     prompt = format_coaching_prompt(ctx)
     return prompt, ctx
@@ -168,21 +169,17 @@ class TestPromptStructure:
 
     @pytest.mark.parametrize("scenario_name", SCENARIOS.keys())
     async def test_consistent_perspective(self, scenario_name):
-        """Prompt should use 'Student played/is playing', never 'You played'."""
+        """Prompt should use '# Move N.' or 'Student is playing', never 'You played'."""
         prompt, _ = await _build_prompt_for_scenario(scenario_name)
         assert "You played" not in prompt
-        assert "Student played" in prompt or "Student is playing" in prompt
+        assert "# Move " in prompt or "Student is playing" in prompt
 
     @pytest.mark.parametrize("scenario_name", SCENARIOS.keys())
-    async def test_no_per_ply_position_summaries(self, scenario_name):
-        """Per-ply annotations should not contain verbose position summaries."""
+    async def test_no_per_ply_labels(self, scenario_name):
+        """New format should not contain per-ply 'Ply N' labels."""
         prompt, _ = await _build_prompt_for_scenario(scenario_name)
-        # Position summaries contain these patterns; they should only appear
-        # once at the top (in the "Position:" line), not in per-ply lines.
         ply_lines = [l for l in prompt.split("\n") if l.strip().startswith("Ply ")]
-        for line in ply_lines:
-            assert "has not fully developed" not in line
-            assert "is roughly balanced" not in line
+        assert len(ply_lines) == 0, f"Found Ply lines in new format:\n{prompt}"
 
     @pytest.mark.parametrize("scenario_name", SCENARIOS.keys())
     async def test_prompt_length_under_limit(self, scenario_name):
@@ -210,14 +207,20 @@ class TestPromptStructure:
         assert "pin" in prompt.lower(), f"Expected 'pin' in prompt:\n{prompt}"
 
     async def test_fork_scenario_filters_player_move(self):
-        """In missed_fork, Bd3 should not appear as 'Stronger alternative'."""
+        """In missed_fork, Bd3 should not appear as 'Stronger Alternative'."""
         prompt, _ = await _build_prompt_for_scenario("missed_fork")
-        assert "Stronger alternative: Bd3" not in prompt
+        assert "Stronger Alternative: Bd3" not in prompt
+
+    async def test_move_header_has_number(self):
+        """Move header should include move number, not bare 'Move Played'."""
+        prompt, _ = await _build_prompt_for_scenario("pin_and_hanging")
+        assert "# Move 4. Nc3" in prompt
+        assert "Move Played" not in prompt
 
     async def test_good_move_filters_self(self):
         """When student plays the top move, it shouldn't be listed as an alternative."""
         prompt, _ = await _build_prompt_for_scenario("good_move")
-        assert "Stronger alternative: e4" not in prompt
+        assert "Stronger Alternative: e4" not in prompt
 
 
 class TestPromptDump:
@@ -550,6 +553,7 @@ async def _build_eval_scenario(scenario: dict) -> dict:
         ctx.quality = quality.value
         ctx.cp_loss = cp_loss
         ctx.player_color = "White" if board.turn == chess.WHITE else "Black"
+        ctx.move_number = board.fullmove_number
 
         prompt = format_coaching_prompt(ctx)
 
@@ -625,11 +629,11 @@ class TestEvalScenarios:
 
         # Always uses third person
         assert "You played" not in prompt
-        assert "Student played" in prompt or "Student is playing" in prompt
+        assert "# Move " in prompt or "Student is playing" in prompt
 
-        # Good moves should not have "Stronger alternative"
+        # Good moves should not have "Stronger Alternative"
         if result["quality"] in ("good", "brilliant"):
-            assert "Stronger alternative" not in prompt
+            assert "Stronger Alternative" not in prompt
 
         # Length sanity
         assert len(prompt) < 8000, f"Prompt too long: {len(prompt)} chars"

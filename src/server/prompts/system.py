@@ -39,15 +39,10 @@ Do NOT say "Great work" or praise an inaccuracy. Do NOT call it "reasonable".
 
 _PERSPECTIVE = """\
 PERSPECTIVE:
-- Each ply is labeled "(student)" or "(opponent)".
-- Tactics on student plies are things the student CREATES — often good for the student.
-- Tactics on opponent plies are threats the student will FACE — often bad for the student.
+- The prompt classifies tactics as "Opportunities" (good for the student) \
+or "Threats" (bad for the student). Use this classification directly.
 - Each piece is labeled with its color (e.g., "White B", "Black N").
-- "hanging White B on b5" on a Black student's ply means the student attacks White's bishop.
-- "hanging Black P on e5" on a White student's ply means the student left Black's pawn capturable.
-- The piece COLOR creating a tactic determines who benefits. "fork by White N" benefits White; \
-"skewer by Black Q" benefits Black. Use the piece color, not just the ply label.
-- NEVER describe a student's own tactic as something the opponent exploits."""
+- NEVER describe a student's opportunity as something the opponent exploits."""
 
 _ACCURACY = """\
 ACCURACY:
