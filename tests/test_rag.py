@@ -2,6 +2,7 @@ import os
 
 import pytest
 from unittest.mock import AsyncMock
+from server.config import Settings
 from server.rag import ChessRAG, Chunk, Result
 
 
@@ -77,9 +78,11 @@ async def test_query_empty_store(rag):
 @pytest.mark.integration
 async def test_real_ollama_embedding():
     """Integration test — requires an OpenAI-compatible embedding endpoint."""
+    settings = Settings()
     rag = ChessRAG(
-        base_url=os.environ.get("LLM_BASE_URL", "http://localhost:11434"),
-        model="nomic-embed-text",
+        base_url=settings.effective_embed_base_url,
+        model=settings.embed_model,
+        api_key=settings.effective_embed_api_key,
         persist_dir=None,  # in-memory only
     )
     await rag.start()

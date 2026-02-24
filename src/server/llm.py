@@ -77,6 +77,20 @@ class ChessTeacher:
             return None
         return _parse_move_selection(text)
 
+    async def generate_theme(self, description: str) -> dict | None:
+        """Ask the LLM to generate a color theme from a description.
+
+        Returns parsed JSON dict or None on failure.
+        """
+        messages = [
+            {"role": "system", "content": _THEME_SYSTEM_PROMPT},
+            {"role": "user", "content": description},
+        ]
+        text = await self._chat(messages, timeout=20.0)
+        if text is None:
+            return None
+        return _parse_theme_response(text)
+
     async def _chat(
         self, messages: list[dict], timeout: float | None = None
     ) -> str | None:
@@ -127,3 +141,86 @@ def _parse_move_selection(text: str) -> tuple[str, str] | None:
         return move, reason
 
     return None
+
+
+_THEME_SYSTEM_PROMPT = """\
+You are a color theme designer for a chess teaching application. Given a description, \
+generate a cohesive color palette.
+
+Return ONLY valid JSON matching this exact schema — no markdown, no explanation:
+
+{
+  "label": "<one word name>",
+  "mode": "<dark or light>",
+  "bg": {
+    "body": "<hex>", "header": "<hex>", "panel": "<hex>", "input": "<hex>",
+    "button": "<hex>", "buttonHover": "<hex>", "rowOdd": "<hex>", "rowEven": "<hex>"
+  },
+  "border": { "subtle": "<hex>", "normal": "<hex>", "strong": "<hex>" },
+  "text": { "primary": "<hex>", "muted": "<hex>", "dim": "<hex>", "accent": "<hex>" },
+  "board": { "light": "<hex>", "dark": "<hex>" }
+}
+
+Rules:
+- "mode": "dark" if body background luminance < 50%, "light" otherwise
+- "label": one creative word that captures the theme's mood
+- All values must be 7-character hex codes (#rrggbb)
+- body is the main background; header/panel are slightly lighter or darker
+- button and buttonHover must be distinguishable from panel
+- text.primary must have >= 4.5:1 contrast ratio against bg.body
+- text.muted should be readable but subdued; text.dim is for low-priority info
+- board.light and board.dark must have visible contrast (the chess squares)
+- border.subtle < border.normal < border.strong in terms of visibility
+
+Here are 6 examples of good themes:
+
+Dark (neutral charcoal):
+{"label":"Dark","mode":"dark","bg":{"body":"#1e1e1e","header":"#181818","panel":"#252526","input":"#1e1e1e","button":"#333333","buttonHover":"#3e3e3e","rowOdd":"#1e1e1e","rowEven":"#262628"},"border":{"subtle":"#2d2d2d","normal":"#3c3c3c","strong":"#505050"},"text":{"primary":"#cccccc","muted":"#858585","dim":"#5a5a5a","accent":"#4ade80"},"board":{"light":"#dee3e6","dark":"#8ca2ad"}}
+
+Light (warm cream):
+{"label":"Light","mode":"light","bg":{"body":"#f5f0e8","header":"#e8e0d0","panel":"#ede6da","input":"#f5f0e8","button":"#ddd5c5","buttonHover":"#d0c7b5","rowOdd":"#f5f0e8","rowEven":"#ede6da"},"border":{"subtle":"#e0d8c8","normal":"#ccc3b0","strong":"#b8ad98"},"text":{"primary":"#2c2418","muted":"#8a7e6e","dim":"#b0a490","accent":"#7a6340"},"board":{"light":"#f0d9b5","dark":"#946f51"}}
+
+Wood (dark walnut):
+{"label":"Wood","mode":"dark","bg":{"body":"#221c14","header":"#1a1410","panel":"#2c241a","input":"#221c14","button":"#3d3226","buttonHover":"#4a3d2e","rowOdd":"#221c14","rowEven":"#2c241a"},"border":{"subtle":"#332a1e","normal":"#443828","strong":"#5a4a36"},"text":{"primary":"#dcc8a8","muted":"#9a845f","dim":"#6b5a42","accent":"#d4a054"},"board":{"light":"#e8ceab","dark":"#bc7944"}}
+
+Marble (cool slate):
+{"label":"Marble","mode":"dark","bg":{"body":"#222928","header":"#1c2120","panel":"#2a3130","input":"#222928","button":"#384240","buttonHover":"#445150","rowOdd":"#222928","rowEven":"#2a3130"},"border":{"subtle":"#303837","normal":"#3e4a48","strong":"#556361"},"text":{"primary":"#c0ccc4","muted":"#7a8a82","dim":"#556360","accent":"#6aaa78"},"board":{"light":"#93ab91","dark":"#4f644e"}}
+
+Rose (dusty pink):
+{"label":"Rose","mode":"light","bg":{"body":"#f8f2f2","header":"#f0e8e8","panel":"#f0eaea","input":"#f8f2f2","button":"#e0d2d2","buttonHover":"#d4c2c2","rowOdd":"#f8f2f2","rowEven":"#f0eaea"},"border":{"subtle":"#e6dcdc","normal":"#d4c6c6","strong":"#bfaeae"},"text":{"primary":"#3a2828","muted":"#8a7070","dim":"#b8a0a0","accent":"#a05a6a"},"board":{"light":"#f0d0d4","dark":"#c08090"}}
+
+Clean (apple neutral):
+{"label":"Clean","mode":"light","bg":{"body":"#fafafa","header":"#f5f5f7","panel":"#f0f0f2","input":"#fafafa","button":"#e4e4e6","buttonHover":"#d8d8da","rowOdd":"#fafafa","rowEven":"#f0f0f2"},"border":{"subtle":"#e8e8ea","normal":"#d4d4d6","strong":"#b8b8ba"},"text":{"primary":"#1d1d1f","muted":"#6e6e73","dim":"#aeaeb2","accent":"#0071e3"},"board":{"light":"#e8e8e8","dark":"#a0a0a0"}}
+"""
+
+
+def _parse_theme_response(text: str) -> dict | None:
+    """Parse LLM theme JSON response. Handles markdown fences."""
+    # Strip markdown code fences if present
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        # Remove opening fence (with optional language tag)
+        cleaned = re.sub(r"^```\w*\n?", "", cleaned)
+        # Remove closing fence
+        cleaned = re.sub(r"\n?```\s*$", "", cleaned)
+
+    try:
+        data = json.loads(cleaned)
+    except json.JSONDecodeError:
+        # Try to extract JSON object from surrounding text
+        m = re.search(r"\{[\s\S]*\}", cleaned)
+        if not m:
+            return None
+        try:
+            data = json.loads(m.group(0))
+        except json.JSONDecodeError:
+            return None
+
+    # Validate required structure
+    required_keys = {"label", "mode", "bg", "border", "text", "board"}
+    if not isinstance(data, dict) or not required_keys.issubset(data.keys()):
+        return None
+    if data.get("mode") not in ("dark", "light"):
+        return None
+
+    return data

@@ -203,6 +203,9 @@ class MoveRequest(BaseModel):
 
 # --- Endpoints ---
 
+class ThemeGenerateRequest(BaseModel):
+    description: str
+
 @app.get("/")
 async def root():
     return RedirectResponse(url="/static/index.html")
@@ -328,6 +331,16 @@ async def puzzle_by_id(puzzle_id: str):
         "game_url": puzzle.game_url,
         "opening_tags": puzzle.opening_tags,
     }
+
+
+@app.post("/api/theme/generate")
+async def generate_theme(req: ThemeGenerateRequest):
+    if not req.description.strip():
+        raise HTTPException(status_code=400, detail="Description required")
+    result = await teacher.generate_theme(req.description.strip())
+    if result is None:
+        raise HTTPException(status_code=502, detail="Theme generation failed")
+    return result
 
 
 # Mount static files last — catches all non-API routes

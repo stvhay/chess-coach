@@ -1,17 +1,33 @@
-import os
 import time
 import pytest
-
-# Settings requires these env vars at import time
-os.environ.setdefault("LLM_BASE_URL", "http://localhost:11434")
-os.environ.setdefault("LLM_MODEL", "test-model")
-
 from fastapi.testclient import TestClient
-from server.main import app
+
+
+@pytest.fixture(scope="module", autouse=True)
+def set_test_env(monkeypatch_module):
+    """Set test environment variables for API tests."""
+    monkeypatch_module.setenv("LLM_BASE_URL", "http://localhost:11434")
+    monkeypatch_module.setenv("LLM_MODEL", "test-model")
+
+
+@pytest.fixture(scope="module")
+def monkeypatch_module():
+    """Module-scoped monkeypatch fixture."""
+    from _pytest.monkeypatch import MonkeyPatch
+    m = MonkeyPatch()
+    yield m
+    m.undo()
 
 
 @pytest.fixture()
-def client():
+def app():
+    """Import app within fixture to ensure env vars are set first."""
+    from server.main import app as _app
+    return _app
+
+
+@pytest.fixture()
+def client(app):
     with TestClient(app) as c:
         # Wait for background init tasks to finish (stockfish, chromadb, puzzles)
         deadline = time.monotonic() + 30
