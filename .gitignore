@@ -19,6 +19,7 @@ docs/plans/
 data/chromadb/
 data/*.db
 .env
+.env.chess
 test-results/
 playwright-report/
 blob-report/

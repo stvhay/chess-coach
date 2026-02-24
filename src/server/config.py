@@ -3,13 +3,19 @@
 All settings are read from environment variables (or a .env file).
 LLM_BASE_URL and LLM_MODEL are required — the app will fail at startup
 with a clear error if they are not set.
+
+We read from .env.chess instead of .env because ChromaDB's Settings
+class (also a BaseSettings subclass with extra="forbid") auto-reads
+.env and rejects any keys it doesn't recognize.
 """
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    model_config = SettingsConfigDict(
+        env_file=".env.chess", env_file_encoding="utf-8",
+    )
 
     # LLM (OpenAI-compatible — works with Ollama, OpenRouter, litellm, etc.)
     llm_base_url: str

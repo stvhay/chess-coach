@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
     ports:
       - "${LISTEN_ADDR:-127.0.0.1}:${PORT:-8000}:8000"
-    env_file: .env
+    env_file: .env.chess
     volumes:
       - chess-data:/app/data
 
