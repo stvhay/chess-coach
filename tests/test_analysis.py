@@ -603,10 +603,35 @@ class TestMatePatterns:
         t = analyze_tactics(board)
         assert any(mp.pattern == "smothered" for mp in t.mate_patterns)
 
+    def test_arabian_mate_detected(self):
+        """Arabian mate: rook + knight, king in corner."""
+        # Rg8#, Nf6 covers h7 and supports rook
+        board = chess.Board("6Rk/8/5N2/8/8/8/8/4K3 b - - 0 1")
+        assert board.is_checkmate()
+        t = analyze_tactics(board)
+        patterns = [p.pattern for p in t.mate_patterns]
+        assert "arabian" in patterns
+
+    def test_boden_mate_detected(self):
+        """Boden's mate: two bishops on crossing diagonals."""
+        # Ba6 and Be6 checkmate Kc8, hemmed by own Bb8/Rd8/Pc7
+        board = chess.Board("1bkr4/2p5/B3B3/8/8/8/8/4K3 b - - 0 1")
+        assert board.is_checkmate()
+        t = analyze_tactics(board)
+        patterns = [p.pattern for p in t.mate_patterns]
+        assert "boden" in patterns
+
     def test_no_mate_pattern_when_not_checkmate(self):
         board = chess.Board(STARTING)
         t = analyze_tactics(board)
         assert len(t.mate_patterns) == 0
+
+    def test_mate_pattern_non_checkmate_returns_empty(self):
+        """Non-checkmate position returns no patterns."""
+        board = chess.Board("4k3/8/8/8/8/8/8/4K3 w - - 0 1")
+        assert not board.is_checkmate()
+        t = analyze_tactics(board)
+        assert t.mate_patterns == []
 
 
 # ---------------------------------------------------------------------------

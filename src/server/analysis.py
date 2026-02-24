@@ -911,22 +911,22 @@ def _find_mate_patterns(board: chess.Board) -> list[MatePattern]:
     patterns = []
     if back_rank_mate(board):
         patterns.append(MatePattern(pattern="back_rank"))
-    elif smothered_mate(board):
+    if smothered_mate(board):
         patterns.append(MatePattern(pattern="smothered"))
-    elif arabian_mate(board):
+    if arabian_mate(board):
         patterns.append(MatePattern(pattern="arabian"))
-    elif hook_mate(board):
+    if hook_mate(board):
         patterns.append(MatePattern(pattern="hook"))
-    elif anastasia_mate(board):
+    if anastasia_mate(board):
         patterns.append(MatePattern(pattern="anastasia"))
-    elif dovetail_mate(board):
+    if dovetail_mate(board):
         patterns.append(MatePattern(pattern="dovetail"))
-    else:
-        boden_result = boden_or_double_bishop_mate(board)
-        if boden_result == "bodenMate":
-            patterns.append(MatePattern(pattern="boden"))
-        elif boden_result == "doubleBishopMate":
-            patterns.append(MatePattern(pattern="double_bishop"))
+
+    boden_result = boden_or_double_bishop_mate(board)
+    if boden_result == "bodenMate":
+        patterns.append(MatePattern(pattern="boden"))
+    elif boden_result == "doubleBishopMate":
+        patterns.append(MatePattern(pattern="double_bishop"))
 
     return patterns
 
