@@ -23,7 +23,11 @@ from server.analysis import (
 )
 from server.elo_profiles import EloProfile
 from server.engine import EngineAnalysis, Evaluation, LineInfo
-from server.motifs import motif_labels as _motif_labels
+from server.motifs import (
+    HIGH_VALUE_KEYS,
+    MODERATE_VALUE_KEYS,
+    motif_labels as _motif_labels,
+)
 
 
 @dataclass
@@ -443,17 +447,14 @@ def _rank_nodes_by_teachability(
                 score += 100.0
 
         # High-value motifs
-        HIGH_VALUE = {"double_check", "trapped"}
-        MODERATE_VALUE = {"xray", "exposed_king", "overloaded",
-                          "capturable_defender"}
         MATE_PREFIX = "mate_"
 
         for motif in early_motifs:
             if motif.startswith(MATE_PREFIX):
                 score += 5.0
-            elif motif in HIGH_VALUE:
+            elif motif in HIGH_VALUE_KEYS:
                 score += 3.0
-            elif motif in MODERATE_VALUE:
+            elif motif in MODERATE_VALUE_KEYS:
                 score += 2.0
 
         # All tactics in reachable depth

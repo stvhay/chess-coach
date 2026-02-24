@@ -15,9 +15,12 @@ from server.analysis import (
 )
 from server.analysis import _colored
 from server.motifs import (
+    HIGH_VALUE_KEYS,
+    MODERATE_VALUE_KEYS,
     MOTIF_REGISTRY,
     MotifSpec,
     RenderContext,
+    RenderMode,
     all_tactic_keys,
     motif_labels,
     render_fork,
@@ -45,23 +48,46 @@ class TestRegistry:
     def test_registry_has_14_entries(self):
         assert len(MOTIF_REGISTRY) == 14
 
+    def test_registry_is_dict(self):
+        assert isinstance(MOTIF_REGISTRY, dict)
+
     def test_all_specs_have_required_fields(self):
-        for spec in MOTIF_REGISTRY:
+        for spec in MOTIF_REGISTRY.values():
             assert isinstance(spec, MotifSpec)
             assert spec.diff_key
             assert spec.field
             assert spec.key_fn is not None
             assert spec.render_fn is not None
 
-    def test_diff_keys_unique(self):
-        keys = [s.diff_key for s in MOTIF_REGISTRY]
-        assert len(keys) == len(set(keys))
+    def test_diff_keys_match_dict_keys(self):
+        """Each dict key matches the spec's diff_key."""
+        for key, spec in MOTIF_REGISTRY.items():
+            assert key == spec.diff_key
 
     def test_fields_match_tactical_motifs(self):
         """Every registry field must be a real attribute of TacticalMotifs."""
         t = TacticalMotifs()
-        for spec in MOTIF_REGISTRY:
+        for spec in MOTIF_REGISTRY.values():
             assert hasattr(t, spec.field), f"TacticalMotifs has no field '{spec.field}'"
+
+    def test_priority_field(self):
+        """Every spec has an int priority between 1 and 100."""
+        for spec in MOTIF_REGISTRY.values():
+            assert isinstance(spec.priority, int)
+            assert 1 <= spec.priority <= 100, f"{spec.diff_key} priority {spec.priority} out of range"
+
+    def test_render_mode_enum(self):
+        """RenderMode has exactly 3 members."""
+        assert len(RenderMode) == 3
+        assert RenderMode.OPPORTUNITY.value == "opportunity"
+        assert RenderMode.THREAT.value == "threat"
+        assert RenderMode.POSITION.value == "position"
+
+    def test_scoring_sets_are_registry_subsets(self):
+        """HIGH_VALUE_KEYS and MODERATE_VALUE_KEYS must be subsets of registry keys."""
+        assert HIGH_VALUE_KEYS <= MOTIF_REGISTRY.keys()
+        assert MODERATE_VALUE_KEYS <= MOTIF_REGISTRY.keys()
+        assert HIGH_VALUE_KEYS & MODERATE_VALUE_KEYS == set()  # no overlap
 
 
 # --- Observation flag tests ---
@@ -69,12 +95,12 @@ class TestRegistry:
 class TestObservationFlags:
     def test_observation_flags(self):
         """Exactly discovered, back_rank, xray, exposed_king are observations."""
-        obs_keys = {s.diff_key for s in MOTIF_REGISTRY if s.is_observation}
+        obs_keys = {s.diff_key for s in MOTIF_REGISTRY.values() if s.is_observation}
         assert obs_keys == {"discovered", "back_rank", "xray", "exposed_king"}
 
     def test_non_observation_flags(self):
         """All other motifs are not observations."""
-        non_obs = {s.diff_key for s in MOTIF_REGISTRY if not s.is_observation}
+        non_obs = {s.diff_key for s in MOTIF_REGISTRY.values() if not s.is_observation}
         assert "pin" in non_obs
         assert "fork" in non_obs
         assert "skewer" in non_obs

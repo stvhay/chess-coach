@@ -9,6 +9,7 @@ Used by descriptions.py (rendering and diffing) and game_tree.py (labeling).
 
 from __future__ import annotations
 
+import enum
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -53,13 +54,28 @@ def _ray_direction(from_sq: str, to_sq: str) -> tuple[int, int]:
 # Render context
 # ---------------------------------------------------------------------------
 
+
+class RenderMode(enum.Enum):
+    """How the motif is being rendered."""
+    OPPORTUNITY = "opportunity"
+    THREAT = "threat"
+    POSITION = "position"
+
+
 @dataclass
 class RenderContext:
     """Context for motif renderers."""
     student_is_white: bool | None
     player_color: str           # "White" or "Black"
-    is_threat: bool = False     # True for ply 1+ annotations
-    is_position_description: bool = False  # True when rendering static position
+    mode: RenderMode = RenderMode.OPPORTUNITY
+
+    @property
+    def is_threat(self) -> bool:
+        return self.mode == RenderMode.THREAT
+
+    @property
+    def is_position_description(self) -> bool:
+        return self.mode == RenderMode.POSITION
 
 
 # ---------------------------------------------------------------------------
@@ -279,6 +295,7 @@ class MotifSpec:
     filter_fn: Callable[[list, TacticalMotifs], list] | None = None
     cap: int | None = None
     is_observation: bool = False  # True for latent/structural motifs
+    priority: int = 50
 
 
 def _pin_filter(items: list, tactics: TacticalMotifs) -> list:
@@ -295,88 +312,109 @@ def _discovered_filter(items: list, tactics: TacticalMotifs) -> list:
     return [da for da in deduped if _is_significant_discovery(da)]
 
 
-MOTIF_REGISTRY: list[MotifSpec] = [
-    MotifSpec(
+MOTIF_REGISTRY: dict[str, MotifSpec] = {
+    "pin": MotifSpec(
         diff_key="pin", field="pins",
         key_fn=lambda t: ("pin", t.pinner_square, t.pinned_square),
         render_fn=render_pin,
         filter_fn=_pin_filter,
+        priority=25,
     ),
-    MotifSpec(
+    "fork": MotifSpec(
         diff_key="fork", field="forks",
         key_fn=lambda t: ("fork", t.forking_square, tuple(sorted(t.targets))),
         render_fn=render_fork,
+        priority=20,
     ),
-    MotifSpec(
+    "skewer": MotifSpec(
         diff_key="skewer", field="skewers",
         key_fn=lambda t: ("skewer", t.attacker_square, t.front_square, t.behind_square),
         render_fn=render_skewer,
         filter_fn=_skewer_filter,
+        priority=25,
     ),
-    MotifSpec(
+    "hanging": MotifSpec(
         diff_key="hanging", field="hanging",
         key_fn=lambda t: ("hanging", t.square, t.piece),
         render_fn=render_hanging,
+        priority=30,
     ),
-    MotifSpec(
+    "discovered": MotifSpec(
         diff_key="discovered", field="discovered_attacks",
         key_fn=lambda t: ("discovered", t.slider_square, t.target_square),
         render_fn=render_discovered_attack,
         filter_fn=_discovered_filter,
         cap=3,
         is_observation=True,
+        priority=40,
     ),
-    MotifSpec(
+    "double_check": MotifSpec(
         diff_key="double_check", field="double_checks",
         key_fn=lambda t: ("double_check", tuple(sorted(t.checker_squares))),
         render_fn=render_double_check,
+        priority=10,
     ),
-    MotifSpec(
+    "trapped": MotifSpec(
         diff_key="trapped", field="trapped_pieces",
         key_fn=lambda t: ("trapped", t.square, t.piece),
         render_fn=render_trapped_piece,
+        priority=30,
     ),
-    MotifSpec(
+    "mate_pattern": MotifSpec(
         diff_key="mate_pattern", field="mate_patterns",
         key_fn=lambda t: ("mate_pattern", t.pattern),
         render_fn=lambda mp, ctx: (f"mate pattern: {mp.pattern}", True),
+        priority=10,
     ),
-    MotifSpec(
+    "mate_threat": MotifSpec(
         diff_key="mate_threat", field="mate_threats",
         key_fn=lambda t: ("mate_threat", t.mating_square, t.threatening_color),
         render_fn=render_mate_threat,
+        priority=15,
     ),
-    MotifSpec(
+    "back_rank": MotifSpec(
         diff_key="back_rank", field="back_rank_weaknesses",
         key_fn=lambda t: ("back_rank", t.weak_color, t.king_square),
         render_fn=render_back_rank_weakness,
         is_observation=True,
+        priority=45,
     ),
-    MotifSpec(
+    "xray": MotifSpec(
         diff_key="xray", field="xray_attacks",
         key_fn=lambda t: ("xray", t.slider_square, t.target_square),
         render_fn=render_xray_attack,
         filter_fn=_xray_filter,
         cap=3,
         is_observation=True,
+        priority=45,
     ),
-    MotifSpec(
+    "exposed_king": MotifSpec(
         diff_key="exposed_king", field="exposed_kings",
         key_fn=lambda t: ("exposed_king", t.color, t.king_square),
         render_fn=render_exposed_king,
         is_observation=True,
+        priority=50,
     ),
-    MotifSpec(
+    "overloaded": MotifSpec(
         diff_key="overloaded", field="overloaded_pieces",
         key_fn=lambda t: ("overloaded", t.square, t.piece),
         render_fn=render_overloaded_piece,
+        priority=35,
     ),
-    MotifSpec(
+    "capturable_defender": MotifSpec(
         diff_key="capturable_defender", field="capturable_defenders",
         key_fn=lambda t: ("capturable_defender", t.defender_square),
         render_fn=render_capturable_defender,
+        priority=35,
     ),
-]
+}
+
+
+# Scoring sets for teachability ranking — validated against registry keys
+HIGH_VALUE_KEYS: frozenset[str] = frozenset({"double_check", "trapped"})
+MODERATE_VALUE_KEYS: frozenset[str] = frozenset({"xray", "exposed_king", "overloaded", "capturable_defender"})
+assert HIGH_VALUE_KEYS <= MOTIF_REGISTRY.keys(), f"HIGH_VALUE_KEYS has unknown keys: {HIGH_VALUE_KEYS - MOTIF_REGISTRY.keys()}"
+assert MODERATE_VALUE_KEYS <= MOTIF_REGISTRY.keys(), f"MODERATE_VALUE_KEYS has unknown keys: {MODERATE_VALUE_KEYS - MOTIF_REGISTRY.keys()}"
 
 
 # ---------------------------------------------------------------------------
@@ -390,7 +428,7 @@ def all_tactic_keys(tactics: TacticalMotifs) -> set[tuple]:
     motif-specific identifying values (squares, pieces).
     """
     keys: set[tuple] = set()
-    for spec in MOTIF_REGISTRY:
+    for spec in MOTIF_REGISTRY.values():
         for item in getattr(tactics, spec.field, []):
             keys.add(spec.key_fn(item))
     return keys
@@ -402,7 +440,7 @@ def motif_labels(tactics: TacticalMotifs, board: chess.Board | None = None) -> s
     Returns a set of string labels like "pin", "fork", "mate_smothered".
     """
     labels: set[str] = set()
-    for spec in MOTIF_REGISTRY:
+    for spec in MOTIF_REGISTRY.values():
         items = getattr(tactics, spec.field, [])
         if items:
             # mate_patterns get per-pattern labels instead of generic key
@@ -429,7 +467,7 @@ def render_motifs(
     opps: list[str] = []
     thrs: list[str] = []
     obs: list[str] = []
-    for spec in MOTIF_REGISTRY:
+    for spec in MOTIF_REGISTRY.values():
         if spec.diff_key not in new_types:
             continue
         items = list(getattr(tactics, spec.field, []))

@@ -21,6 +21,7 @@ from server.game_tree import GameNode, GameTree
 from server.motifs import (
     MOTIF_REGISTRY,
     RenderContext,
+    RenderMode,
     all_tactic_keys,
     render_motifs,
 )
@@ -142,12 +143,12 @@ def describe_position(tree: GameTree, node: GameNode) -> PositionDescription:
     student_is_white = tree.player_color == chess.WHITE
 
     # Render all active motifs (use all types as "new" since this is a snapshot)
-    all_types = {spec.diff_key for spec in MOTIF_REGISTRY
+    all_types = {spec.diff_key for spec in MOTIF_REGISTRY.values()
                  if getattr(node.tactics, spec.field, [])}
     ctx = RenderContext(
         student_is_white=student_is_white,
         player_color=player_color,
-        is_position_description=True,
+        mode=RenderMode.POSITION,
     )
     opps, thrs, obs = render_motifs(node.tactics, all_types, ctx)
 
@@ -213,7 +214,7 @@ def describe_changes(
         ctx = RenderContext(
             student_is_white=student_is_white,
             player_color=player_color,
-            is_threat=is_future,
+            mode=RenderMode.THREAT if is_future else RenderMode.OPPORTUNITY,
         )
         opps, thrs, obs = render_motifs(current_tactics, new_types, ctx)
 
