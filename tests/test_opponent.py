@@ -5,10 +5,9 @@ from unittest.mock import AsyncMock
 import chess
 import pytest
 
+from server.analysis import GamePhase, detect_game_phase
 from server.engine import MoveInfo
 from server.opponent import (
-    GamePhase,
-    detect_game_phase,
     filter_candidates,
     select_opponent_move,
 )

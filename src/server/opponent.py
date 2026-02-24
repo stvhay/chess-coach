@@ -7,21 +7,14 @@ delegates to the LLM for pedagogically-motivated selection.
 
 from __future__ import annotations
 
-import enum
 from dataclasses import dataclass
 
 import chess
 
-from server.analysis import STARTING_MINORS, analyze, analyze_material
+from server.analysis import GamePhase, analyze, detect_game_phase
 from server.descriptions import describe_position_from_report
 from server.engine import EngineAnalysis, MoveInfo
 from server.llm import ChessTeacher, OpponentMoveContext
-
-
-class GamePhase(enum.Enum):
-    OPENING = "opening"
-    MIDDLEGAME = "middlegame"
-    ENDGAME = "endgame"
 
 
 # Centipawn thresholds per phase — moves within this delta of the best
@@ -41,41 +34,6 @@ class OpponentMoveResult:
     phase: GamePhase
     reason: str | None = None   # LLM's rationale (for logging)
     method: str = "engine"      # "llm" or "engine"
-
-
-def _count_developed(board: chess.Board, color: chess.Color) -> int:
-    """Count how many minor pieces have moved from starting squares."""
-    developed = 0
-    for sq, pt in STARTING_MINORS[color]:
-        piece = board.piece_at(sq)
-        if piece is None or piece.color != color or piece.piece_type != pt:
-            developed += 1
-    return developed
-
-
-def detect_game_phase(board: chess.Board) -> GamePhase:
-    """Detect the current game phase from board state.
-
-    Opening: move <= 15 AND (either side < 3 minors developed OR no captures)
-    Endgame: no queens OR both sides <= 13 material points
-    Middlegame: everything else
-    """
-    mat = analyze_material(board)
-
-    # Endgame: no queens on the board, or both sides have low material
-    if mat.white.queens == 0 and mat.black.queens == 0:
-        return GamePhase.ENDGAME
-    if mat.white_total <= 13 and mat.black_total <= 13:
-        return GamePhase.ENDGAME
-
-    # Opening: early moves with undeveloped pieces
-    if board.fullmove_number <= 15:
-        w_dev = _count_developed(board, chess.WHITE)
-        b_dev = _count_developed(board, chess.BLACK)
-        if w_dev < 3 or b_dev < 3:
-            return GamePhase.OPENING
-
-    return GamePhase.MIDDLEGAME
 
 
 def _cp_threshold(phase: GamePhase) -> int:

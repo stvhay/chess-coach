@@ -4,6 +4,7 @@ import chess
 import pytest
 
 from server.analysis import (
+    GamePhase,
     PieceInvolvement,
     analyze,
     analyze_activity,
@@ -15,6 +16,7 @@ from server.analysis import (
     analyze_pawn_structure,
     analyze_space,
     analyze_tactics,
+    detect_game_phase,
     get_piece_value,
 )
 
@@ -1537,3 +1539,59 @@ def test_space_symmetric():
     assert result.black_occupied >= 1
     # e4 pawn attacks d3 and f3 — both on files d and f (counted).
     assert result.black_squares >= 1
+
+
+# ---------------------------------------------------------------------------
+# Terminal position short-circuit tests
+# ---------------------------------------------------------------------------
+
+
+def test_terminal_skips_activity():
+    """Checkmate position should have zero-valued activity."""
+    fen = "r1bqkb1r/pppp1Qpp/2n2n2/4p3/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 0 4"
+    board = chess.Board(fen)
+    assert board.is_checkmate()
+    report = analyze(board)
+    assert report.activity.white_total_mobility == 0
+    assert report.activity.black_total_mobility == 0
+    assert report.activity.white == []
+    assert report.activity.black == []
+
+
+def test_terminal_skips_space():
+    """Stalemate position should have zero-valued space."""
+    fen = "k7/8/KQ6/8/8/8/8/8 b - - 0 1"
+    board = chess.Board(fen)
+    assert board.is_stalemate()
+    report = analyze(board)
+    assert report.space.white_squares == 0
+    assert report.space.black_squares == 0
+
+
+def test_development_uses_precomputed_king_safety():
+    """analyze_development should not recompute king_safety if provided."""
+    board = chess.Board()
+    ks_w = analyze_king_safety(board, chess.WHITE)
+    ks_b = analyze_king_safety(board, chess.BLACK)
+    dev = analyze_development(board, king_safety_white=ks_w, king_safety_black=ks_b)
+    assert dev.white_castled == ks_w.castled
+    assert dev.black_castled == ks_b.castled
+
+
+# ---------------------------------------------------------------------------
+# Game phase detection (moved from test_opponent.py canonical location)
+# ---------------------------------------------------------------------------
+
+
+def test_detect_game_phase_opening():
+    assert detect_game_phase(chess.Board()) == GamePhase.OPENING
+
+
+def test_detect_game_phase_endgame_no_queens():
+    board = chess.Board("r3kb1r/ppp2ppp/2n2n2/3pp3/3PP3/2N2N2/PPP2PPP/R3KB1R w KQkq - 0 8")
+    assert detect_game_phase(board) == GamePhase.ENDGAME
+
+
+def test_detect_game_phase_middlegame():
+    board = chess.Board("r2q1rk1/ppp1bppp/2np1n2/4p3/2B1P1b1/2NP1N2/PPP2PPP/R1BQ1RK1 w - - 0 10")
+    assert detect_game_phase(board) == GamePhase.MIDDLEGAME
