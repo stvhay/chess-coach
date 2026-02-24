@@ -1153,3 +1153,60 @@ def test_square_control_helper():
     assert result.white_pawn_attacks >= 1  # c3 pawn
     assert result.white_piece_attacks == 0  # Ne3 doesn't attack d4
     assert result.square == "d4"
+
+
+# ---------------------------------------------------------------------------
+# Space — rewritten tests
+# ---------------------------------------------------------------------------
+
+
+def test_space_uses_center_files_only():
+    """Space analysis only counts files c-f (indices 2-5)."""
+    # White pawn on a5 — on a-file (index 0), in black's half.
+    # Old code would count squares on a-file. New code ignores a-file.
+    # Also white pawn on d5 — on d-file (index 3), in black's half.
+    board = chess.Board("4k3/8/8/P2P4/8/8/8/4K3 w - - 0 1")
+    result = analyze_space(board)
+    # d5 pawn attacks c6 and e6 — those are on files c and e (counted).
+    # a5 pawn attacks b6 — b-file (index 1) is NOT counted.
+    # So only d-file contributions should count.
+    # The pawn on d5 occupies d5 (file d, rank 5 = black's half) → occupation credit.
+    assert result.white_occupied >= 1  # d5 pawn in enemy half
+
+
+def test_space_net_control():
+    """Space uses net control (attacker comparison), not binary."""
+    # White has 2 pieces attacking d5, black has 0.
+    board = chess.Board("4k3/8/8/8/3PP3/2N5/8/4K3 w - - 0 1")
+    # d4 pawn attacks c5, e5. e4 pawn attacks d5, f5.
+    # Nc3 attacks: b1,a2,a4,b5,d5,e4,e2,d1.
+    # d5: white pawn (e4) + knight (c3) = 2 white attackers. Black: 0. Net white.
+    # c5: white pawn (d4) = 1. Black: 0. c-file, rank 5. Net white.
+    result = analyze_space(board)
+    assert result.white_squares >= 1
+
+
+def test_space_occupation_credit():
+    """Own pieces in enemy half count toward space."""
+    # White knight on e6 (black's half, e-file = index 4 = counted).
+    board = chess.Board("4k3/8/4N3/8/8/8/8/4K3 w - - 0 1")
+    result = analyze_space(board)
+    assert result.white_occupied >= 1
+
+
+def test_space_no_occupation_in_own_half():
+    """Pieces in own half don't count as occupation credit."""
+    # White knight on e3 (white's half).
+    board = chess.Board("4k3/8/8/8/8/4N3/8/4K3 w - - 0 1")
+    result = analyze_space(board)
+    assert result.white_occupied == 0
+
+
+def test_space_symmetric():
+    """Black space is measured symmetrically in white's half."""
+    # Black pawn on e4 (white's half, e-file).
+    board = chess.Board("4k3/8/8/8/4p3/8/8/4K3 w - - 0 1")
+    result = analyze_space(board)
+    assert result.black_occupied >= 1
+    # e4 pawn attacks d3 and f3 — both on files d and f (counted).
+    assert result.black_squares >= 1

@@ -73,7 +73,7 @@ def _minimal_report(**overrides) -> PositionReport:
             white_developed=0, black_developed=0,
             white_castled="none", black_castled="none",
         ),
-        space=Space(white_squares=10, black_squares=10),
+        space=Space(white_squares=10, black_squares=10, white_occupied=0, black_occupied=0),
     )
     defaults.update(overrides)
     return PositionReport(**defaults)

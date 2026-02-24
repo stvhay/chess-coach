@@ -1291,27 +1291,51 @@ def analyze_development(board: chess.Board) -> Development:
 
 @dataclass
 class Space:
-    white_squares: int  # squares controlled in black's half (ranks 5-8)
-    black_squares: int  # squares controlled in white's half (ranks 1-4)
+    white_squares: int      # squares with net white control in black's half (files c-f)
+    black_squares: int      # squares with net black control in white's half (files c-f)
+    white_occupied: int     # white pieces/pawns in black's half on files c-f
+    black_occupied: int     # black pieces/pawns in white's half on files c-f
+
+
+_SPACE_FILES = range(2, 6)  # c, d, e, f (indices 2-5)
 
 
 def analyze_space(board: chess.Board) -> Space:
-    white_controlled: set[int] = set()
-    black_controlled: set[int] = set()
+    white_net = 0
+    black_net = 0
+    white_occ = 0
+    black_occ = 0
 
-    for sq in chess.SQUARES:
-        # White targets ranks 4-7 (0-indexed) = ranks 5-8
-        if chess.square_rank(sq) >= 4:
-            if board.attackers(chess.WHITE, sq):
-                white_controlled.add(sq)
-        # Black targets ranks 0-3 (0-indexed) = ranks 1-4
-        if chess.square_rank(sq) < 4:
-            if board.attackers(chess.BLACK, sq):
-                black_controlled.add(sq)
+    for f in _SPACE_FILES:
+        # White space: squares in black's half (ranks 4-7, i.e. ranks 5-8)
+        for r in range(4, 8):
+            sq = chess.square(f, r)
+            sc = _analyze_square_control(board, sq)
+            white_attacks = sc.white_pawn_attacks + sc.white_piece_attacks
+            black_attacks = sc.black_pawn_attacks + sc.black_piece_attacks
+            if white_attacks > black_attacks:
+                white_net += 1
+            # Occupation: white piece/pawn on this square
+            if sc.occupied_by is not None and sc.occupied_by.startswith("white"):
+                white_occ += 1
+
+        # Black space: squares in white's half (ranks 0-3, i.e. ranks 1-4)
+        for r in range(0, 4):
+            sq = chess.square(f, r)
+            sc = _analyze_square_control(board, sq)
+            white_attacks = sc.white_pawn_attacks + sc.white_piece_attacks
+            black_attacks = sc.black_pawn_attacks + sc.black_piece_attacks
+            if black_attacks > white_attacks:
+                black_net += 1
+            # Occupation: black piece/pawn on this square
+            if sc.occupied_by is not None and sc.occupied_by.startswith("black"):
+                black_occ += 1
 
     return Space(
-        white_squares=len(white_controlled),
-        black_squares=len(black_controlled),
+        white_squares=white_net,
+        black_squares=black_net,
+        white_occupied=white_occ,
+        black_occupied=black_occ,
     )
 
 
