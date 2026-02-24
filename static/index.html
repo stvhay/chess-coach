@@ -179,29 +179,40 @@
     :root {
       --header-h: 44px;
       --footer-h: 28px;
-      --pad: 16px;
+      --pad: 12px;
+      --panel-width: 260px;
+      --eval-bar-width: 32px;
 
-      /* Available space calculations */
+      /* Board = min(available height, available width minus panels) */
       --available-height: calc(100vh - var(--header-h) - var(--footer-h) - var(--pad) * 2);
       --available-width: calc(100vw - var(--pad) * 2);
-
-      /* Board size picks whichever dimension is more constraining */
-      /* Desktop: min(height, width-minus-panels) */
       --board-size: min(
         var(--available-height),
-        min(600px, calc(var(--available-width) - 280px))
+        calc(var(--available-width) - var(--panel-width) * 2 - var(--eval-bar-width))
       );
+    }
+
+    .layout-wrap {
+      display: flex;
+      justify-content: center;
+      padding: var(--pad);
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: var(--panel-width) auto auto var(--panel-width);
+      gap: 0;
+      align-items: start;
+      width: 100%;
     }
 
     /* Mobile: Stack vertically */
     @media (max-width: 768px) {
       :root {
-        --board-size: min(var(--available-width), 500px);
+        --board-size: min(calc(var(--available-width) - var(--eval-bar-width)), 500px);
       }
 
       .layout {
         grid-template-columns: 1fr !important;
-        grid-template-rows: auto auto auto auto;
         gap: 12px;
       }
 
@@ -212,31 +223,16 @@
       }
     }
 
-    /* Tablet: Smaller panels */
-    @media (min-width: 769px) and (max-width: 1024px) {
-      .coach-column,
-      .right-panel {
-        min-width: 200px;
-        max-width: 250px;
+    /* Tablet: Narrower panels */
+    @media (min-width: 769px) and (max-width: 1200px) {
+      :root {
+        --panel-width: 200px;
       }
-    }
-    .layout-wrap {
-      display: flex;
-      justify-content: center;
-      padding: var(--pad);
-    }
-    .layout {
-      display: grid;
-      grid-template-columns: 1fr auto auto 1fr;
-      gap: 0;
-      align-items: start;
-      width: 100%;
     }
 
     /* --- Coach column (left) --- */
     .coach-column {
       height: var(--board-size);
-      min-width: 200px;
       overflow-y: auto;
       padding: 12px;
       background: #16213e;
@@ -406,7 +402,6 @@
       flex-direction: column;
       gap: 8px;
       height: var(--board-size);
-      min-width: 250px;
       padding: 12px;
       background: #16213e;
       border: 1px solid #333;
