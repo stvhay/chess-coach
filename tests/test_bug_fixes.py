@@ -9,7 +9,7 @@ from server.descriptions import (
 from server.game_tree import GameNode, GameTree
 from server.motifs import (
     render_motifs, RenderContext, RenderMode, all_tactic_keys,
-    render_xray_attack, XRayAttack as XRayAttackMotif
+    render_xray_attack,
 )
 
 
@@ -23,7 +23,7 @@ class TestBug3XRayAttackValidation:
         """Render should suppress x-ray if target is same color as slider."""
         # Create a mock x-ray object with same-color slider and target
         # (shouldn't happen in analysis, but render should be defensive)
-        from server.motifs import XRayAttack as MockXRayAttack
+        from server.analysis import XRayAttack as MockXRayAttack
 
         xa = MockXRayAttack(
             slider_square="d1", slider_piece="Q",  # White Queen
@@ -48,7 +48,7 @@ class TestBug3XRayAttackValidation:
 
     def test_xray_attack_rendering_allows_enemy_target(self):
         """Render should work normally for enemy targets."""
-        from server.motifs import XRayAttack as MockXRayAttack
+        from server.analysis import XRayAttack as MockXRayAttack
 
         xa = MockXRayAttack(
             slider_square="d1", slider_piece="Q",  # White Queen

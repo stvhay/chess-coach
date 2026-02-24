@@ -939,8 +939,8 @@ def _find_ray_motifs(board: chess.Board) -> _RayMotifs:
                                 color=color_name,
                                 is_absolute=True,
                             ))
-                        elif first_val > second_val:
-                            # Skewer — higher value forced to move
+                        elif first_val > second_val and get_piece_value(pt, king=1000) <= first_val:
+                            # Skewer — attacker can win front piece, exposing behind
                             skewers.append(Skewer(
                                 attacker_square=chess.square_name(slider_sq),
                                 attacker_piece=slider_piece.symbol(),
@@ -1044,8 +1044,8 @@ def _find_forks(board: chess.Board) -> list[Fork]:
 
             is_real_fork = (
                 has_king_target
-                or forker_defended
-                or forker_val < max_target_val
+                or piece.piece_type == chess.KING  # king can't be captured
+                or forker_val <= max_target_val
             )
             if not is_real_fork:
                 continue
