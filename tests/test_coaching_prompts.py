@@ -6,12 +6,14 @@ Three layers:
 2. Integration tests (run with `pytest -m integration`) — use real Stockfish
    engine to verify the full build_coaching_tree/serialize_report pipeline across
    diverse scenarios.
-3. Live LLM tests (run with `pytest -m live`) — send prompts to the real
-   Ollama instance and print prompt/response pairs for human evaluation.
+3. Live LLM tests:
+   - Quick smoke test (run with `pytest -m live`) — sends ONE prompt to the LLM
+   - Full LLM suite (run with `pytest -m full_llm`) — sends ALL 30 prompts to the LLM
 
 Run structural tests:  uv run pytest tests/test_coaching_prompts.py
 Run integration tests: uv run pytest tests/test_coaching_prompts.py -m integration -s
-Run live tests:        uv run pytest tests/test_coaching_prompts.py -m live -s
+Run LLM smoke test:    uv run pytest tests/test_coaching_prompts.py -m live -s
+Run full LLM suite:    uv run pytest tests/test_coaching_prompts.py -m full_llm -s
 """
 
 from __future__ import annotations
@@ -258,17 +260,51 @@ class TestPromptDump:
 # Live LLM tests — run with: uv run pytest tests/test_coaching_prompts.py -m live -s
 # ---------------------------------------------------------------------------
 
-@pytest.mark.live
 class TestLiveCoaching:
     """Send prompts to the real LLM and print prompt/response pairs.
 
     Requires Ollama at https://ollama.st5ve.com/ to be running.
-    Run with: uv run pytest tests/test_coaching_prompts.py -m live -s
+
+    Quick smoke test (one scenario):
+      uv run pytest tests/test_coaching_prompts.py -m live -s
+
+    Full suite (all scenarios):
+      uv run pytest tests/test_coaching_prompts.py::TestLiveCoaching -m full_llm -s
     """
 
-    @pytest.mark.parametrize("scenario_name", SCENARIOS.keys())
-    async def test_llm_response(self, scenario_name):
-        """Send a scenario prompt to the LLM and print the pair."""
+    @pytest.mark.live
+    @pytest.mark.parametrize("scenario_name", ["pin_and_hanging"])
+    async def test_llm_response_smoke(self, scenario_name):
+        """Quick smoke test: send one scenario to the LLM (enabled by default with -m live)."""
+        s = SCENARIOS[scenario_name]
+        prompt, _ = await _build_prompt_for_scenario(scenario_name)
+
+        teacher = _live_teacher()
+        response = await teacher.explain_move(prompt)
+
+        print(f"\n{'='*60}")
+        print(f"SCENARIO: {scenario_name}")
+        print(f"  {s['description']}")
+        print(f"  Quality: {s['quality']} (cp_loss={s['cp_loss']})")
+        print(f"{'='*60}")
+        print(f"PROMPT ({len(prompt)} chars):")
+        print(prompt)
+        print(f"{'-'*60}")
+        print(f"LLM RESPONSE:")
+        print(response or "(None — LLM unreachable or failed)")
+        print(f"{'='*60}\n")
+
+        # Basic sanity: if the LLM responded, it should be non-empty
+        if response is not None:
+            assert len(response.strip()) > 0
+            # Should not contain markdown formatting
+            assert "**" not in response
+            assert "##" not in response
+
+    @pytest.mark.full_llm
+    @pytest.mark.parametrize("scenario_name", ["missed_fork", "good_move"])
+    async def test_llm_response_extended(self, scenario_name):
+        """Extended test: send remaining scenarios to the LLM (requires -m full_llm)."""
         s = SCENARIOS[scenario_name]
         prompt, _ = await _build_prompt_for_scenario(scenario_name)
 
@@ -665,9 +701,14 @@ class TestEvalScenarios:
         print(f"{'='*60}\n")
 
 
-@pytest.mark.live
+@pytest.mark.full_llm
 class TestEvalScenariosLive:
-    """Send eval scenario prompts to real LLM. Run with -m live -s."""
+    """Send eval scenario prompts to real LLM.
+
+    Run with: uv run pytest tests/test_coaching_prompts.py::TestEvalScenariosLive -m full_llm -s
+
+    This is the FULL test suite (27 scenarios) and requires explicit -m full_llm to run.
+    """
 
     @pytest.mark.parametrize(
         "scenario",

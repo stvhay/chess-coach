@@ -42,4 +42,5 @@ filterwarnings = [
 markers = [
     "integration: marks tests that require external services (deselect with '-m \"not integration\"')",
     "live: marks tests that call a real LLM (run with '-m live')",
+    "full_llm: marks extended LLM test suite (run with '-m full_llm')",
 ]
