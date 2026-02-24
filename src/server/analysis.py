@@ -213,11 +213,7 @@ def _annotate_pawns(
         is_doubled = len(_own(f)) > 1
 
         # Isolated: no own pawns on adjacent files
-        is_isolated = True
-        for af in (f - 1, f + 1):
-            if 0 <= af <= 7 and _own(af):
-                is_isolated = False
-                break
+        is_isolated = not any(0 <= af <= 7 and _own(af) for af in (f - 1, f + 1))
 
         # Passed: no enemy pawns on same or adjacent files ahead
         is_passed = True
@@ -244,23 +240,20 @@ def _annotate_pawns(
                             break
 
         # Chain member: friendly pawn diagonally behind
-        is_chain_member = False
         behind_rank = r - direction
-        if 0 <= behind_rank <= 7:
-            for af in (f - 1, f + 1):
-                if 0 <= af <= 7 and behind_rank in _own(af):
-                    is_chain_member = True
-                    break
+        is_chain_member = (
+            0 <= behind_rank <= 7
+            and any(0 <= af <= 7 and behind_rank in _own(af) for af in (f - 1, f + 1))
+        )
 
         # Chain base: not a chain member, but supports a pawn ahead
         is_chain_base = False
         if not is_chain_member:
             ahead_rank = r + direction
-            if 0 <= ahead_rank <= 7:
-                for af in (f - 1, f + 1):
-                    if 0 <= af <= 7 and ahead_rank in _own(af):
-                        is_chain_base = True
-                        break
+            is_chain_base = (
+                0 <= ahead_rank <= 7
+                and any(0 <= af <= 7 and ahead_rank in _own(af) for af in (f - 1, f + 1))
+            )
 
         details.append(PawnDetail(
             square=chess.square_name(sq),
@@ -310,6 +303,14 @@ class KingSafety:
     danger_score: int = 0
 
 
+_CASTLED_POSITIONS = {
+    chess.G1: "kingside", chess.H1: "kingside",
+    chess.C1: "queenside", chess.B1: "queenside",
+    chess.G8: "kingside", chess.H8: "kingside",
+    chess.C8: "queenside", chess.B8: "queenside",
+}
+
+
 def analyze_king_safety(board: chess.Board, color: chess.Color) -> KingSafety:
     king_sq = board.king(color)
     if king_sq is None:
@@ -329,13 +330,7 @@ def analyze_king_safety(board: chess.Board, color: chess.Color) -> KingSafety:
     king_rank = chess.square_rank(king_sq)
 
     # --- Existing: castled heuristic ---
-    _CASTLED = {
-        chess.G1: "kingside", chess.H1: "kingside",
-        chess.C1: "queenside", chess.B1: "queenside",
-        chess.G8: "kingside", chess.H8: "kingside",
-        chess.C8: "queenside", chess.B8: "queenside",
-    }
-    castled = _CASTLED.get(king_sq, "none")
+    castled = _CASTLED_POSITIONS.get(king_sq, "none")
 
     # --- Existing: pawn shield ---
     shield_squares = []
@@ -382,9 +377,7 @@ def analyze_king_safety(board: chess.Board, color: chess.Color) -> KingSafety:
 
     # --- NEW: weak_squares ---
     # King zone squares attacked by enemy but not defended by own pawns
-    own_pawn_attacks = chess.SquareSet()
-    for pawn_sq in board.pieces(chess.PAWN, color):
-        own_pawn_attacks |= board.attacks(pawn_sq)
+    own_pawn_attacks = chess.SquareSet(_pawn_attacks_bb(board, color))
     weak = 0
     for sq in king_ring:
         if board.attackers(enemy, sq) and sq not in own_pawn_attacks:
@@ -437,16 +430,9 @@ def analyze_king_safety(board: chess.Board, color: chess.Color) -> KingSafety:
         for pawn_sq in board.pieces(chess.PAWN, enemy):
             if chess.square_file(pawn_sq) == sf:
                 pawn_rank = chess.square_rank(pawn_sq)
-                if color == chess.WHITE:
-                    # Enemy (black) pawns advancing down -- rank closer to 0 is dangerous
-                    distance = pawn_rank
-                    if distance <= 4:
-                        storm += 5 - distance
-                else:
-                    # Enemy (white) pawns advancing up -- rank closer to 7 is dangerous
-                    distance = 7 - pawn_rank
-                    if distance <= 4:
-                        storm += 5 - distance
+                distance = pawn_rank if color == chess.WHITE else 7 - pawn_rank
+                if distance <= 4:
+                    storm += 5 - distance
 
     # --- NEW: pawn_shelter ---
     # Count own pawns on rank immediately ahead on king file +/- 1
@@ -522,17 +508,17 @@ class ActivityInfo:
     black_total_mobility: int
 
 
-def _enemy_pawn_attacks(board: chess.Board, enemy_color: chess.Color) -> int:
-    """Return bitboard of all squares attacked by enemy pawns."""
-    enemy_pawns = board.pieces_mask(chess.PAWN, enemy_color)
-    if enemy_color == chess.WHITE:
+def _pawn_attacks_bb(board: chess.Board, color: chess.Color) -> int:
+    """Return bitboard of all squares attacked by pawns of the given color."""
+    pawns = board.pieces_mask(chess.PAWN, color)
+    if color == chess.WHITE:
         # White pawns attack diagonally upward
-        left = (enemy_pawns & ~chess.BB_FILE_A) << 7
-        right = (enemy_pawns & ~chess.BB_FILE_H) << 9
+        left = (pawns & ~chess.BB_FILE_A) << 7
+        right = (pawns & ~chess.BB_FILE_H) << 9
     else:
         # Black pawns attack diagonally downward
-        left = (enemy_pawns & ~chess.BB_FILE_H) >> 7
-        right = (enemy_pawns & ~chess.BB_FILE_A) >> 9
+        left = (pawns & ~chess.BB_FILE_H) >> 7
+        right = (pawns & ~chess.BB_FILE_A) >> 9
     return (left | right) & chess.BB_ALL
 
 
@@ -563,7 +549,7 @@ def analyze_activity(board: chess.Board) -> ActivityInfo:
         enemy = not color
         # Improved mobility area: exclude own pieces, enemy pawn attacks, own king square
         own_occupied = board.occupied_co[color]
-        enemy_pawn_att = _enemy_pawn_attacks(board, enemy)
+        enemy_pawn_att = _pawn_attacks_bb(board, enemy)
         king_sq = board.king(color)
         king_bb = chess.BB_SQUARES[king_sq] if king_sq is not None else 0
         excluded = own_occupied | enemy_pawn_att | king_bb
@@ -890,9 +876,6 @@ def _find_ray_motifs(board: chess.Board) -> _RayMotifs:
         for pt in (chess.BISHOP, chess.ROOK, chess.QUEEN):
             for slider_sq in board.pieces(pt, color):
                 slider_piece = board.piece_at(slider_sq)
-                if slider_piece is None:
-                    continue
-
                 for direction in _RAY_DIRS[pt]:
                     first_sq, second_sq = _walk_ray(board, slider_sq, direction)
                     if first_sq is None or second_sq is None:
@@ -1267,6 +1250,13 @@ def _find_exposed_kings(board: chess.Board) -> list[ExposedKing]:
     return exposed
 
 
+def _is_sole_defender(
+    board: chess.Board, color: chess.Color, defender_sq: int, target_sq: int,
+) -> bool:
+    """Return True if defender_sq is the only piece of color defending target_sq."""
+    return not (board.attackers(color, target_sq) & ~chess.BB_SQUARES[defender_sq])
+
+
 def _find_overloaded_pieces(
     board: chess.Board,
     back_rank_weaknesses: list[BackRankWeakness] | None = None,
@@ -1323,29 +1313,20 @@ def _find_overloaded_pieces(
                 # Must be attacked by enemy
                 if not board.attackers(enemy, defended_sq):
                     continue
-                # Check if this is the sole defender (no other same-color defenders)
-                all_defenders = board.attackers(color, defended_sq)
-                other_defenders = chess.SquareSet(all_defenders) - chess.SquareSet(chess.BB_SQUARES[sq])
-                if not other_defenders:
+                if _is_sole_defender(board, color, sq, defended_sq):
                     duties.append(defended_sq)
 
             # Back-rank duty: sole defender of a critical back-rank square
             for br_sq in br_squares:
-                if br_sq in board.attacks(sq):
-                    all_defenders = board.attackers(color, br_sq)
-                    other_defenders = chess.SquareSet(all_defenders) - chess.SquareSet(chess.BB_SQUARES[sq])
-                    if not other_defenders:
-                        if br_sq not in duties:  # avoid double-counting
-                            duties.append(br_sq)
+                if br_sq in board.attacks(sq) and _is_sole_defender(board, color, sq, br_sq):
+                    if br_sq not in duties:  # avoid double-counting
+                        duties.append(br_sq)
 
             # Mate-threat blocking duty: sole blocker of a mating square
             for mt_sq in mt_squares:
-                if mt_sq in board.attacks(sq):
-                    all_defenders = board.attackers(color, mt_sq)
-                    other_defenders = chess.SquareSet(all_defenders) - chess.SquareSet(chess.BB_SQUARES[sq])
-                    if not other_defenders:
-                        if mt_sq not in duties:
-                            duties.append(mt_sq)
+                if mt_sq in board.attacks(sq) and _is_sole_defender(board, color, sq, mt_sq):
+                    if mt_sq not in duties:
+                        duties.append(mt_sq)
 
             if len(duties) >= 2:
                 overloaded.append(OverloadedPiece(
@@ -1381,9 +1362,7 @@ def _find_capturable_defenders(board: chess.Board) -> list[CapturableDefender]:
                 if not board.attackers(enemy, charge_sq):
                     continue
                 # Must be sole defender
-                all_defenders = board.attackers(color, charge_sq)
-                other_defenders = chess.SquareSet(all_defenders) - chess.SquareSet(chess.BB_SQUARES[def_sq])
-                if other_defenders:
+                if not _is_sole_defender(board, color, def_sq, charge_sq):
                     continue
                 # The charge must be worth enough to matter
                 charge_val = get_piece_value(charge.piece_type, king=0)
@@ -1471,8 +1450,7 @@ def analyze_files_and_diagonals(board: chess.Board) -> FilesAndDiagonals:
             fs = file_statuses[f]
             if fs.is_open:
                 rooks_open.append(chess.square_name(sq))
-            elif (color == chess.WHITE and fs.semi_open_white) or \
-                 (color == chess.BLACK and fs.semi_open_black):
+            elif fs.semi_open_white if color == chess.WHITE else fs.semi_open_black:
                 rooks_semi.append(chess.square_name(sq))
 
     bishops_long = []
