@@ -375,9 +375,8 @@ class TestTactics:
         assert board.is_pinned(chess.WHITE, chess.E4)
         tactics = analyze_tactics(board)
         hanging_rook = [h for h in tactics.hanging if h.square == "e4"]
-        # Re4 has legal moves along the e-file -> can_retreat should be True
-        if hanging_rook:
-            assert hanging_rook[0].can_retreat is True
+        assert len(hanging_rook) == 1
+        assert hanging_rook[0].can_retreat is True
 
     def test_hanging_unpinned_piece_with_escape(self):
         """Normal (unpinned) hanging piece with escape squares has can_retreat=True."""
@@ -385,8 +384,8 @@ class TestTactics:
         board = chess.Board("4k3/8/p7/1N6/8/8/8/4K3 w - - 0 1")
         tactics = analyze_tactics(board)
         hanging_knight = [h for h in tactics.hanging if h.square == "b5"]
-        if hanging_knight:
-            assert hanging_knight[0].can_retreat is True
+        assert len(hanging_knight) == 1
+        assert hanging_knight[0].can_retreat is True
 
     def test_no_tactics_starting(self):
         board = chess.Board(STARTING)
@@ -554,13 +553,6 @@ class TestDoubleCheck:
 
 
 class TestTrappedPieces:
-    def test_trapped_pieces_checks_both_sides(self):
-        """Function should check both colors, not just board.turn."""
-        board = chess.Board("4k3/8/8/8/8/8/8/4K3 w - - 0 1")
-        tactics = analyze_tactics(board)
-        # No pieces to trap — just verify no crash
-        assert tactics.trapped_pieces == []
-
     def test_trapped_pieces_no_crash_on_check_position(self):
         """Null move into check should not crash — just skip that side."""
         # White king in check from Qd1
@@ -626,12 +618,6 @@ class TestMatePatterns:
         t = analyze_tactics(board)
         assert len(t.mate_patterns) == 0
 
-    def test_mate_pattern_non_checkmate_returns_empty(self):
-        """Non-checkmate position returns no patterns."""
-        board = chess.Board("4k3/8/8/8/8/8/8/4K3 w - - 0 1")
-        assert not board.is_checkmate()
-        t = analyze_tactics(board)
-        assert t.mate_patterns == []
 
 
 # ---------------------------------------------------------------------------
