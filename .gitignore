@@ -17,6 +17,7 @@ __pycache__/
 CLAUDE.md
 docs/plans/
 data/chromadb/
+.env
 test-results/
 playwright-report/
 blob-report/

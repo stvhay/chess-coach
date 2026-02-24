@@ -4,10 +4,8 @@ services:
     container_name: chess-teacher
     restart: unless-stopped
     ports:
-      - "127.0.0.1:8000:8000"
-    environment:
-      - OLLAMA_URL=http://ollama.example.com:11434
-      - STOCKFISH_HASH_MB=128
+      - "${LISTEN_ADDR:-127.0.0.1}:${PORT:-8000}:8000"
+    env_file: .env
     volumes:
       - chess-data:/app/data
 

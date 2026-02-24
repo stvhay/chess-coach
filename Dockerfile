@@ -5,15 +5,13 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 RUN uv sync --no-dev --frozen
 # Patch chromadb config.py for Python 3.14 + pydantic v2 compatibility
-# Upstream chromadb falls back to pydantic.v1.BaseSettings which is broken on 3.14
-# Fixes: 1) add pydantic_settings import path, 2) add missing type annotations
 COPY patches/chromadb_config.py.patch /tmp/chromadb_config.py.patch
 RUN python /tmp/chromadb_config.py.patch
 COPY src/ src/
 COPY static/ static/
-COPY data/knowledge_base.json /app/knowledge_base.json
+COPY data/knowledge_base.json /app/data/knowledge_base.json
 COPY entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh && mkdir -p data/chromadb
+RUN chmod +x /app/entrypoint.sh && mkdir -p data
 ENV STOCKFISH_PATH=/usr/games/stockfish
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
