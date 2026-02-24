@@ -273,6 +273,118 @@ class TestActivity:
 
 
 # ---------------------------------------------------------------------------
+# Improved Mobility / Assessment
+# ---------------------------------------------------------------------------
+
+
+class TestMobility:
+    def test_mobility_excludes_enemy_pawn_attacks(self):
+        """Squares attacked by enemy pawns should not count toward mobility."""
+        # White knight on e4. Black pawn on d6.
+        # d6 pawn attacks c5 and e5.
+        # Knight on e4 attacks: c3, c5, d2, d6, f2, f6, g3, g5.
+        # c5 is attacked by pawn on d6, so new code excludes it.
+        # Old code would count 8 (all knight moves minus own pieces).
+        # New code: 8 - 1 (c5 excluded) = 7.
+        board = chess.Board("4k3/8/3p4/8/4N3/8/8/4K3 w - - 0 1")
+        result = analyze_activity(board)
+        knight = [p for p in result.white if p.square == "e4"][0]
+        assert knight.mobility == 7
+
+    def test_mobility_excludes_multiple_enemy_pawn_attacks(self):
+        """Multiple enemy pawns can exclude multiple destination squares."""
+        # White knight on e4. Black pawns on d6 and f6.
+        # d6 attacks c5, e5. f6 attacks e5, g5.
+        # Pawn-attacked squares: c5, e5, g5.
+        # Knight attacks from e4: c3, c5, d2, d6, f2, f6, g3, g5.
+        # Excluded by pawn attacks: c5, g5.
+        # So new mobility = 8 - 2 = 6.
+        board = chess.Board("4k3/8/3p1p2/8/4N3/8/8/4K3 w - - 0 1")
+        result = analyze_activity(board)
+        knight = [p for p in result.white if p.square == "e4"][0]
+        assert knight.mobility == 6
+
+    def test_mobility_own_king_already_excluded(self):
+        """Own king square is already excluded by own_occupied."""
+        # White rook on e4, white king on e1. No enemy pawns.
+        # Rook attacks on e-file: e1(king), e2, e3, e5, e6, e7, e8(enemy king).
+        # Rook attacks on rank 4: a4-d4, f4-h4.
+        # e1 excluded by own-occupied (king). e8 valid (enemy king target).
+        # Total: e2, e3, e5, e6, e7, e8 (6) + a4-d4, f4-h4 (7) = 13.
+        board = chess.Board("4k3/8/8/8/4R3/8/8/4K3 w - - 0 1")
+        result = analyze_activity(board)
+        rook = [p for p in result.white if p.square == "e4"][0]
+        assert rook.mobility == 13
+
+    def test_mobility_assessment_restricted_knight(self):
+        """Knight with < 3 mobility squares is assessed as restricted."""
+        # Knight on a1 attacks: b3, c2 -- only 2 squares.
+        board = chess.Board("4k3/8/8/8/8/8/8/N3K3 w - - 0 1")
+        result = analyze_activity(board)
+        knight = [p for p in result.white if p.square == "a1"][0]
+        assert knight.mobility == 2
+        assert knight.assessment == "restricted"
+
+    def test_mobility_assessment_active_rook(self):
+        """Rook on open file with many squares is assessed as active."""
+        # White rook on e4, empty board except kings.
+        # Rook mobility = 13, well above active threshold of 9.
+        board = chess.Board("4k3/8/8/8/4R3/8/8/4K3 w - - 0 1")
+        result = analyze_activity(board)
+        rook = [p for p in result.white if p.square == "e4"][0]
+        assert rook.mobility > 9
+        assert rook.assessment == "active"
+
+    def test_mobility_assessment_active_bishop(self):
+        """Bishop on open diagonal with many squares is assessed as active."""
+        # White bishop on e4, open board.
+        # Bishop mobility = 13, well above active threshold of 8.
+        board = chess.Board("4k3/8/8/8/4B3/8/8/4K3 w - - 0 1")
+        result = analyze_activity(board)
+        bishop = [p for p in result.white if p.square == "e4"][0]
+        assert bishop.mobility > 8
+        assert bishop.assessment == "active"
+
+    def test_mobility_assessment_restricted_queen(self):
+        """Queen boxed in by own pieces is assessed as restricted."""
+        # Queen on a1 behind pawns and pieces. 0 mobility squares.
+        board = chess.Board("4k3/8/8/8/8/8/PPPPPPPP/QNBRKBNR w K - 0 1")
+        result = analyze_activity(board)
+        queen = [p for p in result.white if p.piece == "Q"]
+        assert len(queen) == 1
+        assert queen[0].mobility < 8
+        assert queen[0].assessment == "restricted"
+
+    def test_mobility_assessment_normal_knight(self):
+        """Knight with 3-5 mobility squares is assessed as normal."""
+        # Knight on b5, black pawn on c7.
+        # c7 pawn attacks b6 and d6.
+        # Knight attacks from b5: a3, c3, d4, d6, a7, c7.
+        # d6 excluded by pawn attack. c7 occupied by enemy (valid target).
+        # a7 not excluded. So 6 attacks - 1 pawn-excluded (d6) = 5.
+        board = chess.Board("4k3/2p5/8/1N6/8/8/8/4K3 w - - 0 1")
+        result = analyze_activity(board)
+        knight = [p for p in result.white if p.square == "b5"][0]
+        assert knight.mobility == 5
+        assert knight.assessment == "normal"
+
+    def test_assessment_field_defaults_empty(self):
+        """The assessment field on PieceActivity defaults to empty string."""
+        from server.analysis import PieceActivity
+        pa = PieceActivity(square="e4", piece="N", mobility=5, centralization=0)
+        assert pa.assessment == ""
+
+    def test_mobility_black_pieces_also_assessed(self):
+        """Black pieces also get assessment labels."""
+        # Black knight on a8 -- restricted (corner piece, mobility 2).
+        board = chess.Board("n3k3/8/8/8/8/8/8/4K3 w - - 0 1")
+        result = analyze_activity(board)
+        knight = [p for p in result.black if p.square == "a8"][0]
+        assert knight.mobility == 2
+        assert knight.assessment == "restricted"
+
+
+# ---------------------------------------------------------------------------
 # Tactical Motifs
 # ---------------------------------------------------------------------------
 
