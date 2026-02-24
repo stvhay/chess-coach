@@ -29,34 +29,6 @@ function init() {
   hamburgerMenu.className = "hamburger-menu";
   header.appendChild(hamburgerMenu);
 
-  const menuNewGameBtn = document.createElement("button");
-  menuNewGameBtn.textContent = "New Game";
-  hamburgerMenu.appendChild(menuNewGameBtn);
-
-  // ELO profile selector
-  const eloLabel = document.createElement("div");
-  eloLabel.className = "menu-label";
-  eloLabel.textContent = "Skill Level";
-  hamburgerMenu.appendChild(eloLabel);
-
-  const eloSelect = document.createElement("select");
-  eloSelect.className = "elo-select";
-  const eloOptions: [string, string][] = [
-    ["beginner", "Beginner (600-800)"],
-    ["intermediate", "Intermediate (800-1000)"],
-    ["advancing", "Advancing (1000-1200)"],
-    ["club", "Club (1200-1400)"],
-    ["competitive", "Competitive (1400+)"],
-  ];
-  for (const [value, label] of eloOptions) {
-    const opt = document.createElement("option");
-    opt.value = value;
-    opt.textContent = label;
-    if (value === "intermediate") opt.selected = true;
-    eloSelect.appendChild(opt);
-  }
-  hamburgerMenu.appendChild(eloSelect);
-
   const menuFenInput = document.createElement("input");
   menuFenInput.type = "text";
   menuFenInput.placeholder = "Load FEN\u2026";
@@ -67,7 +39,7 @@ function init() {
   shortcutsRef.className = "shortcuts-ref";
   shortcutsRef.innerHTML =
     "<kbd>\u2190</kbd> <kbd>\u2192</kbd> navigate moves<br>" +
-    "<kbd>Home</kbd> <kbd>End</kbd> first / last<br>" +
+    "<kbd>\u2191</kbd> <kbd>\u2193</kbd> <kbd>Home</kbd> <kbd>End</kbd> first / last<br>" +
     "<kbd>n</kbd> new game";
   hamburgerMenu.appendChild(shortcutsRef);
 
@@ -135,6 +107,36 @@ function init() {
   const rightPanel = document.createElement("div");
   rightPanel.className = "right-panel";
   layout.appendChild(rightPanel);
+
+  // New Game button
+  const newGameBtn = document.createElement("button");
+  newGameBtn.className = "new-game-btn";
+  newGameBtn.textContent = "New Game";
+  rightPanel.appendChild(newGameBtn);
+
+  // Skill Level
+  const skillLevelLabel = document.createElement("div");
+  skillLevelLabel.className = "section-label";
+  skillLevelLabel.textContent = "Skill Level";
+  rightPanel.appendChild(skillLevelLabel);
+
+  const eloSelect = document.createElement("select");
+  eloSelect.className = "elo-select-main";
+  const eloOptions: [string, string][] = [
+    ["beginner", "Beginner (600-800)"],
+    ["intermediate", "Intermediate (800-1000)"],
+    ["advancing", "Advancing (1000-1200)"],
+    ["club", "Club (1200-1400)"],
+    ["competitive", "Competitive (1400+)"],
+  ];
+  for (const [value, label] of eloOptions) {
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = label;
+    if (value === "intermediate") opt.selected = true;
+    eloSelect.appendChild(opt);
+  }
+  rightPanel.appendChild(eloSelect);
 
   // Game status
   const statusDisplay = document.createElement("div");
@@ -461,17 +463,15 @@ function init() {
     }
   });
 
-  // Menu: New game button
-  menuNewGameBtn.addEventListener("click", () => {
+  // New game button
+  newGameBtn.addEventListener("click", () => {
     resetUI();
-    hamburgerMenu.classList.remove("open");
   });
 
-  // Menu: ELO profile change
+  // ELO select
   eloSelect.addEventListener("change", () => {
     gc.setEloProfile(eloSelect.value);
     resetUI();
-    hamburgerMenu.classList.remove("open");
   });
 
   // Menu: FEN input

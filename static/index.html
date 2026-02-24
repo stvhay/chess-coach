@@ -404,6 +404,45 @@
     .game-status.thinking {
       color: #fbbf24;
     }
+    .new-game-btn {
+      width: 100%;
+      padding: 10px 16px;
+      background: #1e3a5f;
+      color: #e0e0e0;
+      border: 1px solid #333;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      font-family: inherit;
+      transition: background 0.15s ease, border-color 0.15s ease;
+      margin-bottom: 8px;
+    }
+    .new-game-btn:hover {
+      background: #2a5080;
+      border-color: #4ade80;
+    }
+    .elo-select-main {
+      width: 100%;
+      padding: 8px 12px;
+      background: #0f1729;
+      border: 1px solid #333;
+      border-radius: 4px;
+      color: #e0e0e0;
+      font-family: inherit;
+      font-size: 13px;
+      cursor: pointer;
+      margin-bottom: 12px;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 5l3 3 3-3' fill='none' stroke='%23888' stroke-width='1.5'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 8px center;
+    }
+    .elo-select-main:focus {
+      outline: none;
+      border-color: #4ade80;
+      box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.15);
+    }
     .eval-display {
       font-family: 'JetBrains Mono', 'Fira Code', monospace;
       font-size: 14px;
