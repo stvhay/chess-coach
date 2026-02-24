@@ -221,11 +221,25 @@ def render_back_rank_weakness(bw, ctx: RenderContext) -> tuple[str, bool]:
 
 
 def render_xray_attack(xa, ctx: RenderContext) -> tuple[str, bool]:
-    """Render an x-ray attack."""
+    """Render an x-ray attack.
+
+    Validates that target is actually an enemy piece (not same side as slider).
+    This prevents hallucinations where friendly pieces behind enemy pieces
+    are incorrectly described as x-ray targets.
+    """
     is_student = _piece_is_students(xa.slider_piece, ctx.student_is_white)
+    target_is_student = _piece_is_students(xa.target_piece, ctx.student_is_white)
+
+    # X-ray attack must target an ENEMY piece
+    # (slider and target must be opposite sides)
+    if is_student == target_is_student:
+        # Same side — this is not an x-ray attack, it's an x-ray defense
+        # Return empty to suppress rendering
+        return "", is_student
+
     slider = _own_their(xa.slider_piece, is_student)
     through = _own_their(xa.through_piece, _piece_is_students(xa.through_piece, ctx.student_is_white))
-    target = _own_their(xa.target_piece, _piece_is_students(xa.target_piece, ctx.student_is_white))
+    target = _own_their(xa.target_piece, target_is_student)
     desc = (f"{slider.capitalize()} on {xa.slider_square} x-rays through "
             f"{through} on {xa.through_square} targeting "
             f"{target} on {xa.target_square}.")
@@ -241,7 +255,12 @@ def render_exposed_king(ek, ctx: RenderContext) -> tuple[str, bool]:
 
 
 def render_overloaded_piece(op, ctx: RenderContext) -> tuple[str, bool]:
-    """Render an overloaded piece."""
+    """Render an overloaded piece.
+
+    Note: Board state validation is done in analysis.py _find_overloaded_pieces(),
+    which verifies defenders can actually attack all claimed squares and checks
+    pin-blindness. This renderer just formats the validated data.
+    """
     is_opponents = not _piece_is_students(op.piece, ctx.student_is_white)
     piece_desc = _own_their(op.piece, not is_opponents)
     charges = ", ".join(op.defended_squares)
@@ -487,6 +506,8 @@ def render_motifs(
     new_types: set[str],
     ctx: RenderContext,
     max_items: int | None = None,
+    *,
+    new_keys: set[tuple] | None = None,
 ) -> tuple[list[RenderedMotif], list[RenderedMotif], list[RenderedMotif]]:
     """Render all new motifs, returning (opportunities, threats, observations).
 
@@ -498,6 +519,10 @@ def render_motifs(
 
     Fork-implies-hanging dedup: hanging pieces on fork target squares
     are suppressed since the fork already implies the capture.
+
+    When *new_keys* is provided, only motifs whose key (via spec.key_fn)
+    is in *new_keys* are rendered.  This gives per-item precision instead
+    of the coarser type-level gate via *new_types*.
     """
     opps: list[RenderedMotif] = []
     thrs: list[RenderedMotif] = []
@@ -526,12 +551,19 @@ def render_motifs(
         if spec.cap:
             items = items[:spec.cap]
         for item in items:
+            # Key-level filtering: skip items not in new_keys
+            if new_keys is not None and spec.key_fn(item) not in new_keys:
+                continue
+
             # Fork-implies-hanging dedup
             if spec.diff_key == "hanging" and fork_squares:
                 if spec.squares_fn and spec.squares_fn(item) & fork_squares:
                     continue
 
             desc, is_opp = spec.render_fn(item, ctx)
+            # Skip motifs that render to empty text (e.g., validated but invalid)
+            if not desc or not desc.strip():
+                continue
             target_sq = spec.squares_fn(item) if spec.squares_fn else frozenset()
             rm = RenderedMotif(
                 text=desc, is_opportunity=is_opp,

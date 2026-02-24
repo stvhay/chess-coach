@@ -28,6 +28,44 @@ from server.motifs import (
 
 
 # ---------------------------------------------------------------------------
+# Board state validation
+# ---------------------------------------------------------------------------
+
+def _validate_motif_text(motif_text: str, board: chess.Board) -> bool:
+    """Validate that a motif description's referenced squares exist on the board.
+
+    Checks square names mentioned in the text (like 'c4', 'e6') to ensure they're
+    not describing pieces/positions that don't match the board state. This prevents
+    motif hallucination when rendering alternative lines.
+
+    Returns True if the motif appears valid for this board, False if it references
+    non-existent pieces or appears inconsistent.
+    """
+    # Extract square names from the text (all 2-letter combos matching square format)
+    import re
+    square_pattern = r'\b([a-h][1-8])\b'
+    mentioned_squares = re.findall(square_pattern, motif_text.lower())
+
+    if not mentioned_squares:
+        # No squares mentioned, can't validate (allow it)
+        return True
+
+    # At least one mentioned square must have a piece on the board
+    # (otherwise it's describing an empty square)
+    for sq_name in mentioned_squares:
+        try:
+            sq = chess.parse_square(sq_name)
+            if board.piece_at(sq) is not None:
+                # Found a piece - motif references real board state
+                return True
+        except (ValueError, IndexError):
+            continue
+
+    # All mentioned squares are empty - likely hallucination
+    return False
+
+
+# ---------------------------------------------------------------------------
 # Tactic diffing
 # ---------------------------------------------------------------------------
 
@@ -257,16 +295,24 @@ def describe_changes(
     all_opportunities: list[str] = []
     all_threats: list[str] = []
     all_observations: list[str] = []
+    seen_observations: set[str] = set()
 
     # Walk the continuation chain (node itself + up to max_plies-1 children)
     chain = _get_continuation_chain(node, max_depth=max_plies - 1)
 
     prev_tactics = node.parent.tactics
+    # Track motifs already seen in parent to prevent repetition across plies
+    seen_motif_keys: set[tuple] = all_tactic_keys(prev_tactics)
 
     for i, chain_node in enumerate(chain):
         current_tactics = chain_node.tactics
         diff = diff_tactics(prev_tactics, current_tactics)
         new_types = _new_motif_types(diff)
+
+        # Filter new_keys to exclude motifs we've already rendered (from parent)
+        # This prevents "pin of f7 to g8" from appearing in multiple plies
+        # when the parent position already has that pin
+        filtered_new_keys = diff.new_keys - seen_motif_keys
 
         # Render motifs via registry
         is_future = i > 0
@@ -275,7 +321,9 @@ def describe_changes(
             player_color=player_color,
             mode=RenderMode.THREAT if is_future else RenderMode.OPPORTUNITY,
         )
-        opps_rm, thrs_rm, obs_rm = render_motifs(current_tactics, new_types, ctx)
+        opps_rm, thrs_rm, obs_rm = render_motifs(
+            current_tactics, new_types, ctx, new_keys=filtered_new_keys,
+        )
 
         # Extract text lists for this ply
         opp_texts = [r.text for r in opps_rm]
@@ -302,16 +350,27 @@ def describe_changes(
             numbered = f"{move_num}.{node_san}" if mover_is_white else f"{move_num}...{node_san}"
             threatener = "White" if mover_is_white else "Black"
 
-            for desc in opp_texts + thr_texts:
-                wrapped = f"{threatener} threatens {numbered}, {desc}"
-                if threatener == player_color:
+            # Validate motifs from alternative lines before wrapping (prevent hallucination)
+            for desc in opp_texts:
+                if _validate_motif_text(desc, chain_node.board):
+                    wrapped = f"{threatener} threatens {numbered}, {desc}"
                     all_opportunities.append(wrapped)
-                else:
+            for desc in thr_texts:
+                if _validate_motif_text(desc, chain_node.board):
+                    wrapped = f"{threatener} threatens {numbered}, {desc}"
                     all_threats.append(wrapped)
 
-        # Observations always added directly (structural, not threats)
-        all_observations.extend(r.text for r in obs_rm)
+        # Observations: only from the immediate move (i=0). Observations from
+        # deeper continuation plies describe hypothetical future positions
+        # and lack context, causing non-existent piece references.
+        if i == 0:
+            for r in obs_rm:
+                if r.text not in seen_observations:
+                    seen_observations.add(r.text)
+                    all_observations.append(r.text)
 
         prev_tactics = current_tactics
+        # Update seen motifs for next iteration (prevent same motif across multiple plies)
+        seen_motif_keys.update(all_tactic_keys(current_tactics))
 
     return all_opportunities, all_threats, all_observations
