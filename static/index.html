@@ -177,7 +177,45 @@
       --header-h: 44px;
       --footer-h: 28px;
       --pad: 16px;
-      --board-size: calc(100vh - var(--header-h) - var(--footer-h) - var(--pad) * 2);
+
+      /* Available space calculations */
+      --available-height: calc(100vh - var(--header-h) - var(--footer-h) - var(--pad) * 2);
+      --available-width: calc(100vw - var(--pad) * 2);
+
+      /* Board size picks whichever dimension is more constraining */
+      /* Desktop: min(height, width-minus-panels) */
+      --board-size: min(
+        var(--available-height),
+        min(600px, calc(var(--available-width) - 400px))
+      );
+    }
+
+    /* Mobile: Stack vertically */
+    @media (max-width: 768px) {
+      :root {
+        --board-size: min(var(--available-width), 500px);
+      }
+
+      .layout {
+        grid-template-columns: 1fr !important;
+        grid-template-rows: auto auto auto auto;
+        gap: 12px;
+      }
+
+      .coach-column,
+      .right-panel {
+        height: auto;
+        max-height: 300px;
+      }
+    }
+
+    /* Tablet: Smaller panels */
+    @media (min-width: 769px) and (max-width: 1024px) {
+      .coach-column,
+      .right-panel {
+        min-width: 200px;
+        max-width: 250px;
+      }
     }
     .layout-wrap {
       display: flex;
