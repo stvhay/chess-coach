@@ -76,8 +76,13 @@ async def test_query_empty_store(rag):
 
 
 @pytest.mark.integration
-async def test_real_ollama_embedding():
+async def test_real_ollama_embedding(monkeypatch):
     """Integration test — requires an OpenAI-compatible embedding endpoint."""
+    # Other test modules set LLM_BASE_URL in os.environ via setdefault(),
+    # which overrides .env.chess when pydantic-settings reads config.
+    # Clear it so Settings reads the real values from .env.chess.
+    monkeypatch.delenv("LLM_BASE_URL", raising=False)
+    monkeypatch.delenv("LLM_MODEL", raising=False)
     settings = Settings()
     rag = ChessRAG(
         base_url=settings.effective_embed_base_url,
