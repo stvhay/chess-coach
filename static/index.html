@@ -585,16 +585,16 @@
     /* --- Responsive breakpoints (must be after base rules for cascade) --- */
 
     /* Tablet: Narrower panels */
-    @media (min-width: 769px) and (max-width: 1200px) {
+    @media (min-width: 1025px) and (max-width: 1200px) {
       :root {
         --panel-width: 200px;
       }
     }
 
-    /* Mobile: Stack vertically */
-    @media (max-width: 768px) {
+    /* Mobile/narrow: Stack vertically */
+    @media (max-width: 1024px) {
       :root {
-        --board-size: min(calc(var(--available-width) - var(--eval-bar-width)), 500px);
+        --board-size: var(--available-width);
       }
 
       .layout {
@@ -602,10 +602,16 @@
         gap: 12px;
       }
 
+      .board-wrap {
+        justify-self: center;
+      }
+
       .coach-column,
       .right-panel {
         height: auto;
         max-height: 300px;
+        border-radius: 8px;
+        border: 1px solid #333;
       }
 
       .eval-bar-wrap {
