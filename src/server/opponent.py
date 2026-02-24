@@ -12,7 +12,8 @@ from dataclasses import dataclass
 
 import chess
 
-from server.analysis import STARTING_MINORS, analyze, analyze_material, summarize_position
+from server.analysis import STARTING_MINORS, analyze, analyze_material
+from server.descriptions import describe_position_from_report
 from server.engine import EngineAnalysis, MoveInfo
 from server.llm import ChessTeacher, OpponentMoveContext
 
@@ -155,7 +156,9 @@ async def select_opponent_move(
 
     # Build context for LLM selection
     report = analyze(board)
-    summary = summarize_position(report)
+    student_is_white = board.turn != chess.WHITE  # student is the side NOT about to move
+    pos_desc = describe_position_from_report(report, student_is_white)
+    summary = pos_desc.as_text()
 
     # Determine player color (opponent is the other side)
     player_color = "White" if board.turn == chess.BLACK else "Black"

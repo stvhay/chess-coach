@@ -19,7 +19,6 @@ from server.analysis import (
     analyze,
     analyze_material,
     analyze_tactics,
-    summarize_position,
 )
 from server.elo_profiles import EloProfile
 from server.engine import EngineAnalysis, Evaluation, LineInfo
@@ -460,10 +459,14 @@ def _rank_nodes_by_teachability(
         # All tactics in reachable depth
         score += 3.0 * len(early_motifs)
 
-        # Positional themes
+        # Positional themes (inline structural checks — no summarize_position)
         for chain_node in chain[:max_concept_depth]:
-            summary = summarize_position(chain_node.report).lower()
-            if any(kw in summary for kw in ("passed pawn", "open file", "isolated")):
+            report = chain_node.report
+            ps = report.pawn_structure
+            if (any(p.is_passed for p in ps.white + ps.black) or
+                    any(p.is_isolated for p in ps.white + ps.black) or
+                    report.king_safety_white.open_files_near_king or
+                    report.king_safety_black.open_files_near_king):
                 score += 1.0
                 break
 

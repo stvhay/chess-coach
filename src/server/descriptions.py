@@ -69,6 +69,13 @@ class PositionDescription:
     opportunities: list[str] = field(default_factory=list)
     observations: list[str] = field(default_factory=list)
 
+    def as_text(self, max_items: int = 8) -> str:
+        """Flatten to a single text string (for LLM context)."""
+        parts = self.threats + self.opportunities + self.observations
+        if not parts:
+            return "The position is roughly balanced with no major imbalances."
+        return " ".join(parts[:max_items])
+
 
 def _should_skip_back_rank(report: PositionReport) -> bool:
     """Skip back rank weakness if both sides uncastled and fullmove < 10."""
@@ -132,25 +139,23 @@ def _add_positional_observations(report: PositionReport) -> list[str]:
     return parts
 
 
-def describe_position(tree: GameTree, node: GameNode) -> PositionDescription:
-    """Describe what this position looks like -- used for the Position section.
-
-    Renders ALL active motifs via the registry and categorizes into three
-    buckets. Adds non-tactic observations to the observations list.
-    """
-    report = node.report
-    player_color = "White" if tree.player_color == chess.WHITE else "Black"
-    student_is_white = tree.player_color == chess.WHITE
+def describe_position_from_report(
+    report: PositionReport,
+    student_is_white: bool,
+) -> PositionDescription:
+    """Position description from a raw report — no GameTree needed."""
+    player_color = "White" if student_is_white else "Black"
+    tactics = report.tactics
 
     # Render all active motifs (use all types as "new" since this is a snapshot)
     all_types = {spec.diff_key for spec in MOTIF_REGISTRY.values()
-                 if getattr(node.tactics, spec.field, [])}
+                 if getattr(tactics, spec.field, [])}
     ctx = RenderContext(
         student_is_white=student_is_white,
         player_color=player_color,
         mode=RenderMode.POSITION,
     )
-    opps_rm, thrs_rm, obs_rm = render_motifs(node.tactics, all_types, ctx)
+    opps_rm, thrs_rm, obs_rm = render_motifs(tactics, all_types, ctx)
 
     # Post-filter: skip back rank in early game
     skip_back_rank = _should_skip_back_rank(report)
@@ -166,6 +171,16 @@ def describe_position(tree: GameTree, node: GameNode) -> PositionDescription:
         opportunities=[o.text for o in opps_rm],
         observations=obs_text,
     )
+
+
+def describe_position(tree: GameTree, node: GameNode) -> PositionDescription:
+    """Describe what this position looks like -- used for the Position section.
+
+    Renders ALL active motifs via the registry and categorizes into three
+    buckets. Adds non-tactic observations to the observations list.
+    """
+    student_is_white = tree.player_color == chess.WHITE
+    return describe_position_from_report(node.report, student_is_white)
 
 
 # ---------------------------------------------------------------------------

@@ -7,11 +7,13 @@ from server.analysis import (
     Pin,
     TacticalMotifs,
 )
+from server.analysis import analyze
 from server.descriptions import (
     PositionDescription,
     diff_tactics,
     describe_changes,
     describe_position,
+    describe_position_from_report,
     _should_skip_back_rank,
 )
 from server.game_tree import GameNode, GameTree
@@ -111,3 +113,58 @@ def test_back_rank_filtered_early_game():
     desc = describe_position(tree, root)
     all_text = " ".join(desc.observations).lower()
     assert "back rank" not in all_text
+
+
+# --- describe_position_from_report tests ---
+
+def test_describe_position_from_report_returns_structured():
+    """describe_position_from_report produces a PositionDescription."""
+    report = analyze(chess.Board())
+    desc = describe_position_from_report(report, student_is_white=True)
+    assert isinstance(desc, PositionDescription)
+    assert isinstance(desc.threats, list)
+    assert isinstance(desc.opportunities, list)
+    assert isinstance(desc.observations, list)
+
+
+def test_describe_position_from_report_matches_describe_position():
+    """describe_position_from_report should match describe_position output."""
+    root = GameNode(board=chess.Board(), source="played")
+    tree = GameTree(root=root, decision_point=root, player_color=chess.WHITE)
+    desc_tree = describe_position(tree, root)
+    desc_report = describe_position_from_report(root.report, student_is_white=True)
+    assert desc_tree.threats == desc_report.threats
+    assert desc_tree.opportunities == desc_report.opportunities
+    assert desc_tree.observations == desc_report.observations
+
+
+# --- as_text tests ---
+
+def test_as_text_empty():
+    """Empty PositionDescription returns balanced message."""
+    desc = PositionDescription()
+    assert "balanced" in desc.as_text().lower()
+
+
+def test_as_text_with_items():
+    """as_text joins and caps items."""
+    desc = PositionDescription(
+        threats=["threat1", "threat2"],
+        opportunities=["opp1"],
+        observations=["obs1"],
+    )
+    text = desc.as_text()
+    assert "threat1" in text
+    assert "opp1" in text
+    assert "obs1" in text
+
+
+def test_as_text_max_items():
+    """as_text respects max_items."""
+    desc = PositionDescription(
+        threats=[f"t{i}" for i in range(10)],
+    )
+    text = desc.as_text(max_items=3)
+    assert "t0" in text
+    assert "t2" in text
+    assert "t3" not in text
