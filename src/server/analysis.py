@@ -286,6 +286,10 @@ def analyze_pawn_structure(board: chess.Board) -> PawnStructure:
 @dataclass
 class KingSafety:
     king_square: str | None
+    # TODO(audit#6): castled is a development concept, not king safety. The
+    # coupling exists because analyze_development() reads KingSafety.castled.
+    # Both KingSafety and Development are stubs that will be replaced by
+    # Stockfish-backed evaluations — defer refactoring until then.
     castled: str  # "kingside", "queenside", "none"
     has_kingside_castling_rights: bool
     has_queenside_castling_rights: bool
@@ -1411,14 +1415,23 @@ def _find_capturable_defenders(board: chess.Board) -> list[CapturableDefender]:
                 charge_val = get_piece_value(charge.piece_type, king=0)
                 if charge_val < 3:
                     continue
-                # Pick the first attacker of the defender
-                first_attacker = list(enemy_attackers)[0]
+                # Pick the least-valuable attacker of the defender (#24)
+                sorted_attackers = sorted(
+                    enemy_attackers,
+                    key=lambda sq: get_piece_value(board.piece_type_at(sq), king=0),
+                )
+                best_attacker = sorted_attackers[0]
+                # Only report if capturing the defender doesn't lose material (#23)
+                attacker_val = get_piece_value(board.piece_type_at(best_attacker), king=0)
+                defender_val = get_piece_value(defender.piece_type, king=0)
+                if attacker_val > defender_val:
+                    continue
                 results.append(CapturableDefender(
                     defender_square=chess.square_name(def_sq),
                     defender_piece=defender.symbol(),
                     charge_square=chess.square_name(charge_sq),
                     charge_piece=charge.symbol(),
-                    attacker_square=chess.square_name(first_attacker),
+                    attacker_square=chess.square_name(best_attacker),
                     color=_color_name(color),
                 ))
     return results
@@ -1686,15 +1699,23 @@ _PIECE_TYPE_NAMES = {
 }
 
 
-def _analyze_square_control(board: chess.Board, sq: int) -> SquareControl:
+def _analyze_square_control(board: chess.Board, sq: int, *, pin_aware: bool = True) -> SquareControl:
     """Count attackers of a square, split by color and pawn/piece."""
     wp, wpc, bp, bpc = 0, 0, 0, 0
     for attacker_sq in board.attackers(chess.WHITE, sq):
+        if pin_aware and board.is_pinned(chess.WHITE, attacker_sq):
+            pin_mask = board.pin(chess.WHITE, attacker_sq)
+            if sq not in pin_mask:
+                continue
         if board.piece_type_at(attacker_sq) == chess.PAWN:
             wp += 1
         else:
             wpc += 1
     for attacker_sq in board.attackers(chess.BLACK, sq):
+        if pin_aware and board.is_pinned(chess.BLACK, attacker_sq):
+            pin_mask = board.pin(chess.BLACK, attacker_sq)
+            if sq not in pin_mask:
+                continue
         if board.piece_type_at(attacker_sq) == chess.PAWN:
             bp += 1
         else:
@@ -1725,8 +1746,6 @@ class CenterControl:
 
 
 def analyze_center_control(board: chess.Board) -> CenterControl:
-    # Note: uses board.attackers() which counts pinned pieces as attackers.
-    # Accepted limitation — ±1 attacker count is negligible for coaching.
     sq_controls = [_analyze_square_control(board, sq) for sq in CENTER_SQUARES]
     white_total = sum(sc.white_pawn_attacks + sc.white_piece_attacks for sc in sq_controls)
     black_total = sum(sc.black_pawn_attacks + sc.black_piece_attacks for sc in sq_controls)
@@ -1755,6 +1774,9 @@ def analyze_development(
     king_safety_white: KingSafety | None = None,
     king_safety_black: KingSafety | None = None,
 ) -> Development:
+    # TODO(audit#6): castled coupling — reads KingSafety.castled because both
+    # stubs share the same square-position heuristic. Will be decoupled when
+    # KingSafety and Development get Stockfish-backed implementations.
     ks_w = king_safety_white or analyze_king_safety(board, chess.WHITE)
     ks_b = king_safety_black or analyze_king_safety(board, chess.BLACK)
 
@@ -1783,8 +1805,6 @@ _SPACE_FILES = range(2, 6)  # c, d, e, f (indices 2-5)
 
 
 def analyze_space(board: chess.Board) -> Space:
-    # Note: uses board.attackers() which counts pinned pieces as attackers.
-    # Accepted limitation — ±1 attacker count is negligible for coaching.
     white_net = 0
     black_net = 0
     white_occ = 0

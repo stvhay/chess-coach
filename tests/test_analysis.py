@@ -6,6 +6,7 @@ import pytest
 from server.analysis import (
     GamePhase,
     PieceInvolvement,
+    _analyze_square_control,
     analyze,
     analyze_activity,
     analyze_center_control,
@@ -1013,8 +1014,8 @@ class TestOverloadedPieces:
 class TestCapturableDefenders:
     def test_capturable_defender_detected(self):
         # White Nd4 defends White Be6 (attacked by Black Re8).
-        # Black Qc4 attacks the knight on d4. If Qxd4, bishop on e6 hangs.
-        board = chess.Board("4r1k1/8/4B3/8/2qN4/8/8/4K3 b - - 0 1")
+        # Black pawn c5 attacks the knight on d4. If cxd4, bishop on e6 hangs.
+        board = chess.Board("4r2k/8/4B3/2p5/3N4/8/8/4K3 w - - 0 1")
         t = analyze_tactics(board)
         cd = [c for c in t.capturable_defenders if c.defender_square == "d4"]
         assert len(cd) >= 1
@@ -1022,7 +1023,7 @@ class TestCapturableDefenders:
 
     def test_not_capturable_if_two_defenders(self):
         # White Nd4 and White Ng5 both defend Be6 — Nd4 is not sole defender
-        board = chess.Board("4r1k1/8/4B3/6N1/2qN4/8/8/4K3 b - - 0 1")
+        board = chess.Board("4r2k/8/4B3/2p3N1/3N4/8/8/4K3 w - - 0 1")
         t = analyze_tactics(board)
         cd = [c for c in t.capturable_defenders
               if c.defender_square == "d4" and c.charge_square == "e6"]
@@ -1032,6 +1033,35 @@ class TestCapturableDefenders:
         board = chess.Board(STARTING)
         t = analyze_tactics(board)
         assert len(t.capturable_defenders) == 0
+
+    def test_capturable_defender_least_valuable_attacker(self):
+        # White Nd4 defends White Be6 (attacked by Black Re8).
+        # Nd4 is attacked by BOTH Black pawn c5 AND Black Qa1.
+        # The reported attacker should be the pawn (least valuable).
+        board = chess.Board("4r2k/8/4B3/2p5/3N4/8/8/q3K3 w - - 0 1")
+        t = analyze_tactics(board)
+        cd = [c for c in t.capturable_defenders if c.defender_square == "d4"]
+        assert len(cd) >= 1
+        assert cd[0].attacker_square == "c5"  # pawn, not queen on a1
+
+    def test_capturable_defender_unprofitable_skipped(self):
+        # White Pd4 defends White Be5 (attacked by Black Rg5).
+        # Only Black Qa4 attacks the pawn on d4.
+        # Queen(9) > Pawn(1), so capturing d4 loses material — skip.
+        board = chess.Board("4k3/8/8/4B1r1/q2P4/8/8/4K3 w - - 0 1")
+        t = analyze_tactics(board)
+        cd = [c for c in t.capturable_defenders if c.defender_square == "d4"]
+        assert len(cd) == 0
+
+    def test_capturable_defender_equal_value_reported(self):
+        # White Nd4 defends White Be6 (attacked by Black Re8).
+        # Black Nc6 attacks Nd4. Knight(3) == Knight(3).
+        # Equal value: attacker_val is NOT > defender_val, so it IS reported.
+        board = chess.Board("4r2k/8/2n1B3/8/3N4/8/8/4K3 w - - 0 1")
+        t = analyze_tactics(board)
+        cd = [c for c in t.capturable_defenders if c.defender_square == "d4"]
+        assert len(cd) >= 1
+        assert cd[0].attacker_square == "c6"
 
 
 # ---------------------------------------------------------------------------
@@ -1162,6 +1192,45 @@ class TestSpace:
         sp = analyze_space(board)
         assert sp.white_squares == 0
         assert sp.black_squares == 0
+
+
+# ---------------------------------------------------------------------------
+# Pin-aware square control
+# ---------------------------------------------------------------------------
+
+
+def test_square_control_pinned_piece_excluded():
+    """A knight pinned along the d-file should not count as attacking f5 (off-ray)."""
+    # White Kd1, White Nd4 pinned by Black Rd8 along d-file; Black Kg8
+    board = chess.Board("3r2k1/8/8/8/3N4/8/8/3K4 w - - 0 1")
+    sc = _analyze_square_control(board, chess.F5)
+    assert sc.white_piece_attacks == 0
+
+
+def test_square_control_pinned_piece_on_ray_counted():
+    """A rook pinned along the d-file can still control d5 (on-ray)."""
+    # White Kd1, White Rd4 pinned by Black Rd8 along d-file; Black Kg8
+    board = chess.Board("3r2k1/8/8/8/3R4/8/8/3K4 w - - 0 1")
+    sc = _analyze_square_control(board, chess.D5)
+    assert sc.white_piece_attacks == 1
+
+
+def test_center_control_excludes_pinned():
+    """Pinned Nc3 should not inflate center control (d5/e4 are off c-file ray)."""
+    # White Kc1, White Nc3 pinned by Black Rc8 along c-file; Black Kg8
+    board = chess.Board("2r3k1/8/8/8/8/2N5/8/2K5 w - - 0 1")
+    cc = analyze_center_control(board)
+    # Nc3 normally attacks d5 and e4 (center squares), but those are off
+    # the c-file pin ray, so white_total should be 0.
+    assert cc.white_total == 0
+
+
+def test_square_control_pin_aware_false_counts_all():
+    """Opting out of pin filtering still counts pinned attackers."""
+    # Same position as test_square_control_pinned_piece_excluded (Kd1)
+    board = chess.Board("3r2k1/8/8/8/3N4/8/8/3K4 w - - 0 1")
+    sc = _analyze_square_control(board, chess.F5, pin_aware=False)
+    assert sc.white_piece_attacks >= 1
 
 
 # ---------------------------------------------------------------------------
