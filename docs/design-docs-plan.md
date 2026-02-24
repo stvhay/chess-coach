@@ -20,7 +20,7 @@ local LLM to coach beginner-to-intermediate chess players during live games.
 | UX.md | **To write** | User interaction flows, user stories, delegation model |
 | UI.md | **To write** | Interface layout, visual design, component structure |
 | ARCHITECTURE.md | **Written** | Software structure, modules, data flow, deployment |
-| ANALYSIS-PIPELINE.md | **To write** | The transformation chain from board position to coaching prompt |
+| ANALYSIS-PIPELINE.md | **Written** | The transformation chain from board position to coaching prompt |
 | DESIGN-THEORY.md | **Exists** | Position analysis formalism — maps MATH.md concepts to code |
 | TRADE-OFFS.md | **To write** | Technology choices, alternatives, limitations |
 | LANDSCAPE.md | **To write** | Other chess products, related work, differentiation |

@@ -120,7 +120,9 @@ walker that iterates over every slider and every ray direction,
 classifying each (slider, first-hit, second-hit) triple by color and
 piece value. Hanging and trapped piece detection uses vendored Lichess
 utilities (`is_hanging`, `is_trapped`) that provide x-ray-aware
-capture logic matching Lichess's own puzzle engine.
+capture logic matching Lichess's own puzzle engine. See
+[TACTICS.md](TACTICS.md) for user-facing descriptions of every
+motif the system detects.
 
 Terminal positions (checkmate, stalemate) get empty stubs for
 activity, space, and development -- those concepts are meaningless
@@ -174,7 +176,9 @@ rather than duplicated.
 All depth and breadth parameters come from `EloProfile` in
 `elo_profiles.py`. A beginner sees fewer, shallower alternatives
 with more forgiving thresholds. A competitive player sees deeper
-analysis with more alternatives.
+analysis with more alternatives. See
+[PEDAGOGY.md](PEDAGOGY.md) for how these profiles shape the
+coaching experience.
 
 
 ## 4. Motif Registry
