@@ -163,9 +163,11 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(_init_puzzles()),
     ]
     yield
-    # Cleanup
+    # Cleanup: cancel background tasks and wait for them to finish
     for t in tasks:
         t.cancel()
+    # Wait for all tasks to complete cancellation
+    await asyncio.gather(*tasks, return_exceptions=True)
     await puzzle_db.close()
     await engine.stop()
 
@@ -199,6 +201,7 @@ class NewGameRequest(BaseModel):
 class MoveRequest(BaseModel):
     session_id: str
     move: str
+    verbosity: str = "normal"
 
 
 # --- Endpoints ---
@@ -276,7 +279,7 @@ async def new_game(req: NewGameRequest | None = None):
 @app.post("/api/game/move")
 async def game_move(req: MoveRequest):
     try:
-        result = await games.make_move(req.session_id, req.move)
+        result = await games.make_move(req.session_id, req.move, verbosity=req.verbosity)
     except KeyError:
         raise HTTPException(status_code=404, detail="Session not found")
     except ValueError as e:

@@ -176,7 +176,8 @@ export class GameController {
     // Send to server and get opponent response
     this.setThinking(true);
     try {
-      const resp = await sendMove(this.sessionId, moveUci);
+      const verbosity = localStorage.getItem("chess-teacher-verbosity") || "normal";
+      const resp = await sendMove(this.sessionId, moveUci, verbosity);
       this.handleCoaching(resp.coaching);
       this.applyOpponentMove(resp);
     } catch (err) {

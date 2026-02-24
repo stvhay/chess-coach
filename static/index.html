@@ -399,6 +399,49 @@
       color: var(--text);
     }
 
+    /* --- Verbosity tabs --- */
+    .verbosity-tabs {
+      display: flex;
+      gap: 0;
+    }
+    .verbosity-tab {
+      flex: 1;
+      padding: 8px 12px;
+      background: var(--bg-button);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 13px;
+      font-family: inherit;
+      transition: all 0.2s;
+    }
+    .verbosity-tab:first-child { border-radius: 4px 0 0 4px; }
+    .verbosity-tab:last-child { border-radius: 0 4px 4px 0; }
+    .verbosity-tab:not(:first-child) { border-left: none; }
+    .verbosity-tab.active {
+      background: var(--bg-panel);
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+      border-bottom-width: 2px;
+    }
+    .verbosity-tab:hover:not(.active) {
+      background: var(--bg-button-hover);
+    }
+
+    /* --- Debug toggle --- */
+    .debug-toggle {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      color: var(--text-muted);
+      cursor: pointer;
+    }
+    .debug-toggle input[type="checkbox"] {
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
     /* --- Footer --- */
     .app-footer {
       padding: 4px 16px;

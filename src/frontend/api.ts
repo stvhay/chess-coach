@@ -54,6 +54,7 @@ export async function createGame(
 export async function sendMove(
   sessionId: string,
   moveUci: string,
+  verbosity: string = "normal",
 ): Promise<MoveResponse> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 30_000);
@@ -61,7 +62,7 @@ export async function sendMove(
     const res = await fetch(`${API_BASE}/game/move`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ session_id: sessionId, move: moveUci }),
+      body: JSON.stringify({ session_id: sessionId, move: moveUci, verbosity }),
       signal: controller.signal,
     });
     if (!res.ok) {

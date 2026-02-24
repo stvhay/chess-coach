@@ -194,6 +194,31 @@ function init() {
   menuFenInput.className = "fen-input";
   hamburgerMenu.appendChild(menuFenInput);
 
+  // Verbosity tabs
+  const verbosityLabel = document.createElement("div");
+  verbosityLabel.className = "menu-label";
+  verbosityLabel.textContent = "coaching verbosity";
+  hamburgerMenu.appendChild(verbosityLabel);
+
+  const verbosityTabs = document.createElement("div");
+  verbosityTabs.className = "verbosity-tabs";
+  hamburgerMenu.appendChild(verbosityTabs);
+
+  const savedVerbosity = localStorage.getItem("chess-teacher-verbosity") || "normal";
+  for (const level of ["terse", "normal", "verbose"] as const) {
+    const tab = document.createElement("button");
+    tab.className = "verbosity-tab";
+    tab.textContent = level.charAt(0).toUpperCase() + level.slice(1);
+    tab.dataset.level = level;
+    if (level === savedVerbosity) tab.classList.add("active");
+    tab.addEventListener("click", () => {
+      verbosityTabs.querySelectorAll(".verbosity-tab").forEach(t => t.classList.remove("active"));
+      tab.classList.add("active");
+      localStorage.setItem("chess-teacher-verbosity", level);
+    });
+    verbosityTabs.appendChild(tab);
+  }
+
   // Theme selector
   const themeLabel = document.createElement("div");
   themeLabel.className = "menu-label";
@@ -338,6 +363,25 @@ function init() {
     "<kbd>\u2191</kbd> <kbd>\u2193</kbd> <kbd>Home</kbd> <kbd>End</kbd> first / last<br>" +
     "<kbd>n</kbd> new game";
   hamburgerMenu.appendChild(shortcutsRef);
+
+  // Debug toggle
+  const debugLabel = document.createElement("div");
+  debugLabel.className = "menu-label";
+  debugLabel.textContent = "developer";
+  hamburgerMenu.appendChild(debugLabel);
+
+  const debugToggle = document.createElement("label");
+  debugToggle.className = "debug-toggle";
+  const debugCheckbox = document.createElement("input");
+  debugCheckbox.type = "checkbox";
+  debugCheckbox.checked = localStorage.getItem("chess-teacher-debug") === "true";
+  debugToggle.appendChild(debugCheckbox);
+  debugToggle.appendChild(document.createTextNode(" Show LLM Prompts"));
+  hamburgerMenu.appendChild(debugToggle);
+
+  debugCheckbox.addEventListener("change", () => {
+    localStorage.setItem("chess-teacher-debug", String(debugCheckbox.checked));
+  });
 
   hamburgerBtn.addEventListener("click", (e) => {
     e.stopPropagation();
@@ -682,15 +726,17 @@ function init() {
 
   // --- Coaching display ---
   function showCoaching(coaching: CoachingData) {
+    const debugEnabled = localStorage.getItem("chess-teacher-debug") === "true";
+
     // Debug: log the grounded prompt to console
-    if (coaching.debug_prompt) {
+    if (coaching.debug_prompt && debugEnabled) {
       console.group(`%c[Coach Prompt] ply ${gc.getCurrentPly()}`, "color: #4ade80; font-weight: bold");
       console.log(coaching.debug_prompt);
       console.groupEnd();
     }
 
     // Collapsible debug bubble showing the prompt sent to LLM
-    if (coaching.debug_prompt) {
+    if (coaching.debug_prompt && debugEnabled) {
       const debugBubble = document.createElement("details");
       debugBubble.className = "coach-debug";
       const summary = document.createElement("summary");

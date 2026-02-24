@@ -73,6 +73,7 @@ class GameManager:
         player_move_uci: str,
         eval_before,
         elo_profile: str,
+        verbosity: str = "normal",
     ) -> None:
         """Game-tree coaching pipeline with RAG + LLM."""
         profile = get_profile(elo_profile)
@@ -112,12 +113,12 @@ class GameManager:
 
         # LLM
         if self._teacher is not None:
-            llm_message = await self._teacher.explain_move(prompt)
+            llm_message = await self._teacher.explain_move(prompt, verbosity=verbosity)
             if llm_message is not None:
                 coaching_data.message = llm_message
 
     async def make_move(
-        self, session_id: str, move_uci: str
+        self, session_id: str, move_uci: str, verbosity: str = "normal",
     ) -> dict:
         """Apply player move, get Stockfish response, return result dict."""
         state = self._sessions.get(session_id)
@@ -169,6 +170,7 @@ class GameManager:
                     self._enrich_coaching(
                         coaching_data, board, board_before,
                         move_uci, eval_before, state.elo_profile,
+                        verbosity=verbosity,
                     ),
                     timeout=20.0,
                 )

@@ -54,7 +54,11 @@ class EngineAnalysis:
 
     async def stop(self):
         if self._engine:
-            await self._engine.quit()
+            try:
+                await self._engine.quit()
+            except Exception:
+                # Transport may already be closed (e.g., process killed, shutdown race)
+                pass
             self._engine = None
 
     def _validate_board(self, fen: str) -> chess.Board:
