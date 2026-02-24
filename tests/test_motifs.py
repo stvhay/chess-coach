@@ -5,6 +5,7 @@ import chess
 from server.analysis import (
     BackRankWeakness,
     DiscoveredAttack,
+    ExposedKing,
     Fork,
     HangingPiece,
     MatePattern,
@@ -345,3 +346,57 @@ class TestRayDedup:
     def test_empty_tactics_empty_result(self):
         result = _dedup_ray_motifs(TacticalMotifs())
         assert result == {"pins": [], "skewers": [], "xray_attacks": [], "discovered_attacks": []}
+
+
+# --- render_motifs improvements tests ---
+
+class TestRenderMotifsImprovements:
+    def test_sorted_by_priority(self):
+        """Fork (20) should come before exposed_king (50) in opportunities."""
+        tactics = TacticalMotifs(
+            forks=[Fork("e5", "N", ["c6", "g6"], ["r", "q"])],
+            exposed_kings=[ExposedKing(color="black", king_square="e8")],
+        )
+        ctx = _ctx(True)
+        opps, thrs, obs = render_motifs(tactics, {"fork", "exposed_king"}, ctx)
+        # Fork goes to opps (priority 20), exposed_king goes to obs (priority 50)
+        assert len(opps) >= 1
+        assert opps[0].diff_key == "fork"
+        # exposed_king is an observation, so it goes to obs
+        assert any(o.diff_key == "exposed_king" for o in obs)
+
+    def test_max_items(self):
+        """max_items=1 should cap each bucket to 1 result."""
+        tactics = TacticalMotifs(
+            forks=[
+                Fork("e5", "N", ["c6", "g6"], ["r", "q"]),
+                Fork("d4", "N", ["c6", "e6"], ["r", "b"]),
+            ],
+        )
+        ctx = _ctx(True)
+        opps, thrs, obs = render_motifs(tactics, {"fork"}, ctx, max_items=1)
+        assert len(opps) == 1
+
+    def test_fork_suppresses_hanging_same_square(self):
+        """Fork on d5 targeting c6+g6 + hanging on c6 → hanging on c6 removed."""
+        tactics = TacticalMotifs(
+            forks=[Fork("d5", "N", ["c6", "g6"], ["r", "q"])],
+            hanging=[HangingPiece(square="c6", piece="r", attacker_squares=["d5"], color="Black")],
+        )
+        ctx = _ctx(True)
+        opps, thrs, obs = render_motifs(tactics, {"fork", "hanging"}, ctx)
+        all_keys = [r.diff_key for r in opps + thrs + obs]
+        assert "fork" in all_keys
+        assert "hanging" not in all_keys
+
+    def test_fork_no_suppression_different_square(self):
+        """Fork on d5 targeting c6+g6 + hanging on e4 → both kept."""
+        tactics = TacticalMotifs(
+            forks=[Fork("d5", "N", ["c6", "g6"], ["r", "q"])],
+            hanging=[HangingPiece(square="e4", piece="n", attacker_squares=["f2"], color="Black")],
+        )
+        ctx = _ctx(True)
+        opps, thrs, obs = render_motifs(tactics, {"fork", "hanging"}, ctx)
+        all_keys = [r.diff_key for r in opps + thrs + obs]
+        assert "fork" in all_keys
+        assert "hanging" in all_keys

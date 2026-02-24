@@ -96,6 +96,7 @@ class RenderedMotif:
     is_opportunity: bool
     diff_key: str
     priority: int
+    target_squares: frozenset[str] = frozenset()
 
 
 # ---------------------------------------------------------------------------
@@ -341,6 +342,7 @@ class MotifSpec:
     cap: int | None = None
     is_observation: bool = False  # True for latent/structural motifs
     priority: int = 50
+    squares_fn: Callable[[Any], frozenset[str]] | None = None
 
 
 def _pin_filter(items: list, tactics: TacticalMotifs) -> list:
@@ -370,6 +372,7 @@ MOTIF_REGISTRY: dict[str, MotifSpec] = {
         key_fn=lambda t: ("fork", t.forking_square, tuple(sorted(t.targets))),
         render_fn=render_fork,
         priority=20,
+        squares_fn=lambda f: frozenset(f.targets),
     ),
     "skewer": MotifSpec(
         diff_key="skewer", field="skewers",
@@ -383,6 +386,7 @@ MOTIF_REGISTRY: dict[str, MotifSpec] = {
         key_fn=lambda t: ("hanging", t.square, t.piece),
         render_fn=render_hanging,
         priority=30,
+        squares_fn=lambda h: frozenset({h.square}),
     ),
     "discovered": MotifSpec(
         diff_key="discovered", field="discovered_attacks",
@@ -503,15 +507,29 @@ def render_motifs(
     tactics: TacticalMotifs,
     new_types: set[str],
     ctx: RenderContext,
+    max_items: int | None = None,
 ) -> tuple[list[RenderedMotif], list[RenderedMotif], list[RenderedMotif]]:
     """Render all new motifs, returning (opportunities, threats, observations).
 
     Items from specs with is_observation=True go to observations regardless
     of the opportunity/threat classification.
+
+    Results within each bucket are sorted by priority (ascending = most
+    important first). If max_items is set, each bucket is capped.
+
+    Fork-implies-hanging dedup: hanging pieces on fork target squares
+    are suppressed since the fork already implies the capture.
     """
     opps: list[RenderedMotif] = []
     thrs: list[RenderedMotif] = []
     obs: list[RenderedMotif] = []
+
+    # Collect fork target squares for fork-implies-hanging dedup
+    fork_squares: set[str] = set()
+    if "fork" in new_types:
+        for fork in getattr(tactics, "forks", []):
+            fork_squares.update(fork.targets)
+
     for spec in MOTIF_REGISTRY.values():
         if spec.diff_key not in new_types:
             continue
@@ -521,10 +539,17 @@ def render_motifs(
         if spec.cap:
             items = items[:spec.cap]
         for item in items:
+            # Fork-implies-hanging dedup
+            if spec.diff_key == "hanging" and fork_squares:
+                if spec.squares_fn and spec.squares_fn(item) & fork_squares:
+                    continue
+
             desc, is_opp = spec.render_fn(item, ctx)
+            target_sq = spec.squares_fn(item) if spec.squares_fn else frozenset()
             rm = RenderedMotif(
                 text=desc, is_opportunity=is_opp,
                 diff_key=spec.diff_key, priority=spec.priority,
+                target_squares=target_sq,
             )
             if spec.is_observation:
                 obs.append(rm)
@@ -532,4 +557,16 @@ def render_motifs(
                 opps.append(rm)
             else:
                 thrs.append(rm)
+
+    # Sort by priority (ascending = most important first)
+    opps.sort(key=lambda r: r.priority)
+    thrs.sort(key=lambda r: r.priority)
+    obs.sort(key=lambda r: r.priority)
+
+    # Apply max_items cap
+    if max_items is not None:
+        opps = opps[:max_items]
+        thrs = thrs[:max_items]
+        obs = obs[:max_items]
+
     return opps, thrs, obs
