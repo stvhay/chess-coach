@@ -19,6 +19,7 @@ from server.motifs import (
     MODERATE_VALUE_KEYS,
     MOTIF_REGISTRY,
     MotifSpec,
+    RenderedMotif,
     RenderContext,
     RenderMode,
     all_tactic_keys,
@@ -132,8 +133,8 @@ class TestMotifRenderers:
     def test_render_fork(self):
         fork = Fork("e5", "N", ["c6", "g6"], ["r", "q"])
         desc, is_opp = render_fork(fork, _ctx(True))
-        assert "fork by White N on e5" in desc
-        assert "Black R on c6" in desc
+        assert "your knight on e5 forks" in desc.lower()
+        assert "their rook on c6" in desc.lower()
         assert is_opp is True
 
     def test_render_fork_opponent(self):
@@ -144,17 +145,19 @@ class TestMotifRenderers:
     def test_render_fork_wins_piece(self):
         fork = Fork("f7", "N", ["e8", "h8"], ["k", "r"])
         desc, is_opp = render_fork(fork, _ctx(True))
-        assert "wins the" in desc
+        assert "wins" in desc.lower()
 
     def test_render_pin(self):
+        # White bishop pins Black knight to Black king
         pin = Pin(
-            pinned_piece="N", pinned_square="c6",
+            pinned_piece="n", pinned_square="c6",
             pinner_piece="B", pinner_square="b5",
             pinned_to="e8", pinned_to_piece="k",
             is_absolute=True,
         )
         desc, is_opp = render_pin(pin, _ctx(True))
-        assert "pin:" in desc
+        assert "your bishop on b5 pins" in desc.lower()
+        assert "their knight on c6" in desc.lower()
         assert "cannot move" in desc
         assert is_opp is True
 
@@ -165,7 +168,7 @@ class TestMotifRenderers:
             behind_piece="k", behind_square="e8",
         )
         desc, is_opp = render_skewer(skewer, _ctx(True))
-        assert "skewer by White R" in desc
+        assert "your rook on e1 skewers" in desc.lower()
         assert is_opp is True
 
     def test_render_hanging_opponent(self):
@@ -179,6 +182,14 @@ class TestMotifRenderers:
         desc, is_opp = render_hanging(hp, _ctx(True))
         assert is_opp is False
 
+    def test_rendered_motif_fields(self):
+        """RenderedMotif has expected fields."""
+        rm = RenderedMotif(text="test", is_opportunity=True, diff_key="fork", priority=20)
+        assert rm.text == "test"
+        assert rm.is_opportunity is True
+        assert rm.diff_key == "fork"
+        assert rm.priority == 20
+
 
 # --- render_motifs 3-bucket tests ---
 
@@ -191,7 +202,10 @@ class TestRenderMotifsThreeBuckets:
         assert len(opps) == 1
         assert len(thrs) == 0
         assert len(obs) == 0
-        assert "fork" in opps[0].lower()
+        assert isinstance(opps[0], RenderedMotif)
+        assert "fork" in opps[0].text.lower()
+        assert opps[0].diff_key == "fork"
+        assert opps[0].priority == 20
 
     def test_back_rank_goes_to_observations(self):
         """Back rank weakness should go to observations regardless of is_opp."""
@@ -203,7 +217,7 @@ class TestRenderMotifsThreeBuckets:
         assert len(obs) == 1
         assert len(opps) == 0
         assert len(thrs) == 0
-        assert "back rank" in obs[0].lower()
+        assert "back rank" in obs[0].text.lower()
 
     def test_mixed_motifs_three_buckets(self):
         """Fork + back rank → fork in opps, back rank in obs."""

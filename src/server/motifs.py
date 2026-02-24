@@ -22,6 +22,17 @@ from server.analysis import TacticalMotifs, _colored
 # Shared helpers
 # ---------------------------------------------------------------------------
 
+_PIECE_NAME: dict[str, str] = {
+    "P": "pawn", "N": "knight", "B": "bishop",
+    "R": "rook", "Q": "queen", "K": "king",
+}
+
+
+def _own_their(piece_char: str, is_student: bool) -> str:
+    """'your knight' or 'their knight' based on ownership."""
+    name = _PIECE_NAME[piece_char.upper()]
+    return f"your {name}" if is_student else f"their {name}"
+
 
 def _piece_is_students(piece_char: str, student_is_white: bool | None) -> bool:
     """Is this piece the student's? Uppercase = White pieces."""
@@ -78,6 +89,15 @@ class RenderContext:
         return self.mode == RenderMode.POSITION
 
 
+@dataclass
+class RenderedMotif:
+    """A rendered motif description with metadata."""
+    text: str
+    is_opportunity: bool
+    diff_key: str
+    priority: int
+
+
 # ---------------------------------------------------------------------------
 # Motif renderers
 # ---------------------------------------------------------------------------
@@ -85,43 +105,50 @@ class RenderContext:
 def render_fork(fork, ctx: RenderContext) -> tuple[str, bool]:
     """Render a fork. Returns (description, is_opportunity)."""
     is_student = _piece_is_students(fork.forking_piece, ctx.student_is_white)
+    forker = _own_their(fork.forking_piece, is_student)
     if fork.target_pieces:
         target_descs = [
-            f"{_colored(tp)} on {sq}"
+            f"{_own_their(tp, _piece_is_students(tp, ctx.student_is_white))} on {sq}"
             for tp, sq in zip(fork.target_pieces, fork.targets)
         ]
         targets = " and ".join(target_descs)
     else:
         targets = ", ".join(fork.targets)
-    desc = (f"fork by {_colored(fork.forking_piece)} on {fork.forking_square} "
-            f"targeting {targets}")
+    desc = f"{forker.capitalize()} on {fork.forking_square} forks {targets}."
     if fork.target_pieces and any(tp.upper() == "K" for tp in fork.target_pieces):
-        other = [f"{_colored(tp)}" for tp in fork.target_pieces if tp.upper() != "K"]
+        other = [
+            _own_their(tp, _piece_is_students(tp, ctx.student_is_white))
+            for tp in fork.target_pieces if tp.upper() != "K"
+        ]
         if other:
-            desc += f" (wins the {other[0]})"
+            desc = desc[:-1] + f" — wins {other[0]}."
     return desc, is_student
 
 
 def render_pin(pin, ctx: RenderContext) -> tuple[str, bool]:
     """Render a pin. Returns (description, is_opportunity)."""
     is_student = _piece_is_students(pin.pinner_piece, ctx.student_is_white)
-    abs_label = " (cannot move)" if pin.is_absolute else ""
+    pinner = _own_their(pin.pinner_piece, is_student)
+    pinned = _own_their(pin.pinned_piece, _piece_is_students(pin.pinned_piece, ctx.student_is_white))
     if pin.pinned_to_piece:
-        to_desc = f"{_colored(pin.pinned_to_piece)} on {pin.pinned_to}"
+        to_desc = f"{_own_their(pin.pinned_to_piece, _piece_is_students(pin.pinned_to_piece, ctx.student_is_white))} on {pin.pinned_to}"
     else:
         to_desc = pin.pinned_to
-    desc = (f"pin: {_colored(pin.pinned_piece)} on {pin.pinned_square} pinned by "
-            f"{_colored(pin.pinner_piece)} on {pin.pinner_square} to {to_desc}"
-            f"{abs_label}")
+    abs_label = " — it cannot move" if pin.is_absolute else ""
+    desc = (f"{pinner.capitalize()} on {pin.pinner_square} pins "
+            f"{pinned} on {pin.pinned_square} to {to_desc}{abs_label}.")
     return desc, is_student
 
 
 def render_skewer(skewer, ctx: RenderContext) -> tuple[str, bool]:
     """Render a skewer."""
     is_student = _piece_is_students(skewer.attacker_piece, ctx.student_is_white)
-    desc = (f"skewer by {_colored(skewer.attacker_piece)} on {skewer.attacker_square}: "
-            f"{_colored(skewer.front_piece)} on {skewer.front_square}, "
-            f"{_colored(skewer.behind_piece)} on {skewer.behind_square}")
+    attacker = _own_their(skewer.attacker_piece, is_student)
+    front = _own_their(skewer.front_piece, _piece_is_students(skewer.front_piece, ctx.student_is_white))
+    behind = _own_their(skewer.behind_piece, _piece_is_students(skewer.behind_piece, ctx.student_is_white))
+    desc = (f"{attacker.capitalize()} on {skewer.attacker_square} skewers "
+            f"{front} on {skewer.front_square} behind "
+            f"{behind} on {skewer.behind_square}.")
     return desc, is_student
 
 
@@ -131,29 +158,35 @@ def render_hanging(hp, ctx: RenderContext) -> tuple[str, bool]:
         is_opponents = not _color_is_students(hp.color, ctx.player_color)
     else:
         is_opponents = not _piece_is_students(hp.piece, ctx.student_is_white)
+    is_students_piece = not is_opponents
+    piece_desc = _own_their(hp.piece, is_students_piece)
     if hp.can_retreat:
-        desc = f"{_colored(hp.piece)} on {hp.square} is undefended (must move)"
+        desc = f"{piece_desc.capitalize()} on {hp.square} is undefended."
+    elif is_opponents:
+        desc = f"{piece_desc.capitalize()} on {hp.square} is hanging."
     else:
-        desc = f"hanging {_colored(hp.piece)} on {hp.square}"
+        desc = f"{piece_desc.capitalize()} on {hp.square} is undefended."
     return desc, is_opponents
 
 
 def render_discovered_attack(da, ctx: RenderContext) -> tuple[str, bool]:
     """Render a discovered attack.
 
-    In position context (is_position_description=True) uses "x-ray alignment"
-    since nothing has been "discovered" yet. In change context uses
-    "discovered attack" since a move just created this.
+    In position context uses "x-ray alignment" since nothing has been
+    "discovered" yet. In change context uses "discovered attack".
     """
     is_student = _piece_is_students(da.slider_piece, ctx.student_is_white)
+    slider = _own_their(da.slider_piece, is_student)
+    blocker = _own_their(da.blocker_piece, _piece_is_students(da.blocker_piece, ctx.student_is_white))
+    target = _own_their(da.target_piece, _piece_is_students(da.target_piece, ctx.student_is_white))
     if ctx.is_position_description:
-        desc = (f"x-ray alignment: {_colored(da.slider_piece)} on {da.slider_square} "
-                f"behind {_colored(da.blocker_piece)} on {da.blocker_square} toward "
-                f"{_colored(da.target_piece)} on {da.target_square}")
+        desc = (f"X-ray alignment: {slider} on {da.slider_square} "
+                f"behind {blocker} on {da.blocker_square} toward "
+                f"{target} on {da.target_square}.")
     else:
-        desc = (f"discovered attack: {_colored(da.blocker_piece)} on {da.blocker_square} "
-                f"reveals {_colored(da.slider_piece)} on {da.slider_square} targeting "
-                f"{_colored(da.target_piece)} on {da.target_square}")
+        desc = (f"Discovered attack: {blocker} on {da.blocker_square} "
+                f"reveals {slider} on {da.slider_square} targeting "
+                f"{target} on {da.target_square}.")
     return desc, is_student
 
 
@@ -163,65 +196,77 @@ def render_double_check(dc, ctx: RenderContext) -> tuple[str, bool]:
     Uses is_threat from ctx to determine opportunity: at ply 0
     the student delivered it (opportunity), at ply 1+ it's a threat.
     """
-    squares = ", ".join(dc.checker_squares)
-    desc = f"double check from {squares}"
+    squares = " and ".join(dc.checker_squares)
+    desc = f"Double check from {squares}."
     return desc, not ctx.is_threat
 
 
 def render_trapped_piece(tp, ctx: RenderContext) -> tuple[str, bool]:
     """Render a trapped piece."""
     is_opponents = not _piece_is_students(tp.piece, ctx.student_is_white)
-    desc = f"trapped {_colored(tp.piece)} on {tp.square}"
+    piece_desc = _own_their(tp.piece, not is_opponents)
+    desc = f"{piece_desc.capitalize()} on {tp.square} is trapped."
     return desc, is_opponents
 
 
 def render_mate_threat(mt, ctx: RenderContext) -> tuple[str, bool]:
     """Render a mate threat."""
     is_student = _color_is_students(mt.threatening_color, ctx.player_color)
-    desc = f"{mt.threatening_color} threatens checkmate on {mt.mating_square}"
+    if is_student:
+        desc = f"You threaten checkmate on {mt.mating_square}."
+    else:
+        desc = f"They threaten checkmate on {mt.mating_square}."
     return desc, is_student
 
 
 def render_back_rank_weakness(bw, ctx: RenderContext) -> tuple[str, bool]:
     """Render a back rank weakness."""
     is_opponents = not _color_is_students(bw.weak_color, ctx.player_color)
-    desc = f"{bw.weak_color}'s back rank is weak (king on {bw.king_square})"
+    whose = "Their" if is_opponents else "Your"
+    desc = f"{whose} back rank is weak (king on {bw.king_square})."
     return desc, is_opponents
 
 
 def render_xray_attack(xa, ctx: RenderContext) -> tuple[str, bool]:
     """Render an x-ray attack."""
     is_student = _piece_is_students(xa.slider_piece, ctx.student_is_white)
-    desc = (f"x-ray: {_colored(xa.slider_piece)} on {xa.slider_square} "
-            f"through {_colored(xa.through_piece)} on {xa.through_square} "
-            f"targeting {_colored(xa.target_piece)} on {xa.target_square}")
+    slider = _own_their(xa.slider_piece, is_student)
+    through = _own_their(xa.through_piece, _piece_is_students(xa.through_piece, ctx.student_is_white))
+    target = _own_their(xa.target_piece, _piece_is_students(xa.target_piece, ctx.student_is_white))
+    desc = (f"{slider.capitalize()} on {xa.slider_square} x-rays through "
+            f"{through} on {xa.through_square} targeting "
+            f"{target} on {xa.target_square}.")
     return desc, is_student
 
 
 def render_exposed_king(ek, ctx: RenderContext) -> tuple[str, bool]:
     """Render an exposed king."""
     is_opponents = not _color_is_students(ek.color, ctx.player_color)
-    desc = f"{ek.color}'s king on {ek.king_square} is exposed (advanced, no pawn shield)"
+    whose = "Their" if is_opponents else "Your"
+    desc = f"{whose} king on {ek.king_square} is exposed (advanced, no pawn shield)."
     return desc, is_opponents
 
 
 def render_overloaded_piece(op, ctx: RenderContext) -> tuple[str, bool]:
     """Render an overloaded piece."""
     is_opponents = not _piece_is_students(op.piece, ctx.student_is_white)
+    piece_desc = _own_their(op.piece, not is_opponents)
     charges = ", ".join(op.defended_squares)
-    desc = (f"overloaded {_colored(op.piece)} on {op.square} "
-            f"sole defender of {charges}")
+    desc = (f"{piece_desc.capitalize()} on {op.square} is overloaded, "
+            f"sole defender of {charges}.")
     return desc, is_opponents
 
 
 def render_capturable_defender(cd, ctx: RenderContext) -> tuple[str, bool]:
     """Render a capturable defender."""
     is_opponents = not _piece_is_students(cd.defender_piece, ctx.student_is_white)
-    desc = (f"capturable defender: {_colored(cd.defender_piece)} on {cd.defender_square} "
-            f"defends {_colored(cd.charge_piece)} on {cd.charge_square}")
+    defender = _own_their(cd.defender_piece, not is_opponents)
+    charge = _own_their(cd.charge_piece, _piece_is_students(cd.charge_piece, ctx.student_is_white))
+    desc = (f"{defender.capitalize()} on {cd.defender_square} "
+            f"defends {charge} on {cd.charge_square}")
     if cd.attacker_square:
-        desc += (f" — if captured, {_colored(cd.charge_piece)} on "
-                 f"{cd.charge_square} is left hanging")
+        desc += f" — if captured, {charge} on {cd.charge_square} is left hanging"
+    desc += "."
     return desc, is_opponents
 
 
@@ -363,7 +408,7 @@ MOTIF_REGISTRY: dict[str, MotifSpec] = {
     "mate_pattern": MotifSpec(
         diff_key="mate_pattern", field="mate_patterns",
         key_fn=lambda t: ("mate_pattern", t.pattern),
-        render_fn=lambda mp, ctx: (f"mate pattern: {mp.pattern}", True),
+        render_fn=lambda mp, ctx: (f"{mp.pattern.replace('_', ' ').capitalize()} mate.", True),
         priority=10,
     ),
     "mate_threat": MotifSpec(
@@ -458,15 +503,15 @@ def render_motifs(
     tactics: TacticalMotifs,
     new_types: set[str],
     ctx: RenderContext,
-) -> tuple[list[str], list[str], list[str]]:
+) -> tuple[list[RenderedMotif], list[RenderedMotif], list[RenderedMotif]]:
     """Render all new motifs, returning (opportunities, threats, observations).
 
     Items from specs with is_observation=True go to observations regardless
     of the opportunity/threat classification.
     """
-    opps: list[str] = []
-    thrs: list[str] = []
-    obs: list[str] = []
+    opps: list[RenderedMotif] = []
+    thrs: list[RenderedMotif] = []
+    obs: list[RenderedMotif] = []
     for spec in MOTIF_REGISTRY.values():
         if spec.diff_key not in new_types:
             continue
@@ -477,10 +522,14 @@ def render_motifs(
             items = items[:spec.cap]
         for item in items:
             desc, is_opp = spec.render_fn(item, ctx)
+            rm = RenderedMotif(
+                text=desc, is_opportunity=is_opp,
+                diff_key=spec.diff_key, priority=spec.priority,
+            )
             if spec.is_observation:
-                obs.append(desc)
+                obs.append(rm)
             elif is_opp:
-                opps.append(desc)
+                opps.append(rm)
             else:
-                thrs.append(desc)
+                thrs.append(rm)
     return opps, thrs, obs

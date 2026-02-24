@@ -150,20 +150,21 @@ def describe_position(tree: GameTree, node: GameNode) -> PositionDescription:
         player_color=player_color,
         mode=RenderMode.POSITION,
     )
-    opps, thrs, obs = render_motifs(node.tactics, all_types, ctx)
+    opps_rm, thrs_rm, obs_rm = render_motifs(node.tactics, all_types, ctx)
 
     # Post-filter: skip back rank in early game
     skip_back_rank = _should_skip_back_rank(report)
     if skip_back_rank:
-        obs = [o for o in obs if "back rank" not in o.lower()]
+        obs_rm = [o for o in obs_rm if "back rank" not in o.text.lower()]
 
-    # Add positional observations
-    obs.extend(_add_positional_observations(report))
+    # Extract text
+    obs_text = [o.text for o in obs_rm]
+    obs_text.extend(_add_positional_observations(report))
 
     return PositionDescription(
-        threats=thrs,
-        opportunities=opps,
-        observations=obs,
+        threats=[t.text for t in thrs_rm],
+        opportunities=[o.text for o in opps_rm],
+        observations=obs_text,
     )
 
 
@@ -216,22 +217,26 @@ def describe_changes(
             player_color=player_color,
             mode=RenderMode.THREAT if is_future else RenderMode.OPPORTUNITY,
         )
-        opps, thrs, obs = render_motifs(current_tactics, new_types, ctx)
+        opps_rm, thrs_rm, obs_rm = render_motifs(current_tactics, new_types, ctx)
+
+        # Extract text lists for this ply
+        opp_texts = [r.text for r in opps_rm]
+        thr_texts = [r.text for r in thrs_rm]
 
         # Checkmate
         if chain_node.board.is_checkmate():
             # Who delivered checkmate? The side that just moved.
             mover_is_student = (not chain_node.board.turn == chess.WHITE) == student_is_white
             if mover_is_student:
-                opps.append("checkmate")
+                opp_texts.append("checkmate")
             else:
-                thrs.append("checkmate")
+                thr_texts.append("checkmate")
 
         # Apply threat wrapping for ply 1+ (future moves)
         if i == 0:
-            all_opportunities.extend(opps)
-            all_threats.extend(thrs)
-        elif opps or thrs:
+            all_opportunities.extend(opp_texts)
+            all_threats.extend(thr_texts)
+        elif opp_texts or thr_texts:
             # Derive move info from board state
             node_san = chain_node.san if chain_node.move and chain_node.parent else ""
             mover_is_white = not chain_node.board.turn  # who just played
@@ -239,7 +244,7 @@ def describe_changes(
             numbered = f"{move_num}.{node_san}" if mover_is_white else f"{move_num}...{node_san}"
             threatener = "White" if mover_is_white else "Black"
 
-            for desc in opps + thrs:
+            for desc in opp_texts + thr_texts:
                 wrapped = f"{threatener} threatens {numbered}, {desc}"
                 if threatener == player_color:
                     all_opportunities.append(wrapped)
@@ -247,7 +252,7 @@ def describe_changes(
                     all_threats.append(wrapped)
 
         # Observations always added directly (structural, not threats)
-        all_observations.extend(obs)
+        all_observations.extend(r.text for r in obs_rm)
 
         prev_tactics = current_tactics
 
