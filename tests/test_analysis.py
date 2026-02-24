@@ -302,6 +302,57 @@ class TestTactics:
         assert "a8" in fork.targets
         assert "e8" in fork.targets
 
+    def test_fork_knight_forks_rook_and_bishop(self):
+        """Classic knight fork of two valuable pieces."""
+        # Nd5 attacks Rb6 (via b6) and Bf4 (via f4)
+        board = chess.Board("4k3/8/1r6/3N4/5b2/8/8/4K3 w - - 0 1")
+        tactics = analyze_tactics(board)
+        forks = [f for f in tactics.forks if f.forking_square == "d5"]
+        assert len(forks) == 1
+        assert "b6" in forks[0].targets
+        assert "f4" in forks[0].targets
+
+    def test_fork_check_fork_labeled(self):
+        """Knight fork including king = check fork."""
+        # Nf7 attacks Kd8 and Rh8
+        board = chess.Board("3k3r/5N2/8/8/8/8/8/4K3 b - - 0 1")
+        tactics = analyze_tactics(board)
+        forks = [f for f in tactics.forks if f.forking_square == "f7"]
+        assert len(forks) == 1
+        assert forks[0].is_check_fork is True
+        assert forks[0].is_royal_fork is False
+
+    def test_fork_royal_fork_labeled(self):
+        """Knight fork of king and queen = royal fork (also a check fork)."""
+        # Nc7 attacks Ke8 and Qa6
+        board = chess.Board("4k3/2N5/q7/8/8/8/8/4K3 b - - 0 1")
+        tactics = analyze_tactics(board)
+        forks = [f for f in tactics.forks if f.forking_square == "c7"]
+        assert len(forks) == 1
+        assert forks[0].is_royal_fork is True
+        assert forks[0].is_check_fork is True
+
+    def test_fork_king_can_fork_in_endgame(self):
+        """King attacking two enemy rooks = valid fork (king can't be captured)."""
+        # Kd5 attacks Rc4 and Re4
+        board = chess.Board("8/8/8/3K4/2r1r3/8/8/7k w - - 0 1")
+        tactics = analyze_tactics(board)
+        king_forks = [f for f in tactics.forks
+                      if f.forking_square == "d5" and f.forking_piece == "K"]
+        assert len(king_forks) == 1
+
+    def test_fork_not_detected_when_forker_undefended_and_worth_more(self):
+        """Undefended queen 'forking' two knights — capturing queen solves everything."""
+        # Qd5 undefended, attacks two black knights. Capturing Qd5 is a huge win.
+        # This is NOT a real fork because the opponent can just take the queen.
+        board = chess.Board("4k3/8/1n6/3Q4/5n2/8/8/4K3 w - - 0 1")
+        tactics = analyze_tactics(board)
+        # Queen(9) undefended, targets are knights(3). Not defended, not check,
+        # forker_val(9) > max_target_val(3). All three conditions fail -> not a fork.
+        queen_forks = [f for f in tactics.forks
+                       if f.forking_square == "d5" and f.forking_piece == "Q"]
+        assert len(queen_forks) == 0
+
     def test_hanging_piece(self):
         # Black knight on e4 attacked by white rook, no defenders
         board = chess.Board(PIN_POSITION)
@@ -473,6 +524,41 @@ class TestDoubleCheck:
         board = chess.Board(STARTING)
         t = analyze_tactics(board)
         assert len(t.double_checks) == 0
+
+
+# ---------------------------------------------------------------------------
+# Trapped Pieces
+# ---------------------------------------------------------------------------
+
+
+class TestTrappedPieces:
+    def test_trapped_pieces_checks_both_sides(self):
+        """Function should check both colors, not just board.turn."""
+        board = chess.Board("4k3/8/8/8/8/8/8/4K3 w - - 0 1")
+        tactics = analyze_tactics(board)
+        # No pieces to trap — just verify no crash
+        assert tactics.trapped_pieces == []
+
+    def test_trapped_pieces_no_crash_on_check_position(self):
+        """Null move into check should not crash — just skip that side."""
+        # White king in check from Qd1
+        board = chess.Board("4k3/8/8/8/8/8/8/3qK3 w - - 0 1")
+        assert board.is_check()
+        tactics = analyze_tactics(board)
+        # Should not crash, even though null move from this position is weird
+        assert isinstance(tactics.trapped_pieces, list)
+
+    def test_trapped_detects_non_moving_side(self):
+        """Trapped piece detected for the side NOT to move."""
+        # Black knight on h1 trapped: Bf3 attacks h1, Qd2 covers f2, Ph2 covers g3
+        # It's White's turn, but the Black knight should still be detected as trapped
+        board = chess.Board("4k3/8/8/8/8/5B2/3Q3P/4K2n w - - 0 1")
+        tactics = analyze_tactics(board)
+        trapped_squares = [tp.square for tp in tactics.trapped_pieces]
+        trapped_colors = [tp.color for tp in tactics.trapped_pieces]
+        # Filter to just black trapped pieces since the fix checks both sides
+        black_trapped = [tp for tp in tactics.trapped_pieces if tp.color == "black"]
+        assert any(tp.square == "h1" for tp in black_trapped)
 
 
 # ---------------------------------------------------------------------------
@@ -875,3 +961,46 @@ class TestAnalyze:
         assert isinstance(d, dict)
         assert d["fen"] == STARTING
         assert isinstance(d["material"]["white"]["pawns"], int)
+
+
+# ---------------------------------------------------------------------------
+# Back rank weakness tests
+# ---------------------------------------------------------------------------
+
+
+def test_back_rank_attacked_escape_squares():
+    """Empty escape square attacked by enemy = still a back rank weakness."""
+    # Kg1, pawns g2/h2. Forward escape squares: f2, g2, h2.
+    # g2/h2 blocked by own pawns. f2 is empty but attacked by Bc5.
+    # King's only legal moves: h1 and f1 (both on back rank = not escape).
+    board = chess.Board("3r4/8/8/2b5/8/8/6PP/6K1 w - - 0 1")
+    tactics = analyze_tactics(board)
+    br = [w for w in tactics.back_rank_weaknesses if w.weak_color == "white"]
+    assert len(br) >= 1
+    assert br[0].king_square == "g1"
+
+
+def test_back_rank_no_weakness_with_escape():
+    """King with a safe forward escape square = no back rank weakness."""
+    # Kg1, pawns g2/h2. f2 is empty and NOT attacked. King can escape to f2.
+    board = chess.Board("3r4/8/8/8/8/8/6PP/6K1 w - - 0 1")
+    tactics = analyze_tactics(board)
+    br = [w for w in tactics.back_rank_weaknesses if w.weak_color == "white"]
+    assert len(br) == 0
+
+
+def test_back_rank_king_not_on_back_rank():
+    """King not on back rank = no weakness regardless."""
+    board = chess.Board("3r4/8/8/8/8/8/4K1PP/8 w - - 0 1")
+    tactics = analyze_tactics(board)
+    br = [w for w in tactics.back_rank_weaknesses if w.weak_color == "white"]
+    assert len(br) == 0
+
+
+def test_back_rank_no_heavy_pieces():
+    """Back rank weakness requires opponent to have rook or queen."""
+    # Kg1 trapped on back rank, but opponent has no heavy pieces.
+    board = chess.Board("8/8/8/2b5/8/8/5nPP/6K1 w - - 0 1")
+    tactics = analyze_tactics(board)
+    br = [w for w in tactics.back_rank_weaknesses if w.weak_color == "white"]
+    assert len(br) == 0

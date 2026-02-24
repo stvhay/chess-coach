@@ -441,6 +441,8 @@ class Fork:
     targets: list[str]  # squares being forked
     target_pieces: list[str] = field(default_factory=list)  # piece chars on target squares
     color: str = ""  # "white" or "black" — color of the forking piece
+    is_check_fork: bool = False   # one target is the king
+    is_royal_fork: bool = False   # targets include both king and queen
 
 
 @dataclass
@@ -756,30 +758,61 @@ def _find_forks(board: chess.Board) -> list[Fork]:
     forks = []
     for color in (chess.WHITE, chess.BLACK):
         color_name = _color_name(color)
+        enemy = not color
         for sq in chess.SquareSet(board.occupied_co[color]):
             piece = board.piece_at(sq)
             if piece is None:
                 continue
-            piece_val = get_piece_value(piece.piece_type, king=1000)
+
             attacks = board.attacks(sq)
-            enemy = not color
             targets = []
             target_pieces = []
+            target_types = []
             for target_sq in attacks:
                 target_piece = board.piece_at(target_sq)
                 if target_piece and target_piece.color == enemy:
-                    target_val = get_piece_value(target_piece.piece_type, king=1000)
-                    if target_val >= piece_val or target_piece.piece_type == chess.KING:
-                        targets.append(chess.square_name(target_sq))
-                        target_pieces.append(target_piece.symbol())
-            if len(targets) >= 2:
-                forks.append(Fork(
-                    forking_square=chess.square_name(sq),
-                    forking_piece=piece.symbol(),
-                    targets=targets,
-                    target_pieces=target_pieces,
-                    color=color_name,
-                ))
+                    targets.append(chess.square_name(target_sq))
+                    target_pieces.append(target_piece.symbol())
+                    target_types.append(target_piece.piece_type)
+
+            if len(targets) < 2:
+                continue
+
+            # Defense-awareness: a fork forces a concession only if capturing the
+            # forker doesn't resolve all threats. Heuristic:
+            #   (a) check fork — must address check, concedes other target
+            #   (b) forker is defended — capturing it costs material
+            #   (c) forker is worth less than max target — ignoring fork loses more
+            # King as forker: can't be captured, always forces concession.
+            has_king_target = chess.KING in target_types
+            forker_defended = (
+                piece.piece_type == chess.KING
+                or bool(board.attackers(color, sq))
+            )
+            forker_val = get_piece_value(piece.piece_type, king=1000)
+            max_target_val = max(
+                get_piece_value(tt, king=1000) for tt in target_types
+            )
+
+            is_real_fork = (
+                has_king_target
+                or forker_defended
+                or forker_val < max_target_val
+            )
+            if not is_real_fork:
+                continue
+
+            has_queen_target = chess.QUEEN in target_types
+
+            forks.append(Fork(
+                forking_square=chess.square_name(sq),
+                forking_piece=piece.symbol(),
+                targets=targets,
+                target_pieces=target_pieces,
+                color=color_name,
+                is_check_fork=has_king_target,
+                is_royal_fork=has_king_target and has_queen_target,
+            ))
     return forks
 
 
@@ -835,17 +868,32 @@ def _find_trapped_pieces(board: chess.Board) -> list[TrappedPiece]:
     from server.lichess_tactics import is_trapped as _lichess_is_trapped
 
     trapped = []
-    # Only check pieces of the side to move (is_trapped iterates legal_moves)
-    for sq in chess.SquareSet(board.occupied_co[board.turn]):
-        piece = board.piece_at(sq)
-        if piece is None:
-            continue
-        if _lichess_is_trapped(board, sq):
-            trapped.append(TrappedPiece(
-                square=chess.square_name(sq),
-                piece=piece.symbol(),
-                color=_color_name(board.turn),
-            ))
+    for color in (chess.WHITE, chess.BLACK):
+        # is_trapped uses board.legal_moves, which only works for side to move.
+        # Use null move to flip turn for the non-moving side.
+        needs_null_move = color != board.turn
+        if needs_null_move:
+            board.push(chess.Move.null())
+
+        # Guard: skip if position is invalid after null move.
+        # is_check(): current side in check (their legal_moves would be evasions only).
+        # was_into_check(): null move left the OTHER king in check (position is illegal).
+        skip = board.is_check() or (needs_null_move and board.was_into_check())
+        if not skip:
+            for sq in chess.SquareSet(board.occupied_co[color]):
+                piece = board.piece_at(sq)
+                if piece is None:
+                    continue
+                if _lichess_is_trapped(board, sq):
+                    trapped.append(TrappedPiece(
+                        square=chess.square_name(sq),
+                        piece=piece.symbol(),
+                        color=_color_name(color),
+                    ))
+
+        if needs_null_move:
+            board.pop()
+
     return trapped
 
 
@@ -917,18 +965,23 @@ def _find_back_rank_weaknesses(board: chess.Board) -> list[BackRankWeakness]:
         if chess.square_rank(king_sq) != back_rank:
             continue
 
-        # Check if escape squares (one rank forward) are all blocked by own pieces
-        forward_rank = 1 if color == chess.WHITE else 6
-        king_file = chess.square_file(king_sq)
-        all_blocked = True
-        for f in range(max(0, king_file - 1), min(8, king_file + 2)):
-            sq = chess.square(f, forward_rank)
-            piece = board.piece_at(sq)
-            if piece is None or piece.color != color:
-                all_blocked = False
-                break
+        # Check if king has any legal move off the back rank.
+        # Use null move to flip turn if this isn't the side to move.
+        needs_null_move = color != board.turn
+        if needs_null_move:
+            board.push(chess.Move.null())
 
-        if not all_blocked:
+        can_escape = False
+        if not board.is_check():
+            for move in board.legal_moves:
+                if move.from_square == king_sq and chess.square_rank(move.to_square) != back_rank:
+                    can_escape = True
+                    break
+
+        if needs_null_move:
+            board.pop()
+
+        if can_escape:
             continue
 
         # Opponent has a rook or queen (potential back-rank attacker)
