@@ -387,11 +387,11 @@ def describe_changes(
             # Validate motifs from alternative lines before wrapping (prevent hallucination)
             for desc in opp_texts:
                 if _validate_motif_text(desc, chain_node.board):
-                    wrapped = f"{threatener} threatens {numbered}, {desc}"
+                    wrapped = f"If {numbered}, {desc}"
                     all_opportunities.append(wrapped)
             for desc in thr_texts:
                 if _validate_motif_text(desc, chain_node.board):
-                    wrapped = f"{threatener} threatens {numbered}, {desc}"
+                    wrapped = f"If {numbered}, {desc}"
                     all_threats.append(wrapped)
 
         # Observations: only from the immediate move (i=0). Observations from

@@ -23,7 +23,6 @@ from server.report import serialize_report
 class GameState:
     board: chess.Board = field(default_factory=chess.Board)
     depth: int = 10
-    coaching_depth: int = 12
     elo_profile: str = "intermediate"
 
 
@@ -136,8 +135,9 @@ class GameManager:
             raise ValueError(f"Illegal move: {move_uci}")
 
         # Evaluate position before the player's move for coaching.
+        profile = get_profile(state.elo_profile)
         eval_before = await self._engine.evaluate(
-            board.fen(), depth=state.coaching_depth
+            board.fen(), depth=profile.validate_depth
         )
         best_move_uci = eval_before.best_move
 
@@ -147,7 +147,7 @@ class GameManager:
 
         # Evaluate position after the player's move for coaching.
         eval_after = await self._engine.evaluate(
-            board.fen(), depth=state.coaching_depth
+            board.fen(), depth=profile.validate_depth
         )
 
         # Assess the player's move for coaching feedback.
