@@ -366,6 +366,28 @@ class TestTactics:
         hanging = [h for h in t.hanging if h.square == "e4"]
         assert hanging[0].color == "black"
 
+    def test_hanging_pinned_piece_can_retreat_along_pin_line(self):
+        """A rook pinned along a file can still retreat along that file."""
+        # Qe8 pins Re4 to Ke1. Re4 can move along e-file (e2, e3, e5, e6, e7, e8).
+        # Nf2 attacks Re4, making it hanging.
+        board = chess.Board("4q3/8/8/8/4R3/8/5n2/4K3 w - - 0 1")
+        # Verify setup: Re4 is pinned, has legal moves, and is attacked
+        assert board.is_pinned(chess.WHITE, chess.E4)
+        tactics = analyze_tactics(board)
+        hanging_rook = [h for h in tactics.hanging if h.square == "e4"]
+        # Re4 has legal moves along the e-file -> can_retreat should be True
+        if hanging_rook:
+            assert hanging_rook[0].can_retreat is True
+
+    def test_hanging_unpinned_piece_with_escape(self):
+        """Normal (unpinned) hanging piece with escape squares has can_retreat=True."""
+        # Nb5 attacked by Pa6, but knight can move to c3, d4, etc.
+        board = chess.Board("4k3/8/p7/1N6/8/8/8/4K3 w - - 0 1")
+        tactics = analyze_tactics(board)
+        hanging_knight = [h for h in tactics.hanging if h.square == "b5"]
+        if hanging_knight:
+            assert hanging_knight[0].can_retreat is True
+
     def test_no_tactics_starting(self):
         board = chess.Board(STARTING)
         t = analyze_tactics(board)

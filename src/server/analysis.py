@@ -818,7 +818,7 @@ def _find_forks(board: chess.Board) -> list[Fork]:
 
 def _find_hanging(board: chess.Board) -> list[HangingPiece]:
     """Find hanging pieces using x-ray-aware defense detection from Lichess."""
-    from server.lichess_tactics import is_hanging as _lichess_is_hanging, is_trapped as _lichess_is_trapped
+    from server.lichess_tactics import is_hanging as _lichess_is_hanging
 
     hanging = []
     for color in (chess.WHITE, chess.BLACK):
@@ -829,15 +829,11 @@ def _find_hanging(board: chess.Board) -> list[HangingPiece]:
                 continue
             attackers = board.attackers(enemy, sq)
             if attackers and _lichess_is_hanging(board, piece, sq):
-                # Can the piece be saved?
                 if color == board.turn:
-                    # Owner moves next — check if they have escape squares
-                    if board.is_pinned(color, sq):
-                        can_retreat = False
-                    elif piece.piece_type == chess.PAWN:
-                        can_retreat = any(m.from_square == sq for m in board.legal_moves)
-                    else:
-                        can_retreat = not _lichess_is_trapped(board, sq)
+                    # Owner moves next — check if piece has any legal move.
+                    # board.legal_moves handles pin restrictions: a pinned piece
+                    # can only move along the pin line, which is correct.
+                    can_retreat = any(m.from_square == sq for m in board.legal_moves)
                 else:
                     # Opponent moves next — can capture immediately
                     can_retreat = False
