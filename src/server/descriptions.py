@@ -107,6 +107,8 @@ def _add_positional_observations(report: PositionReport) -> list[str]:
     elif mat.imbalance < 0:
         parts.append(f"Black is up approximately {-mat.imbalance} points of material.")
 
+    is_endgame = report.phase == "endgame"
+
     # Pawn structure
     ps = report.pawn_structure
     w_isolated = [p.square for p in ps.white if p.is_isolated]
@@ -119,22 +121,69 @@ def _add_positional_observations(report: PositionReport) -> list[str]:
     w_passed = [p.square for p in ps.white if p.is_passed]
     b_passed = [p.square for p in ps.black if p.is_passed]
     if w_passed:
-        parts.append(f"White has passed pawns on {', '.join(w_passed)}.")
+        suffix = " — critical in this endgame" if is_endgame else ""
+        parts.append(f"White has passed pawns on {', '.join(w_passed)}{suffix}.")
     if b_passed:
-        parts.append(f"Black has passed pawns on {', '.join(b_passed)}.")
+        suffix = " — critical in this endgame" if is_endgame else ""
+        parts.append(f"Black has passed pawns on {', '.join(b_passed)}{suffix}.")
 
-    # King safety
-    for color, ks in [("White", report.king_safety_white), ("Black", report.king_safety_black)]:
-        if ks.open_files_near_king:
-            parts.append(f"{color}'s king has open files nearby.")
+    # King safety (in endgame, emphasize king activity instead)
+    if is_endgame:
+        for color, ks in [("White", report.king_safety_white), ("Black", report.king_safety_black)]:
+            if ks.king_square:
+                kr = int(ks.king_square[1])
+                is_white = color == "White"
+                # King is active if advanced past rank 3 (white) or rank 6 (black)
+                if (is_white and kr >= 4) or (not is_white and kr <= 5):
+                    parts.append(f"{color}'s king is actively placed on {ks.king_square}.")
+    else:
+        for color, ks in [("White", report.king_safety_white), ("Black", report.king_safety_black)]:
+            if ks.open_files_near_king:
+                parts.append(f"{color}'s king has open files nearby.")
 
-    # Development
-    dev = report.development
-    if report.fullmove_number <= 15:
-        if dev.white_developed < 3:
-            parts.append("White has not fully developed minor pieces.")
-        if dev.black_developed < 3:
-            parts.append("Black has not fully developed minor pieces.")
+    # Development (skip in endgame — irrelevant)
+    if not is_endgame:
+        dev = report.development
+        if report.fullmove_number <= 15:
+            if dev.white_developed < 3:
+                parts.append("White has not fully developed minor pieces.")
+            if dev.black_developed < 3:
+                parts.append("Black has not fully developed minor pieces.")
+
+    # File control and rook placement
+    fd = report.files_and_diagonals
+    if fd.rooks_on_seventh:
+        for sq in fd.rooks_on_seventh:
+            parts.append(f"Rook on {sq} occupies the 7th rank.")
+
+    for pair in fd.connected_rooks_white:
+        parts.append(f"White's rooks are connected on {pair}.")
+    for pair in fd.connected_rooks_black:
+        parts.append(f"Black's rooks are connected on {pair}.")
+
+    # Long diagonal control
+    for diag in fd.long_diagonals:
+        if diag.bishop_square and diag.mobility >= 4 and not diag.is_blocked:
+            parts.append(
+                f"{diag.bishop_color.capitalize()}'s bishop on {diag.bishop_square} "
+                f"controls the {diag.name} diagonal."
+            )
+
+    # Pawn color complex weakness
+    pcc = fd.pawn_color_complex
+    if pcc:
+        if pcc.white_weak_color:
+            parts.append(
+                f"White has a weak {pcc.white_weak_color}-square complex "
+                f"(no {pcc.white_weak_color}-squared bishop, "
+                f"pawns on {'light' if pcc.white_weak_color == 'dark' else 'dark'} squares)."
+            )
+        if pcc.black_weak_color:
+            parts.append(
+                f"Black has a weak {pcc.black_weak_color}-square complex "
+                f"(no {pcc.black_weak_color}-squared bishop, "
+                f"pawns on {'light' if pcc.black_weak_color == 'dark' else 'dark'} squares)."
+            )
 
     return parts
 

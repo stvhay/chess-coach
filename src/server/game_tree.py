@@ -9,11 +9,12 @@ with played line context, player move, and engine alternatives.
 from __future__ import annotations
 
 import bisect
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import chess
 
 from server.analysis import (
+    MateThreat,
     PositionReport,
     TacticalMotifs,
     analyze,
@@ -326,6 +327,12 @@ async def build_coaching_tree(
     tree = GameTree(root=root, decision_point=decision_point, player_color=player_color)
     await _add_player_move_async(tree, engine, board_before, player_move_uci, profile)
 
+    # 6. Enrich mate threats at decision point and player's move (async Stockfish)
+    await enrich_node_mate_threats(decision_point, engine)
+    player_node = tree.player_move_node()
+    if player_node is not None:
+        await enrich_node_mate_threats(player_node, engine)
+
     return tree
 
 
@@ -382,6 +389,34 @@ def _add_player_move(
         return
 
     tree.decision_point.add_child(player_move, source="played")
+
+
+async def enrich_node_mate_threats(node: GameNode, engine: EngineAnalysis) -> None:
+    """Enrich a node's tactics with Stockfish-powered mate-in-N threats.
+
+    Replaces shallow depth-1 mate threats with deeper Stockfish analysis.
+    Only detects up to mate-in-3 (deeper is not coachable).
+    """
+    fen = node.board.fen()
+    try:
+        deep_threats = await engine.find_mate_threats(fen, max_depth=3)
+    except Exception:
+        return  # Engine failure — keep existing shallow analysis
+
+    if not deep_threats:
+        return
+
+    # Replace existing depth-1 threats with deeper Stockfish analysis
+    new_threats = [
+        MateThreat(
+            threatening_color=t["threatening_color"],
+            mating_square=t["mating_square"],
+            depth=t["depth"],
+            mating_move=t["mating_move"],
+        )
+        for t in deep_threats
+    ]
+    node._tactics = replace(node.tactics, mate_threats=new_threats)
 
 
 def _rank_nodes_by_teachability(

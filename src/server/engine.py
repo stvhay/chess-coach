@@ -146,3 +146,44 @@ class EngineAnalysis:
                     score_mate=score.mate(),
                 ))
         return moves
+
+    async def find_mate_threats(
+        self, fen: str, max_depth: int = 3, eval_depth: int = 10,
+    ) -> list[dict]:
+        """Find mate-in-N threats by evaluating each legal move.
+
+        Returns list of dicts with keys: threatening_color, mating_square,
+        depth, mating_move (SAN). Only includes threats where depth <= max_depth.
+        """
+        if self._engine is None:
+            raise RuntimeError("Engine not started. Call start() first.")
+        board = self._validate_board(fen)
+        threats = []
+        color_name = "white" if board.turn == chess.WHITE else "black"
+        for move in board.legal_moves:
+            move_san = board.san(move)
+            board.push(move)
+            async with self._lock:
+                result = await self._analyse_with_retry(
+                    board, chess.engine.Limit(depth=eval_depth)
+                )
+            score = result["score"].white()
+            mate = score.mate()
+            board.pop()
+            if mate is not None:
+                # After our move, score_mate from White's POV:
+                # If White just moved and mate > 0: White mates in N (from opponent's view)
+                # If Black just moved and mate < 0: Black mates in N
+                # Depth = abs(mate): how many more moves for the mating side
+                depth = abs(mate)
+                is_our_mate = (color_name == "white" and mate > 0) or \
+                              (color_name == "black" and mate < 0)
+                if is_our_mate and depth <= max_depth:
+                    threats.append({
+                        "threatening_color": color_name,
+                        "mating_square": move.uci()[2:4],
+                        "depth": depth,
+                        "mating_move": move_san,
+                    })
+                    break  # One threat is enough for coaching
+        return threats

@@ -289,6 +289,148 @@ def boden_or_double_bishop_mate(board: Board) -> str | None:
         return "doubleBishopMate"
 
 
+# --- Scholar's Mate (custom pattern, not from upstream) ---
+
+
+def scholars_mate(board: Board) -> bool:
+    """Detect Scholar's mate: Qxf7# (or Qxf2#) supported by bishop.
+
+    Queen on f7/f2 delivers checkmate with bishop support from c4/c5 area.
+    """
+    if not board.is_checkmate():
+        return False
+
+    loser = board.turn
+    winner = not loser
+    king = board.king(loser)
+    assert king is not None
+
+    # Queen must be the checker
+    for checker in board.checkers():
+        piece = board.piece_at(checker)
+        assert piece
+        if piece.piece_type != QUEEN:
+            continue
+        # Queen on f7 (for black loser) or f2 (for white loser)
+        target_sq = chess.F7 if loser == chess.BLACK else chess.F2
+        if checker != target_sq:
+            continue
+        # Bishop must support the queen
+        for supporter_sq in board.attackers(winner, checker):
+            supporter = board.piece_at(supporter_sq)
+            if supporter and supporter.piece_type == BISHOP:
+                return True
+    return False
+
+
+# --- Fool's Mate (custom pattern, not from upstream) ---
+
+
+def fools_mate(board: Board) -> bool:
+    """Detect Fool's mate: earliest possible checkmate (move 2-3).
+
+    Queen delivers checkmate via weakened f-pawn diagonal, typically
+    Qh4# or Qh5# after f3/g4 (or f6/g5).
+    """
+    if not board.is_checkmate():
+        return False
+    if board.fullmove_number > 3:
+        return False
+
+    loser = board.turn
+    king = board.king(loser)
+    assert king is not None
+
+    # Queen must be the checker
+    for checker in board.checkers():
+        piece = board.piece_at(checker)
+        assert piece
+        if piece.piece_type == QUEEN:
+            return True
+    return False
+
+
+# --- Epaulette Mate (custom pattern, not from upstream) ---
+
+
+def epaulette_mate(board: Board) -> bool:
+    """Detect epaulette mate: king boxed in by own pieces on both sides.
+
+    The king is on the edge (rank or file), with own pieces on both
+    adjacent squares along that edge, and a queen or rook delivers mate.
+    """
+    if not board.is_checkmate():
+        return False
+
+    loser = board.turn
+    king = board.king(loser)
+    assert king is not None
+
+    kr = square_rank(king)
+    kf = square_file(king)
+
+    # King should be on an edge rank
+    if kr not in (0, 7):
+        return False
+
+    # Check flanking squares on the same rank
+    left = chess.square(kf - 1, kr) if kf > 0 else None
+    right = chess.square(kf + 1, kr) if kf < 7 else None
+
+    if left is None or right is None:
+        return False
+
+    left_piece = board.piece_at(left)
+    right_piece = board.piece_at(right)
+
+    # Both flanking squares must be blocked by own pieces
+    if not (left_piece and left_piece.color == loser):
+        return False
+    if not (right_piece and right_piece.color == loser):
+        return False
+
+    # Checker must be a queen or rook
+    for checker in board.checkers():
+        piece = board.piece_at(checker)
+        assert piece
+        if piece.piece_type in (QUEEN, ROOK):
+            return True
+    return False
+
+
+# --- Lolli's Mate (custom pattern, not from upstream) ---
+
+
+def lolli_mate(board: Board) -> bool:
+    """Detect Lolli's mate: pawn on 7th rank delivers checkmate with queen support.
+
+    A pawn advanced to the 7th (or 2nd) rank gives checkmate, supported
+    by the queen.
+    """
+    if not board.is_checkmate():
+        return False
+
+    loser = board.turn
+    winner = not loser
+
+    # The checker must be a pawn on the 7th/2nd rank
+    for checker in board.checkers():
+        piece = board.piece_at(checker)
+        assert piece
+        if piece.piece_type != PAWN:
+            continue
+        # Pawn on 7th rank (white) or 2nd rank (black)
+        pawn_rank = square_rank(checker)
+        if (winner == chess.WHITE and pawn_rank != 6) or (winner == chess.BLACK and pawn_rank != 1):
+            continue
+        # Queen must support the pawn
+        for supporter_sq in board.attackers(winner, checker):
+            supporter = board.piece_at(supporter_sq)
+            if supporter and supporter.piece_type == QUEEN:
+                return True
+    return False
+
+
 # --- Exposed King (static position check) ---
 # MODIFIED: adapted from puzzle-mainline to static position analysis
 

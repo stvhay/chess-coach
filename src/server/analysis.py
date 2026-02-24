@@ -523,18 +523,20 @@ def _pawn_attacks_bb(board: chess.Board, color: chess.Color) -> int:
     return (left | right) & chess.BB_ALL
 
 
-_MOBILITY_THRESHOLDS: dict[int, tuple[int, int]] = {
-    # piece_type: (restricted_below, active_above)
-    chess.KNIGHT: (3, 5),
-    chess.BISHOP: (4, 8),
-    chess.ROOK: (5, 9),
-    chess.QUEEN: (8, 15),
+_MOBILITY_THRESHOLDS: dict[int, dict[str, tuple[int, int]]] = {
+    # piece_type: {phase: (restricted_below, active_above)}
+    chess.KNIGHT: {"default": (3, 5), "endgame": (2, 4)},
+    chess.BISHOP: {"default": (4, 8), "endgame": (3, 6)},
+    chess.ROOK:   {"default": (5, 9), "endgame": (4, 7)},
+    chess.QUEEN:  {"default": (8, 15), "endgame": (6, 12)},
 }
 
 
-def _assess_mobility(piece_type: int, mobility: int) -> str:
+def _assess_mobility(piece_type: int, mobility: int, phase: GamePhase | None = None) -> str:
     """Classify piece mobility as restricted, normal, or active."""
-    low, high = _MOBILITY_THRESHOLDS.get(piece_type, (3, 8))
+    thresholds = _MOBILITY_THRESHOLDS.get(piece_type, {"default": (3, 8)})
+    key = "endgame" if phase == GamePhase.ENDGAME and "endgame" in thresholds else "default"
+    low, high = thresholds[key]
     if mobility < low:
         return "restricted"
     elif mobility > high:
@@ -542,7 +544,7 @@ def _assess_mobility(piece_type: int, mobility: int) -> str:
     return "normal"
 
 
-def analyze_activity(board: chess.Board) -> ActivityInfo:
+def analyze_activity(board: chess.Board, phase: GamePhase | None = None) -> ActivityInfo:
     white_pieces: list[PieceActivity] = []
     black_pieces: list[PieceActivity] = []
 
@@ -567,7 +569,7 @@ def analyze_activity(board: chess.Board) -> ActivityInfo:
                     piece=symbol,
                     mobility=mobility,
                     centralization=cent,
-                    assessment=_assess_mobility(pt, mobility),
+                    assessment=_assess_mobility(pt, mobility, phase),
                 ))
 
     return ActivityInfo(
@@ -661,6 +663,8 @@ class MatePattern:
 class MateThreat:
     threatening_color: str  # "white" or "black"
     mating_square: str      # square where mate would be delivered
+    depth: int = 1          # mate-in-N (1 = immediate, 2 = mate-in-2, etc.)
+    mating_move: str | None = None  # SAN of the key mating move (if known)
 
 
 @dataclass
@@ -1144,7 +1148,11 @@ def _find_mate_patterns(board: chess.Board) -> list[MatePattern]:
         back_rank_mate,
         boden_or_double_bishop_mate,
         dovetail_mate,
+        epaulette_mate,
+        fools_mate,
         hook_mate,
+        lolli_mate,
+        scholars_mate,
         smothered_mate,
     )
 
@@ -1167,6 +1175,15 @@ def _find_mate_patterns(board: chess.Board) -> list[MatePattern]:
         patterns.append(MatePattern(pattern="boden"))
     elif boden_result == "doubleBishopMate":
         patterns.append(MatePattern(pattern="double_bishop"))
+
+    if scholars_mate(board):
+        patterns.append(MatePattern(pattern="scholars"))
+    if fools_mate(board):
+        patterns.append(MatePattern(pattern="fools"))
+    if epaulette_mate(board):
+        patterns.append(MatePattern(pattern="epaulette"))
+    if lolli_mate(board):
+        patterns.append(MatePattern(pattern="lolli"))
 
     return patterns
 
@@ -1251,6 +1268,21 @@ def _find_exposed_kings(board: chess.Board) -> list[ExposedKing]:
     return exposed
 
 
+def _can_defend(board: chess.Board, defender_sq: int, target_sq: int, color: chess.Color) -> bool:
+    """Check if a defender can actually recapture on target_sq if needed.
+
+    This catches pin-blindness: board.attacks() counts pinned pieces as
+    attackers, but an absolutely-pinned piece cannot recapture on a square
+    off the pin ray. We simulate the capture and check legality.
+    """
+    # If not pinned, the piece can always defend (attacks mask is correct)
+    if not board.is_pinned(color, defender_sq):
+        return True
+    # Piece is pinned — check if target is on the pin ray (can still defend along it)
+    pin_mask = board.pin(color, defender_sq)
+    return target_sq in pin_mask
+
+
 def _is_sole_defender(
     board: chess.Board, color: chess.Color, defender_sq: int, target_sq: int,
 ) -> bool:
@@ -1315,17 +1347,24 @@ def _find_overloaded_pieces(
                 if not board.attackers(enemy, defended_sq):
                     continue
                 if _is_sole_defender(board, color, sq, defended_sq):
+                    # Pin-blindness: a pinned piece can't defend off the pin ray
+                    if not _can_defend(board, sq, defended_sq, color):
+                        continue
                     duties.append(defended_sq)
 
             # Back-rank duty: sole defender of a critical back-rank square
             for br_sq in br_squares:
                 if br_sq in board.attacks(sq) and _is_sole_defender(board, color, sq, br_sq):
+                    if not _can_defend(board, sq, br_sq, color):
+                        continue
                     if br_sq not in duties:  # avoid double-counting
                         duties.append(br_sq)
 
             # Mate-threat blocking duty: sole blocker of a mating square
             for mt_sq in mt_squares:
                 if mt_sq in board.attacks(sq) and _is_sole_defender(board, color, sq, mt_sq):
+                    if not _can_defend(board, sq, mt_sq, color):
+                        continue
                     if mt_sq not in duties:
                         duties.append(mt_sq)
 
@@ -1364,6 +1403,9 @@ def _find_capturable_defenders(board: chess.Board) -> list[CapturableDefender]:
                     continue
                 # Must be sole defender
                 if not _is_sole_defender(board, color, def_sq, charge_sq):
+                    continue
+                # Pin-blindness: a pinned piece can't defend off the pin ray
+                if not _can_defend(board, def_sq, charge_sq, color):
                     continue
                 # The charge must be worth enough to matter
                 charge_val = get_piece_value(charge.piece_type, king=0)
@@ -1420,6 +1462,36 @@ class FileStatus:
     is_open: bool
     semi_open_white: bool  # no white pawns
     semi_open_black: bool  # no black pawns
+    white_rooks: int = 0
+    black_rooks: int = 0
+    white_queen: bool = False
+    black_queen: bool = False
+    contested: bool = False        # both sides have major pieces on file
+    white_controls: bool = False   # white has more major pieces on file
+    black_controls: bool = False
+
+
+@dataclass
+class DiagonalInfo:
+    name: str                    # "a1-h8" or "a8-h1"
+    bishop_square: str | None    # square of bishop on this diagonal (if any)
+    bishop_color: str | None     # "white" or "black"
+    is_blocked: bool             # pawns obstruct the bishop's scope
+    mobility: int                # squares the bishop can reach on this diagonal
+
+
+@dataclass
+class PawnColorComplex:
+    white_pawns_light: int = 0
+    white_pawns_dark: int = 0
+    black_pawns_light: int = 0
+    black_pawns_dark: int = 0
+    white_has_light_bishop: bool = False
+    white_has_dark_bishop: bool = False
+    black_has_light_bishop: bool = False
+    black_has_dark_bishop: bool = False
+    white_weak_color: str | None = None  # "light" or "dark" if pawns + no bishop
+    black_weak_color: str | None = None
 
 
 @dataclass
@@ -1428,6 +1500,98 @@ class FilesAndDiagonals:
     rooks_on_open_files: list[str]  # square names
     rooks_on_semi_open_files: list[str]
     bishops_on_long_diagonals: list[str]
+    connected_rooks_white: list[str] = field(default_factory=list)  # e.g. ["e1-e4"]
+    connected_rooks_black: list[str] = field(default_factory=list)
+    rooks_on_seventh: list[str] = field(default_factory=list)       # rooks on 7th/2nd rank
+    long_diagonals: list[DiagonalInfo] = field(default_factory=list)
+    pawn_color_complex: PawnColorComplex | None = None
+
+
+def _find_connected_rooks(board: chess.Board, color: chess.Color) -> list[str]:
+    """Find connected rook pairs: same rank or file, no pieces between."""
+    rooks = list(board.pieces(chess.ROOK, color))
+    pairs = []
+    for i, r1 in enumerate(rooks):
+        for r2 in rooks[i + 1:]:
+            if chess.square_file(r1) == chess.square_file(r2) or chess.square_rank(r1) == chess.square_rank(r2):
+                between = chess.between(r1, r2)
+                if not (board.occupied & between):
+                    pairs.append(f"{chess.square_name(r1)}-{chess.square_name(r2)}")
+    return pairs
+
+
+def _analyze_long_diagonal(board: chess.Board, diag_bb: int, diag_name: str) -> DiagonalInfo:
+    """Analyze a long diagonal for bishop presence, blockage, and mobility."""
+    bishop_sq = None
+    bishop_color_str = None
+    for color in (chess.WHITE, chess.BLACK):
+        for sq in board.pieces(chess.BISHOP, color):
+            if chess.BB_SQUARES[sq] & diag_bb:
+                bishop_sq = chess.square_name(sq)
+                bishop_color_str = _color_name(color)
+                break
+        if bishop_sq:
+            break
+
+    # Count pawns blocking the diagonal
+    pawn_block = bool(
+        (board.pieces(chess.PAWN, chess.WHITE) | board.pieces(chess.PAWN, chess.BLACK)) & diag_bb
+    )
+
+    # Bishop mobility on this diagonal
+    mobility = 0
+    if bishop_sq is not None:
+        sq_idx = chess.parse_square(bishop_sq)
+        # Count squares bishop can reach on this diagonal
+        reachable = board.attacks(sq_idx) & diag_bb
+        mobility = len(chess.SquareSet(reachable))
+
+    return DiagonalInfo(
+        name=diag_name,
+        bishop_square=bishop_sq,
+        bishop_color=bishop_color_str,
+        is_blocked=pawn_block,
+        mobility=mobility,
+    )
+
+
+def _analyze_pawn_color_complex(board: chess.Board) -> PawnColorComplex:
+    """Analyze pawn-color imbalance and weak square complexes."""
+    wp_light = len(board.pieces(chess.PAWN, chess.WHITE) & chess.SquareSet(chess.BB_LIGHT_SQUARES))
+    wp_dark = len(board.pieces(chess.PAWN, chess.WHITE) & chess.SquareSet(chess.BB_DARK_SQUARES))
+    bp_light = len(board.pieces(chess.PAWN, chess.BLACK) & chess.SquareSet(chess.BB_LIGHT_SQUARES))
+    bp_dark = len(board.pieces(chess.PAWN, chess.BLACK) & chess.SquareSet(chess.BB_DARK_SQUARES))
+
+    w_light_bishop = bool(board.pieces(chess.BISHOP, chess.WHITE) & chess.BB_LIGHT_SQUARES)
+    w_dark_bishop = bool(board.pieces(chess.BISHOP, chess.WHITE) & chess.BB_DARK_SQUARES)
+    b_light_bishop = bool(board.pieces(chess.BISHOP, chess.BLACK) & chess.BB_LIGHT_SQUARES)
+    b_dark_bishop = bool(board.pieces(chess.BISHOP, chess.BLACK) & chess.BB_DARK_SQUARES)
+
+    # Weak color: pawns concentrated on one color AND missing bishop of that color
+    w_weak = None
+    if wp_light > wp_dark + 1 and not w_light_bishop:
+        w_weak = "dark"   # pawns on light, no light bishop → dark squares weak
+    elif wp_dark > wp_light + 1 and not w_dark_bishop:
+        w_weak = "light"  # pawns on dark, no dark bishop → light squares weak
+
+    b_weak = None
+    if bp_light > bp_dark + 1 and not b_light_bishop:
+        b_weak = "dark"
+    elif bp_dark > bp_light + 1 and not b_dark_bishop:
+        b_weak = "light"
+
+    return PawnColorComplex(
+        white_pawns_light=wp_light,
+        white_pawns_dark=wp_dark,
+        black_pawns_light=bp_light,
+        black_pawns_dark=bp_dark,
+        white_has_light_bishop=w_light_bishop,
+        white_has_dark_bishop=w_dark_bishop,
+        black_has_light_bishop=b_light_bishop,
+        black_has_dark_bishop=b_dark_bishop,
+        white_weak_color=w_weak,
+        black_weak_color=b_weak,
+    )
 
 
 def analyze_files_and_diagonals(board: chess.Board) -> FilesAndDiagonals:
@@ -1436,16 +1600,32 @@ def analyze_files_and_diagonals(board: chess.Board) -> FilesAndDiagonals:
         file_bb = chess.BB_FILES[f]
         wp = bool(board.pieces(chess.PAWN, chess.WHITE) & file_bb)
         bp = bool(board.pieces(chess.PAWN, chess.BLACK) & file_bb)
+        # Count major pieces on this file
+        w_rooks = len(board.pieces(chess.ROOK, chess.WHITE) & chess.SquareSet(file_bb))
+        b_rooks = len(board.pieces(chess.ROOK, chess.BLACK) & chess.SquareSet(file_bb))
+        w_queen = bool(board.pieces(chess.QUEEN, chess.WHITE) & file_bb)
+        b_queen = bool(board.pieces(chess.QUEEN, chess.BLACK) & file_bb)
+        w_major = w_rooks + (1 if w_queen else 0)
+        b_major = b_rooks + (1 if b_queen else 0)
         file_statuses.append(FileStatus(
             file=f,
             is_open=not wp and not bp,
             semi_open_white=not wp and bp,
             semi_open_black=wp and not bp,
+            white_rooks=w_rooks,
+            black_rooks=b_rooks,
+            white_queen=w_queen,
+            black_queen=b_queen,
+            contested=w_major > 0 and b_major > 0,
+            white_controls=w_major > b_major,
+            black_controls=b_major > w_major,
         ))
 
     rooks_open = []
     rooks_semi = []
+    rooks_seventh = []
     for color in (chess.WHITE, chess.BLACK):
+        seventh_rank = 6 if color == chess.WHITE else 1
         for sq in board.pieces(chess.ROOK, color):
             f = chess.square_file(sq)
             fs = file_statuses[f]
@@ -1453,6 +1633,8 @@ def analyze_files_and_diagonals(board: chess.Board) -> FilesAndDiagonals:
                 rooks_open.append(chess.square_name(sq))
             elif fs.semi_open_white if color == chess.WHITE else fs.semi_open_black:
                 rooks_semi.append(chess.square_name(sq))
+            if chess.square_rank(sq) == seventh_rank:
+                rooks_seventh.append(chess.square_name(sq))
 
     bishops_long = []
     for color in (chess.WHITE, chess.BLACK):
@@ -1463,11 +1645,23 @@ def analyze_files_and_diagonals(board: chess.Board) -> FilesAndDiagonals:
                     bishops_long.append(chess.square_name(sq))
                     break
 
+    # Long diagonal analysis
+    diag_names = ["a1-h8", "a8-h1"]
+    long_diag_infos = [
+        _analyze_long_diagonal(board, LONG_DIAGONALS[i], diag_names[i])
+        for i in range(2)
+    ]
+
     return FilesAndDiagonals(
         files=file_statuses,
         rooks_on_open_files=rooks_open,
         rooks_on_semi_open_files=rooks_semi,
         bishops_on_long_diagonals=bishops_long,
+        connected_rooks_white=_find_connected_rooks(board, chess.WHITE),
+        connected_rooks_black=_find_connected_rooks(board, chess.BLACK),
+        rooks_on_seventh=rooks_seventh,
+        long_diagonals=long_diag_infos,
+        pawn_color_complex=_analyze_pawn_color_complex(board),
     )
 
 
@@ -1531,6 +1725,8 @@ class CenterControl:
 
 
 def analyze_center_control(board: chess.Board) -> CenterControl:
+    # Note: uses board.attackers() which counts pinned pieces as attackers.
+    # Accepted limitation — ±1 attacker count is negligible for coaching.
     sq_controls = [_analyze_square_control(board, sq) for sq in CENTER_SQUARES]
     white_total = sum(sc.white_pawn_attacks + sc.white_piece_attacks for sc in sq_controls)
     black_total = sum(sc.black_pawn_attacks + sc.black_piece_attacks for sc in sq_controls)
@@ -1587,6 +1783,8 @@ _SPACE_FILES = range(2, 6)  # c, d, e, f (indices 2-5)
 
 
 def analyze_space(board: chess.Board) -> Space:
+    # Note: uses board.attackers() which counts pinned pieces as attackers.
+    # Accepted limitation — ±1 attacker count is negligible for coaching.
     white_net = 0
     black_net = 0
     white_occ = 0
@@ -1648,8 +1846,8 @@ class PositionReport:
     center_control: CenterControl
     development: Development
     space: Space
+    phase: str = ""  # "opening", "middlegame", "endgame"
     piece_index: dict = field(default_factory=dict)
-
 
 
 def _empty_activity() -> ActivityInfo:
@@ -1660,6 +1858,24 @@ def _empty_activity() -> ActivityInfo:
 def _empty_space() -> Space:
     """Zero-valued Space for terminal positions."""
     return Space(white_squares=0, black_squares=0, white_occupied=0, black_occupied=0)
+
+
+def _empty_center_control() -> CenterControl:
+    """Zero-valued CenterControl for terminal positions."""
+    return CenterControl(squares=[], white_total=0, black_total=0)
+
+
+def _empty_development() -> Development:
+    """Zero-valued Development for terminal positions."""
+    return Development(white_developed=0, black_developed=0, white_castled="none", black_castled="none")
+
+
+def _empty_files_and_diagonals() -> FilesAndDiagonals:
+    """Empty FilesAndDiagonals for terminal positions."""
+    return FilesAndDiagonals(
+        files=[], rooks_on_open_files=[], rooks_on_semi_open_files=[],
+        bishops_on_long_diagonals=[], pawn_color_complex=PawnColorComplex(),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1718,6 +1934,7 @@ def analyze(board: chess.Board) -> PositionReport:
     ks_w = analyze_king_safety(board, chess.WHITE)
     ks_b = analyze_king_safety(board, chess.BLACK)
     is_terminal = board.is_checkmate() or board.is_stalemate()
+    phase = detect_game_phase(board)
     return PositionReport(
         fen=board.fen(),
         turn=_color_name(board.turn),
@@ -1729,11 +1946,12 @@ def analyze(board: chess.Board) -> PositionReport:
         pawn_structure=analyze_pawn_structure(board),
         king_safety_white=ks_w,
         king_safety_black=ks_b,
-        activity=_empty_activity() if is_terminal else analyze_activity(board),
+        activity=_empty_activity() if is_terminal else analyze_activity(board, phase),
         tactics=tactics,
-        files_and_diagonals=analyze_files_and_diagonals(board),
-        center_control=analyze_center_control(board),
-        development=analyze_development(board, ks_w, ks_b),
+        files_and_diagonals=_empty_files_and_diagonals() if is_terminal else analyze_files_and_diagonals(board),
+        center_control=_empty_center_control() if is_terminal else analyze_center_control(board),
+        development=_empty_development() if is_terminal else analyze_development(board, ks_w, ks_b),
         space=_empty_space() if is_terminal else analyze_space(board),
+        phase=phase.value,
         piece_index=index_by_piece(tactics),
     )

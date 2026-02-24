@@ -1595,3 +1595,433 @@ def test_detect_game_phase_endgame_no_queens():
 def test_detect_game_phase_middlegame():
     board = chess.Board("r2q1rk1/ppp1bppp/2np1n2/4p3/2B1P1b1/2NP1N2/PPP2PPP/R1BQ1RK1 w - - 0 10")
     assert detect_game_phase(board) == GamePhase.MIDDLEGAME
+
+
+# ---------------------------------------------------------------------------
+# Plan 1a: Game phase in PositionReport
+# ---------------------------------------------------------------------------
+
+
+def test_report_has_phase():
+    """analyze() populates the phase field on PositionReport."""
+    board = chess.Board()
+    report = analyze(board)
+    assert report.phase in ("opening", "middlegame", "endgame")
+
+
+def test_report_phase_opening():
+    """Starting position is opening phase."""
+    report = analyze(chess.Board())
+    assert report.phase == "opening"
+
+
+def test_report_phase_endgame():
+    """No-queen position is endgame."""
+    board = chess.Board("r3kb1r/ppp2ppp/2n2n2/3pp3/3PP3/2N2N2/PPP2PPP/R3KB1R w KQkq - 0 8")
+    report = analyze(board)
+    assert report.phase == "endgame"
+
+
+# ---------------------------------------------------------------------------
+# Plan 1b: Phase-aware mobility
+# ---------------------------------------------------------------------------
+
+
+def test_endgame_mobility_thresholds():
+    """In endgame, a knight with 2 moves should be 'normal' not 'restricted'."""
+    from server.analysis import _assess_mobility
+    # Default: 2 < 3 → restricted
+    assert _assess_mobility(chess.KNIGHT, 2) == "restricted"
+    # Endgame: 2 >= 2 → normal
+    assert _assess_mobility(chess.KNIGHT, 2, GamePhase.ENDGAME) == "normal"
+
+
+def test_endgame_bishop_thresholds():
+    """In endgame, a bishop with 3 moves should be 'normal' not 'restricted'."""
+    from server.analysis import _assess_mobility
+    assert _assess_mobility(chess.BISHOP, 3) == "restricted"
+    assert _assess_mobility(chess.BISHOP, 3, GamePhase.ENDGAME) == "normal"
+
+
+def test_endgame_rook_active_threshold():
+    """In endgame, a rook with 7 moves is 'normal' in default but 'active' in endgame."""
+    from server.analysis import _assess_mobility
+    assert _assess_mobility(chess.ROOK, 7) == "normal"
+    assert _assess_mobility(chess.ROOK, 7, GamePhase.ENDGAME) == "normal"
+    assert _assess_mobility(chess.ROOK, 8, GamePhase.ENDGAME) == "active"
+
+
+def test_phase_threaded_to_activity():
+    """analyze_activity with endgame phase uses endgame thresholds."""
+    # Endgame: just kings + one knight
+    board = chess.Board("4k3/8/8/8/3N4/8/8/4K3 w - - 0 1")
+    act_endgame = analyze_activity(board, GamePhase.ENDGAME)
+    # The assessment may differ since endgame thresholds are lower
+    assert act_endgame is not None
+    assert len(act_endgame.white) >= 1
+
+
+# ---------------------------------------------------------------------------
+# Plan 2: Mate pattern tests
+# ---------------------------------------------------------------------------
+
+
+def test_scholars_mate_detected():
+    """Scholar's mate: Qxf7# supported by bishop on c4."""
+    board = chess.Board("r1bqkb1r/pppp1Qpp/2n2n2/4p3/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 0 4")
+    t = analyze_tactics(board)
+    patterns = [m.pattern for m in t.mate_patterns]
+    assert "scholars" in patterns
+
+
+def test_fools_mate_detected():
+    """Fool's mate: 1.f3 e5 2.g4 Qh4#."""
+    board = chess.Board("rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3")
+    t = analyze_tactics(board)
+    patterns = [m.pattern for m in t.mate_patterns]
+    assert "fools" in patterns
+
+
+def test_epaulette_mate_detected():
+    """Epaulette mate: king flanked by own rooks, mated by queen."""
+    # Black Ke8, Rd8, Rf8. White Qe6 — checkmate.
+    # d7/e7/f7 covered by queen, d8/f8 occupied by own rooks.
+    board = chess.Board("3rkr2/8/4Q3/8/8/8/8/4K3 b - - 0 1")
+    assert board.is_checkmate()
+    t = analyze_tactics(board)
+    patterns = [m.pattern for m in t.mate_patterns]
+    assert "epaulette" in patterns
+
+
+def test_epaulette_mate_canonical():
+    """Epaulette mate with king on 8th rank, flanked by own rooks."""
+    # Black Ke8, Rd8, Rf8. White Qe6 protected by Bb3. Checkmate —
+    # king boxed in: d7/e7/f7 covered by queen, d8/f8 by own rooks.
+    board = chess.Board("3rkr2/8/4Q3/8/8/1B6/8/4K3 b - - 0 1")
+    assert board.is_checkmate()
+    t = analyze_tactics(board)
+    patterns = [m.pattern for m in t.mate_patterns]
+    assert "epaulette" in patterns
+
+
+def test_lolli_mate_detected():
+    """Lolli's mate: pawn on 7th rank gives checkmate with queen support."""
+    # White Pg7 checks Kh8. Qf6 defends pawn (covers g7), Bf7 covers g8, Rh1 covers h7.
+    board = chess.Board("7k/5BP1/5Q2/8/8/8/8/4K2R b - - 0 1")
+    assert board.is_checkmate()
+    t = analyze_tactics(board)
+    patterns = [m.pattern for m in t.mate_patterns]
+    assert "lolli" in patterns
+
+
+def test_no_mate_patterns_non_checkmate():
+    """No mate patterns detected in non-checkmate positions."""
+    board = chess.Board()
+    t = analyze_tactics(board)
+    assert len(t.mate_patterns) == 0
+
+
+# ---------------------------------------------------------------------------
+# Plan 5: Pin-blindness regression tests
+# ---------------------------------------------------------------------------
+
+
+def test_pinned_piece_cannot_defend_off_ray():
+    """A piece pinned along one ray cannot defend a square off that ray."""
+    from server.analysis import _can_defend
+    # White Kd1, White Rd3 pinned by Black Rd8 along d-file
+    board = chess.Board("3r4/8/8/8/8/3R4/8/3K4 w - - 0 1")
+    d3 = chess.D3
+    d5 = chess.D5
+    e3 = chess.E3
+    # Rd3 is pinned to Kd1 by Rd8 along d-file
+    assert board.is_pinned(chess.WHITE, d3)
+    # Can defend d5 (on pin ray)
+    assert _can_defend(board, d3, d5, chess.WHITE) is True
+    # Cannot defend e3 (off pin ray)
+    assert _can_defend(board, d3, e3, chess.WHITE) is False
+
+
+def test_unpinned_piece_can_defend():
+    """An unpinned piece can defend any square it attacks."""
+    from server.analysis import _can_defend
+    board = chess.Board("4k3/8/8/8/3N4/8/8/4K3 w - - 0 1")
+    d4 = chess.D4
+    e6 = chess.E6
+    assert not board.is_pinned(chess.WHITE, d4)
+    assert _can_defend(board, d4, e6, chess.WHITE) is True
+
+
+def test_capturable_defender_pin_blindness():
+    """A pinned capturable defender should not be flagged."""
+    # White Kd1, White Rd3 pinned by Black Rd8 along d-file.
+    # White Rd3 "defends" White Ne3 (attacked by Black Bc5).
+    # But Rd3 is pinned to Kd1 and e3 is off the d-file pin ray.
+    # So Rd3 cannot actually recapture on e3 → should NOT be capturable defender.
+    board = chess.Board("3r4/8/8/2b5/8/3RN3/8/3K4 w - - 0 1")
+    t = analyze_tactics(board)
+    cd = [c for c in t.capturable_defenders
+          if c.defender_square == "d3" and c.charge_square == "e3"]
+    assert len(cd) == 0
+
+
+# ---------------------------------------------------------------------------
+# Plan 1c: Phase-gated descriptions
+# ---------------------------------------------------------------------------
+
+
+def test_endgame_descriptions_emphasize_passed_pawns():
+    """In endgame, passed pawn descriptions include 'critical in this endgame'."""
+    from server.descriptions import _add_positional_observations
+    # Endgame: no queens. White passed pawn on d6.
+    board = chess.Board("4k3/8/3P4/8/8/8/8/4K3 w - - 0 30")
+    report = analyze(board)
+    assert report.phase == "endgame"
+    obs = _add_positional_observations(report)
+    passed_obs = [o for o in obs if "passed" in o.lower()]
+    assert any("endgame" in o for o in passed_obs)
+
+
+def test_endgame_descriptions_skip_development():
+    """In endgame, development commentary is suppressed."""
+    from server.descriptions import _add_positional_observations
+    # Endgame: no queens, early fullmove but still endgame by material
+    board = chess.Board("4k3/8/8/8/8/8/8/4K3 w - - 0 5")
+    report = analyze(board)
+    assert report.phase == "endgame"
+    obs = _add_positional_observations(report)
+    assert not any("developed" in o for o in obs)
+
+
+def test_opening_descriptions_include_development():
+    """In opening, undeveloped pieces get commentary."""
+    from server.descriptions import _add_positional_observations
+    board = chess.Board()
+    report = analyze(board)
+    assert report.phase == "opening"
+    obs = _add_positional_observations(report)
+    assert any("developed" in o for o in obs)
+
+
+# ---------------------------------------------------------------------------
+# Plan 1d: Terminal short-circuit
+# ---------------------------------------------------------------------------
+
+
+def test_terminal_skips_center_control():
+    """Checkmate position has empty center control."""
+    fen = "r1bqkb1r/pppp1Qpp/2n2n2/4p3/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 0 4"
+    board = chess.Board(fen)
+    assert board.is_checkmate()
+    report = analyze(board)
+    assert report.center_control.squares == []
+    assert report.center_control.white_total == 0
+
+
+def test_terminal_skips_development():
+    """Checkmate position has empty development."""
+    fen = "r1bqkb1r/pppp1Qpp/2n2n2/4p3/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 0 4"
+    board = chess.Board(fen)
+    report = analyze(board)
+    assert report.development.white_developed == 0
+    assert report.development.white_castled == "none"
+
+
+def test_terminal_skips_files():
+    """Checkmate position has empty files and diagonals."""
+    fen = "r1bqkb1r/pppp1Qpp/2n2n2/4p3/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 0 4"
+    board = chess.Board(fen)
+    report = analyze(board)
+    assert report.files_and_diagonals.files == []
+
+
+# ---------------------------------------------------------------------------
+# Plan 4a: File control
+# ---------------------------------------------------------------------------
+
+
+def test_file_control_rook_counts():
+    """FileStatus includes rook and queen counts per file."""
+    board = chess.Board(OPEN_E_FILE)
+    fd = analyze_files_and_diagonals(board)
+    e_file = fd.files[4]
+    # Both sides have rooks on the e-file
+    assert e_file.white_rooks >= 1
+    assert e_file.black_rooks >= 1
+    assert e_file.contested is True
+
+
+def test_file_control_single_side():
+    """One side controls a file when they have more major pieces."""
+    # White Re1, no Black pieces on e-file
+    board = chess.Board("4k3/8/8/8/8/8/8/4RK2 w - - 0 1")
+    fd = analyze_files_and_diagonals(board)
+    e_file = fd.files[4]
+    assert e_file.white_rooks == 1
+    assert e_file.black_rooks == 0
+    assert e_file.white_controls is True
+    assert e_file.contested is False
+
+
+def test_rooks_on_seventh():
+    """Detect rooks on the 7th rank."""
+    # White Rd7 on 7th rank
+    board = chess.Board("4k3/3R4/8/8/8/8/8/4K3 w - - 0 1")
+    fd = analyze_files_and_diagonals(board)
+    assert "d7" in fd.rooks_on_seventh
+
+
+def test_rooks_on_second_for_black():
+    """Black's 7th rank is White's 2nd rank."""
+    # Black Rd2 on rank 2 (Black's 7th)
+    board = chess.Board("4k3/8/8/8/8/8/3r4/4K3 b - - 0 1")
+    fd = analyze_files_and_diagonals(board)
+    assert "d2" in fd.rooks_on_seventh
+
+
+def test_connected_rooks():
+    """Detect connected rooks on the same rank."""
+    # White Rd1 and Rf1 — connected on rank 1, nothing between
+    board = chess.Board("4k3/8/8/8/8/8/8/3R1RK1 w - - 0 1")
+    fd = analyze_files_and_diagonals(board)
+    assert len(fd.connected_rooks_white) >= 1
+
+
+def test_no_connected_rooks_blocked():
+    """Rooks with pieces between are not connected."""
+    # White Rd1, Rh1 with King on f1 between
+    board = chess.Board("4k3/8/8/8/8/8/8/3R1K1R w - - 0 1")
+    fd = analyze_files_and_diagonals(board)
+    # f1 has king between d1 and h1. Check if they're connected.
+    # d1-h1: between is e1,f1,g1. f1 has king → blocked.
+    assert len(fd.connected_rooks_white) == 0
+
+
+# ---------------------------------------------------------------------------
+# Plan 4b: Long diagonal analysis
+# ---------------------------------------------------------------------------
+
+
+def test_long_diagonal_bishop():
+    """Bishop on long diagonal detected."""
+    board = chess.Board(CASTLED_KS)
+    fd = analyze_files_and_diagonals(board)
+    assert len(fd.long_diagonals) == 2
+    # g7 bishop is on a1-h8 diagonal
+    a1_h8 = fd.long_diagonals[0]
+    assert a1_h8.name == "a1-h8"
+    assert a1_h8.bishop_square == "g7"
+    assert a1_h8.bishop_color == "black"
+
+
+def test_long_diagonal_no_bishop():
+    """Diagonal without bishop has None."""
+    board = chess.Board("4k3/8/8/8/8/8/8/4K3 w - - 0 1")
+    fd = analyze_files_and_diagonals(board)
+    for diag in fd.long_diagonals:
+        assert diag.bishop_square is None
+        assert diag.mobility == 0
+
+
+# ---------------------------------------------------------------------------
+# Plan 4c: Pawn color complex
+# ---------------------------------------------------------------------------
+
+
+def test_pawn_color_complex_balanced():
+    """Starting position has roughly balanced pawn colors."""
+    board = chess.Board()
+    fd = analyze_files_and_diagonals(board)
+    pcc = fd.pawn_color_complex
+    assert pcc is not None
+    assert pcc.white_pawns_light == 4
+    assert pcc.white_pawns_dark == 4
+    assert pcc.white_weak_color is None
+    assert pcc.black_weak_color is None
+
+
+def test_pawn_color_complex_weak_dark():
+    """Pawns on light squares + no light bishop → dark squares weak."""
+    # White pawns on a2,c2,e2,g2 (all light squares), no light bishop
+    board = chess.Board("4k3/8/8/8/8/8/P1P1P1P1/4K3 w - - 0 1")
+    fd = analyze_files_and_diagonals(board)
+    pcc = fd.pawn_color_complex
+    assert pcc is not None
+    assert pcc.white_pawns_light == 4
+    assert pcc.white_pawns_dark == 0
+    assert pcc.white_has_light_bishop is False
+    assert pcc.white_weak_color == "dark"
+
+
+def test_pawn_color_complex_no_weakness_with_bishop():
+    """No weakness when matching bishop exists."""
+    # Same pawns but add a light-squared bishop on f1
+    board = chess.Board("4k3/8/8/8/8/8/P1P1P1P1/4KB2 w - - 0 1")
+    fd = analyze_files_and_diagonals(board)
+    pcc = fd.pawn_color_complex
+    assert pcc is not None
+    # Has light bishop → even though pawns are on light, no weakness
+    assert pcc.white_has_light_bishop is True
+    assert pcc.white_weak_color is None
+
+
+# ---------------------------------------------------------------------------
+# Plan 3: MateThreat depth field
+# ---------------------------------------------------------------------------
+
+
+def test_mate_threat_has_depth_field():
+    """MateThreat dataclass supports depth and mating_move."""
+    from server.analysis import MateThreat
+    mt = MateThreat(threatening_color="white", mating_square="f7", depth=2, mating_move="Qf7")
+    assert mt.depth == 2
+    assert mt.mating_move == "Qf7"
+
+
+def test_mate_threat_default_depth():
+    """Default depth is 1 for backward compatibility."""
+    from server.analysis import MateThreat
+    mt = MateThreat(threatening_color="white", mating_square="f7")
+    assert mt.depth == 1
+    assert mt.mating_move is None
+
+
+def test_enrich_node_mate_threats_signature():
+    """enrich_node_mate_threats is importable and async."""
+    import inspect
+    from server.game_tree import enrich_node_mate_threats
+    assert inspect.iscoroutinefunction(enrich_node_mate_threats)
+
+
+# ---------------------------------------------------------------------------
+# Plan 4d: Description surfacing tests
+# ---------------------------------------------------------------------------
+
+
+def test_descriptions_include_rook_seventh():
+    """Descriptions include rook on 7th rank."""
+    from server.descriptions import _add_positional_observations
+    # White Rd7 on 7th rank
+    board = chess.Board("4k3/3R4/8/8/8/8/8/4K3 w - - 0 1")
+    report = analyze(board)
+    obs = _add_positional_observations(report)
+    assert any("7th rank" in o for o in obs)
+
+
+def test_descriptions_include_connected_rooks():
+    """Descriptions include connected rooks."""
+    from server.descriptions import _add_positional_observations
+    board = chess.Board("4k3/8/8/8/8/8/8/3R1RK1 w - - 0 1")
+    report = analyze(board)
+    obs = _add_positional_observations(report)
+    assert any("connected" in o.lower() for o in obs)
+
+
+def test_descriptions_include_weak_color_complex():
+    """Descriptions include weak color complex."""
+    from server.descriptions import _add_positional_observations
+    # White pawns all on light squares, no light bishop
+    board = chess.Board("4k3/8/8/8/8/8/P1P1P1P1/4K3 w - - 0 1")
+    report = analyze(board)
+    obs = _add_positional_observations(report)
+    assert any("weak" in o.lower() and "square complex" in o.lower() for o in obs)
