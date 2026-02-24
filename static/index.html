@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,9 +7,251 @@
   <link rel="stylesheet" href="/static/chessground.css">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    /* --- Theme definitions --- */
+    html[data-theme="dark"] {
+      --bg-body: #1e1e1e;
+      --bg-header: #181818;
+      --bg-panel: #252526;
+      --bg-input: #1e1e1e;
+      --bg-button: #333333;
+      --bg-button-hover: #3e3e3e;
+      --bg-row-odd: #1e1e1e;
+      --bg-row-even: #262628;
+      --border-subtle: #2d2d2d;
+      --border: #3c3c3c;
+      --border-strong: #505050;
+      --text: #cccccc;
+      --text-muted: #858585;
+      --text-dim: #5a5a5a;
+      --accent: #4ade80;
+      --accent-glow: rgba(74, 222, 128, 0.15);
+      --board-light: #dee3e6;
+      --board-dark: #8ca2ad;
+      --move-hover: rgba(255, 255, 255, 0.08);
+      --move-active: rgba(74, 222, 128, 0.15);
+      --debug-bg: rgba(100, 100, 140, 0.12);
+      /* Coaching severity — dark mode */
+      --brilliant-bg: rgba(74, 222, 128, 0.1);
+      --brilliant-border: #4ade80;
+      --brilliant-text: #4ade80;
+      --inaccuracy-bg: rgba(251, 191, 36, 0.1);
+      --inaccuracy-border: #fbbf24;
+      --inaccuracy-text: #fbbf24;
+      --mistake-bg: rgba(251, 146, 60, 0.1);
+      --mistake-border: #fb923c;
+      --mistake-text: #fb923c;
+      --blunder-bg: rgba(248, 113, 113, 0.1);
+      --blunder-border: #f87171;
+      --blunder-text: #f87171;
+      --status-connected: #4ade80;
+      --status-error: #f87171;
+      --status-thinking: #fbbf24;
+    }
+
+    html[data-theme="light"] {
+      --bg-body: #f5f0e8;
+      --bg-header: #e8e0d0;
+      --bg-panel: #ede6da;
+      --bg-input: #f5f0e8;
+      --bg-button: #ddd5c5;
+      --bg-button-hover: #d0c7b5;
+      --bg-row-odd: #f5f0e8;
+      --bg-row-even: #ede6da;
+      --border-subtle: #e0d8c8;
+      --border: #ccc3b0;
+      --border-strong: #b8ad98;
+      --text: #2c2418;
+      --text-muted: #8a7e6e;
+      --text-dim: #b0a490;
+      --accent: #7a6340;
+      --accent-glow: rgba(122, 99, 64, 0.15);
+      --board-light: #f0d9b5;
+      --board-dark: #946f51;
+      --move-hover: rgba(0, 0, 0, 0.06);
+      --move-active: rgba(122, 99, 64, 0.15);
+      --debug-bg: rgba(80, 80, 100, 0.08);
+      /* Coaching severity — light mode */
+      --brilliant-bg: rgba(22, 163, 74, 0.1);
+      --brilliant-border: #16a34a;
+      --brilliant-text: #15803d;
+      --inaccuracy-bg: rgba(202, 138, 4, 0.1);
+      --inaccuracy-border: #ca8a04;
+      --inaccuracy-text: #a16207;
+      --mistake-bg: rgba(234, 88, 12, 0.1);
+      --mistake-border: #ea580c;
+      --mistake-text: #c2410c;
+      --blunder-bg: rgba(220, 38, 38, 0.1);
+      --blunder-border: #dc2626;
+      --blunder-text: #b91c1c;
+      --status-connected: #15803d;
+      --status-error: #dc2626;
+      --status-thinking: #a16207;
+    }
+
+    html[data-theme="wood"] {
+      --bg-body: #221c14;
+      --bg-header: #1a1410;
+      --bg-panel: #2c241a;
+      --bg-input: #221c14;
+      --bg-button: #3d3226;
+      --bg-button-hover: #4a3d2e;
+      --bg-row-odd: #221c14;
+      --bg-row-even: #2c241a;
+      --border-subtle: #332a1e;
+      --border: #443828;
+      --border-strong: #5a4a36;
+      --text: #dcc8a8;
+      --text-muted: #9a845f;
+      --text-dim: #6b5a42;
+      --accent: #d4a054;
+      --accent-glow: rgba(212, 160, 84, 0.15);
+      --board-light: #e8ceab;
+      --board-dark: #bc7944;
+      --move-hover: rgba(255, 255, 255, 0.08);
+      --move-active: rgba(212, 160, 84, 0.15);
+      --debug-bg: rgba(100, 100, 140, 0.12);
+      /* Coaching severity — dark mode */
+      --brilliant-bg: rgba(74, 222, 128, 0.1);
+      --brilliant-border: #4ade80;
+      --brilliant-text: #4ade80;
+      --inaccuracy-bg: rgba(251, 191, 36, 0.1);
+      --inaccuracy-border: #fbbf24;
+      --inaccuracy-text: #fbbf24;
+      --mistake-bg: rgba(251, 146, 60, 0.1);
+      --mistake-border: #fb923c;
+      --mistake-text: #fb923c;
+      --blunder-bg: rgba(248, 113, 113, 0.1);
+      --blunder-border: #f87171;
+      --blunder-text: #f87171;
+      --status-connected: #4ade80;
+      --status-error: #f87171;
+      --status-thinking: #fbbf24;
+    }
+
+    html[data-theme="marble"] {
+      --bg-body: #222928;
+      --bg-header: #1c2120;
+      --bg-panel: #2a3130;
+      --bg-input: #222928;
+      --bg-button: #384240;
+      --bg-button-hover: #445150;
+      --bg-row-odd: #222928;
+      --bg-row-even: #2a3130;
+      --border-subtle: #303837;
+      --border: #3e4a48;
+      --border-strong: #556361;
+      --text: #c0ccc4;
+      --text-muted: #7a8a82;
+      --text-dim: #556360;
+      --accent: #6aaa78;
+      --accent-glow: rgba(106, 170, 120, 0.15);
+      --board-light: #93ab91;
+      --board-dark: #4f644e;
+      --move-hover: rgba(255, 255, 255, 0.08);
+      --move-active: rgba(106, 170, 120, 0.15);
+      --debug-bg: rgba(100, 100, 140, 0.12);
+      /* Coaching severity — dark mode */
+      --brilliant-bg: rgba(74, 222, 128, 0.1);
+      --brilliant-border: #4ade80;
+      --brilliant-text: #4ade80;
+      --inaccuracy-bg: rgba(251, 191, 36, 0.1);
+      --inaccuracy-border: #fbbf24;
+      --inaccuracy-text: #fbbf24;
+      --mistake-bg: rgba(251, 146, 60, 0.1);
+      --mistake-border: #fb923c;
+      --mistake-text: #fb923c;
+      --blunder-bg: rgba(248, 113, 113, 0.1);
+      --blunder-border: #f87171;
+      --blunder-text: #f87171;
+      --status-connected: #4ade80;
+      --status-error: #f87171;
+      --status-thinking: #fbbf24;
+    }
+
+    html[data-theme="rose"] {
+      --bg-body: #f8f2f2;
+      --bg-header: #f0e8e8;
+      --bg-panel: #f0eaea;
+      --bg-input: #f8f2f2;
+      --bg-button: #e0d2d2;
+      --bg-button-hover: #d4c2c2;
+      --bg-row-odd: #f8f2f2;
+      --bg-row-even: #f0eaea;
+      --border-subtle: #e6dcdc;
+      --border: #d4c6c6;
+      --border-strong: #bfaeae;
+      --text: #3a2828;
+      --text-muted: #8a7070;
+      --text-dim: #b8a0a0;
+      --accent: #a05a6a;
+      --accent-glow: rgba(160, 90, 106, 0.15);
+      --board-light: #f0d0d4;
+      --board-dark: #c08090;
+      --move-hover: rgba(0, 0, 0, 0.06);
+      --move-active: rgba(160, 90, 106, 0.15);
+      --debug-bg: rgba(80, 80, 100, 0.08);
+      /* Coaching severity — light mode */
+      --brilliant-bg: rgba(22, 163, 74, 0.1);
+      --brilliant-border: #16a34a;
+      --brilliant-text: #15803d;
+      --inaccuracy-bg: rgba(202, 138, 4, 0.1);
+      --inaccuracy-border: #ca8a04;
+      --inaccuracy-text: #a16207;
+      --mistake-bg: rgba(234, 88, 12, 0.1);
+      --mistake-border: #ea580c;
+      --mistake-text: #c2410c;
+      --blunder-bg: rgba(220, 38, 38, 0.1);
+      --blunder-border: #dc2626;
+      --blunder-text: #b91c1c;
+      --status-connected: #15803d;
+      --status-error: #dc2626;
+      --status-thinking: #a16207;
+    }
+
+    html[data-theme="clean"] {
+      --bg-body: #fafafa;
+      --bg-header: #f5f5f7;
+      --bg-panel: #f0f0f2;
+      --bg-input: #fafafa;
+      --bg-button: #e4e4e6;
+      --bg-button-hover: #d8d8da;
+      --bg-row-odd: #fafafa;
+      --bg-row-even: #f0f0f2;
+      --border-subtle: #e8e8ea;
+      --border: #d4d4d6;
+      --border-strong: #b8b8ba;
+      --text: #1d1d1f;
+      --text-muted: #6e6e73;
+      --text-dim: #aeaeb2;
+      --accent: #0071e3;
+      --accent-glow: rgba(0, 113, 227, 0.15);
+      --board-light: #e8e8e8;
+      --board-dark: #a0a0a0;
+      --move-hover: rgba(0, 0, 0, 0.06);
+      --move-active: rgba(0, 113, 227, 0.12);
+      --debug-bg: rgba(80, 80, 100, 0.06);
+      /* Coaching severity — light mode */
+      --brilliant-bg: rgba(22, 163, 74, 0.08);
+      --brilliant-border: #16a34a;
+      --brilliant-text: #15803d;
+      --inaccuracy-bg: rgba(202, 138, 4, 0.08);
+      --inaccuracy-border: #ca8a04;
+      --inaccuracy-text: #a16207;
+      --mistake-bg: rgba(234, 88, 12, 0.08);
+      --mistake-border: #ea580c;
+      --mistake-text: #c2410c;
+      --blunder-bg: rgba(220, 38, 38, 0.08);
+      --blunder-border: #dc2626;
+      --blunder-text: #b91c1c;
+      --status-connected: #15803d;
+      --status-error: #dc2626;
+      --status-thinking: #a16207;
+    }
+
     body {
-      background: #1a1a2e;
-      color: #e0e0e0;
+      background: var(--bg-body);
+      color: var(--text);
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       min-height: 100vh;
     }
@@ -25,15 +267,15 @@
       justify-content: space-between;
       align-items: center;
       padding: 8px 16px;
-      background: #16213e;
-      border-bottom: 1px solid #333;
+      background: var(--bg-header);
+      border-bottom: 1px solid var(--border);
       height: 44px;
       flex-shrink: 0;
     }
     .app-header h1 {
       font-size: 16px;
       font-weight: 600;
-      color: #e0e0e0;
+      color: var(--text);
     }
 
     /* Hamburger button */
@@ -41,7 +283,7 @@
       width: 32px;
       height: 32px;
       background: none;
-      border: 1px solid #444;
+      border: 1px solid var(--border-strong);
       border-radius: 4px;
       cursor: pointer;
       position: relative;
@@ -56,11 +298,11 @@
       display: block;
       width: 16px;
       height: 2px;
-      background: #e0e0e0;
+      background: var(--text);
       border-radius: 1px;
     }
     .hamburger-btn:hover {
-      border-color: #4ade80;
+      border-color: var(--accent);
     }
 
     /* Hamburger menu dropdown */
@@ -68,8 +310,8 @@
       position: absolute;
       top: 44px;
       right: 8px;
-      background: #16213e;
-      border: 1px solid #444;
+      background: var(--bg-panel);
+      border: 1px solid var(--border-strong);
       border-radius: 8px;
       padding: 12px;
       z-index: 100;
@@ -84,9 +326,9 @@
     }
     .hamburger-menu button {
       padding: 8px 16px;
-      background: #1e3a5f;
-      color: #e0e0e0;
-      border: 1px solid #333;
+      background: var(--bg-button);
+      color: var(--text);
+      border: 1px solid var(--border);
       border-radius: 4px;
       cursor: pointer;
       font-size: 13px;
@@ -95,38 +337,38 @@
       text-align: left;
     }
     .hamburger-menu button:hover {
-      background: #2a5080;
-      border-color: #4ade80;
+      background: var(--bg-button-hover);
+      border-color: var(--accent);
     }
     .hamburger-menu .fen-input {
       width: 100%;
       padding: 8px 12px;
-      background: #0f1729;
-      border: 1px solid #333;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
       border-radius: 4px;
-      color: #e0e0e0;
+      color: var(--text);
       font-family: monospace;
       font-size: 13px;
     }
-    .hamburger-menu .fen-input::placeholder { color: #555; }
+    .hamburger-menu .fen-input::placeholder { color: var(--text-dim); }
     .hamburger-menu .fen-input:focus {
       outline: none;
-      border-color: #4ade80;
-      box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.15);
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px var(--accent-glow);
     }
     .hamburger-menu .menu-label {
       font-size: 11px;
       font-variant: small-caps;
       letter-spacing: 1px;
-      color: #888;
+      color: var(--text-muted);
     }
     .hamburger-menu .elo-select {
       width: 100%;
       padding: 8px 12px;
-      background: #0f1729;
-      border: 1px solid #333;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
       border-radius: 4px;
-      color: #e0e0e0;
+      color: var(--text);
       font-family: inherit;
       font-size: 13px;
       cursor: pointer;
@@ -138,39 +380,39 @@
     }
     .hamburger-menu .elo-select:focus {
       outline: none;
-      border-color: #4ade80;
-      box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.15);
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px var(--accent-glow);
     }
     .hamburger-menu .shortcuts-ref {
       font-size: 11px;
-      color: #888;
+      color: var(--text-muted);
       font-family: 'JetBrains Mono', 'Fira Code', monospace;
       line-height: 1.6;
     }
     .hamburger-menu .shortcuts-ref kbd {
       display: inline-block;
       padding: 1px 5px;
-      background: #0f1729;
-      border: 1px solid #444;
+      background: var(--bg-input);
+      border: 1px solid var(--border-strong);
       border-radius: 3px;
       font-size: 11px;
-      color: #e0e0e0;
+      color: var(--text);
     }
 
     /* --- Footer --- */
     .app-footer {
       padding: 4px 16px;
       font-size: 11px;
-      color: #666;
+      color: var(--text-dim);
       font-family: 'JetBrains Mono', 'Fira Code', monospace;
-      border-top: 1px solid #333;
+      border-top: 1px solid var(--border);
       height: 28px;
       flex-shrink: 0;
       display: flex;
       align-items: center;
     }
-    .app-footer .engine-status.connected { color: #4ade80; }
-    .app-footer .engine-status.error { color: #f87171; }
+    .app-footer .engine-status.connected { color: var(--status-connected); }
+    .app-footer .engine-status.error { color: var(--status-error); }
 
     /* --- Main layout --- */
     :root {
@@ -209,8 +451,8 @@
       height: var(--board-size);
       overflow-y: auto;
       padding: 12px;
-      background: #16213e;
-      border: 1px solid #333;
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
       border-right: none;
       border-radius: 8px 0 0 8px;
       display: flex;
@@ -221,7 +463,7 @@
       font-size: 11px;
       font-variant: small-caps;
       letter-spacing: 1px;
-      color: #888;
+      color: var(--text-muted);
       flex-shrink: 0;
     }
     .coach-messages {
@@ -244,53 +486,53 @@
       filter: brightness(1.2);
     }
     .coach-message.brilliant {
-      background: rgba(74, 222, 128, 0.1);
-      border-left-color: #4ade80;
-      color: #4ade80;
+      background: var(--brilliant-bg);
+      border-left-color: var(--brilliant-border);
+      color: var(--brilliant-text);
     }
     .coach-message.inaccuracy {
-      background: rgba(251, 191, 36, 0.1);
-      border-left-color: #fbbf24;
-      color: #fbbf24;
+      background: var(--inaccuracy-bg);
+      border-left-color: var(--inaccuracy-border);
+      color: var(--inaccuracy-text);
     }
     .coach-message.mistake {
-      background: rgba(251, 146, 60, 0.1);
-      border-left-color: #fb923c;
-      color: #fb923c;
+      background: var(--mistake-bg);
+      border-left-color: var(--mistake-border);
+      color: var(--mistake-text);
     }
     .coach-message.blunder {
-      background: rgba(248, 113, 113, 0.1);
-      border-left-color: #f87171;
-      color: #f87171;
+      background: var(--blunder-bg);
+      border-left-color: var(--blunder-border);
+      color: var(--blunder-text);
     }
     .coach-debug {
       font-size: 11px;
-      background: rgba(100, 100, 140, 0.12);
-      border: 1px solid #333;
+      background: var(--debug-bg);
+      border: 1px solid var(--border);
       border-radius: 4px;
       padding: 4px 8px;
-      color: #777;
+      color: var(--text-muted);
       cursor: pointer;
     }
     .coach-debug summary {
       font-family: 'JetBrains Mono', 'Fira Code', monospace;
       font-size: 10px;
       letter-spacing: 0.5px;
-      color: #666;
+      color: var(--text-dim);
       user-select: none;
     }
     .coach-debug summary:hover {
-      color: #aaa;
+      color: var(--text-muted);
     }
     .coach-debug pre {
       margin: 6px 0 2px;
       padding: 6px;
-      background: #0f1729;
+      background: var(--bg-input);
       border-radius: 3px;
       font-family: 'JetBrains Mono', 'Fira Code', monospace;
       font-size: 10px;
       line-height: 1.5;
-      color: #aaa;
+      color: var(--text-muted);
       white-space: pre-wrap;
       word-break: break-word;
       max-height: 300px;
@@ -305,7 +547,7 @@
       position: relative;
       border-radius: 4px;
       overflow: hidden;
-      border: 1px solid #333;
+      border: 1px solid var(--border);
       opacity: 0;
       transition: opacity 0.4s ease;
     }
@@ -367,7 +609,7 @@
 
     /* Board color overrides: cool blue-gray */
     cg-board {
-      background-color: #8ca2ad !important;
+      background-color: var(--board-dark) !important;
       background-image: url('data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiIHN0YW5kYWxvbmU9Im5vIj8+CjxzdmcgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiB4bWxuczp4PSJodHRwOi8vd3d3LnczLm9yZy8xOTk5L3hsaW5rIgogICAgIHZpZXdCb3g9IjAgMCA4IDgiIHNoYXBlLXJlbmRlcmluZz0iY3Jpc3BFZGdlcyI+CjxnIGlkPSJhIj4KICA8ZyBpZD0iYiI+CiAgICA8ZyBpZD0iYyI+CiAgICAgIDxnIGlkPSJkIj4KICAgICAgICA8cmVjdCB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBpZD0iZSIgb3BhY2l0eT0iMCIvPgogICAgICAgIDx1c2UgeD0iMSIgeT0iMSIgaHJlZj0iI2UiIHg6aHJlZj0iI2UiLz4KICAgICAgICA8cmVjdCB5PSIxIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBpZD0iZiIgZmlsbD0iIzU0NmU3YSIgb3BhY2l0eT0iMC4yNSIvPgogICAgICAgIDx1c2UgeD0iMSIgeT0iLTEiIGhyZWY9IiNmIiB4OmhyZWY9IiNmIi8+CiAgICAgIDwvZz4KICAgICAgPHVzZSB4PSIyIiBocmVmPSIjZCIgeDpocmVmPSIjZCIvPgogICAgPC9nPgogICAgPHVzZSB4PSI0IiBocmVmPSIjYyIgeDpocmVmPSIjYyIvPgogIDwvZz4KICA8dXNlIHk9IjIiIGhyZWY9IiNiIiB4OmhyZWY9IiNiIi8+CjwvZz4KPHVzZSB5PSI0IiBocmVmPSIjYSIgeDpocmVmPSIjYSIvPgo8L3N2Zz4K') !important;
     }
 
@@ -378,8 +620,8 @@
       gap: 8px;
       height: var(--board-size);
       padding: 12px;
-      background: #16213e;
-      border: 1px solid #333;
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
       border-left: none;
       border-radius: 0 8px 8px 0;
     }
@@ -387,23 +629,23 @@
       font-size: 11px;
       font-variant: small-caps;
       letter-spacing: 1px;
-      color: #888;
+      color: var(--text-muted);
     }
     .game-status {
       font-size: 14px;
       font-weight: 600;
-      color: #4ade80;
+      color: var(--accent);
       min-height: 20px;
     }
     .game-status.thinking {
-      color: #fbbf24;
+      color: var(--status-thinking);
     }
     .new-game-btn {
       width: 100%;
       padding: 10px 16px;
-      background: #1e3a5f;
-      color: #e0e0e0;
-      border: 1px solid #333;
+      background: var(--bg-button);
+      color: var(--text);
+      border: 1px solid var(--border);
       border-radius: 4px;
       cursor: pointer;
       font-size: 14px;
@@ -413,16 +655,16 @@
       margin-bottom: 8px;
     }
     .new-game-btn:hover {
-      background: #2a5080;
-      border-color: #4ade80;
+      background: var(--bg-button-hover);
+      border-color: var(--accent);
     }
     .elo-select-main {
       width: 100%;
       padding: 8px 12px;
-      background: #0f1729;
-      border: 1px solid #333;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
       border-radius: 4px;
-      color: #e0e0e0;
+      color: var(--text);
       font-family: inherit;
       font-size: 13px;
       cursor: pointer;
@@ -434,8 +676,8 @@
     }
     .elo-select-main:focus {
       outline: none;
-      border-color: #4ade80;
-      box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.15);
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px var(--accent-glow);
     }
     .eval-display {
       font-family: 'JetBrains Mono', 'Fira Code', monospace;
@@ -460,20 +702,20 @@
     }
     .line-display .pv-line:first-child {
       font-weight: 700;
-      color: #e0e0e0;
+      color: var(--text);
     }
     .line-display .pv-line:not(:first-child) {
-      color: #888;
+      color: var(--text-muted);
     }
     .line-display .pv-score {
       display: inline-block;
       min-width: 48px;
-      color: #4ade80;
+      color: var(--accent);
       margin-right: 6px;
     }
     .viewing-indicator {
       font-size: 11px;
-      color: #fbbf24;
+      color: var(--status-thinking);
       text-align: center;
       min-height: 16px;
       font-family: 'JetBrains Mono', 'Fira Code', monospace;
@@ -481,10 +723,10 @@
     .fen-display {
       width: 100%;
       padding: 6px 8px;
-      background: #0f1729;
-      border: 1px solid #333;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
       border-radius: 4px;
-      color: #888;
+      color: var(--text-muted);
       font-family: 'JetBrains Mono', 'Fira Code', monospace;
       font-size: 9px;
       cursor: pointer;
@@ -494,11 +736,11 @@
       white-space: nowrap;
     }
     .fen-display:hover {
-      border-color: #4ade80;
+      border-color: var(--accent);
     }
     .fen-display:focus {
       outline: none;
-      border-color: #4ade80;
+      border-color: var(--accent);
     }
 
     /* --- Move list grid --- */
@@ -522,28 +764,28 @@
     }
     .move-row:nth-child(odd) .move-number,
     .move-row:nth-child(odd) .move {
-      background: #0f1729;
+      background: var(--bg-row-odd);
     }
     .move-row:nth-child(even) .move-number,
     .move-row:nth-child(even) .move {
-      background: #111d35;
+      background: var(--bg-row-even);
     }
     .move-history .move-number {
-      color: #666;
+      color: var(--text-dim);
       white-space: nowrap;
     }
     .move-history .move {
-      color: #e0e0e0;
+      color: var(--text);
       cursor: pointer;
       white-space: nowrap;
       border-radius: 2px;
       transition: background 0.15s ease;
     }
     .move-history .move:hover {
-      background: rgba(255, 255, 255, 0.08) !important;
+      background: var(--move-hover) !important;
     }
     .move-history .move.active {
-      background: rgba(74, 222, 128, 0.15) !important;
+      background: var(--move-active) !important;
     }
 
     /* --- Promotion overlay --- */
@@ -559,18 +801,18 @@
     .promotion-choices {
       display: flex;
       gap: 8px;
-      background: #16213e;
+      background: var(--bg-panel);
       padding: 16px;
       border-radius: 8px;
-      border: 1px solid #333;
+      border: 1px solid var(--border);
     }
     .promotion-choices button {
       width: 64px;
       height: 64px;
       font-size: 36px;
-      background: #1e3a5f;
-      color: #e0e0e0;
-      border: 1px solid #444;
+      background: var(--bg-button);
+      color: var(--text);
+      border: 1px solid var(--border-strong);
       border-radius: 8px;
       cursor: pointer;
       display: flex;
@@ -578,8 +820,8 @@
       justify-content: center;
     }
     .promotion-choices button:hover {
-      background: #2a5080;
-      border-color: #4ade80;
+      background: var(--bg-button-hover);
+      border-color: var(--accent);
     }
 
     /* --- Responsive breakpoints (must be after base rules for cascade) --- */
@@ -611,7 +853,7 @@
         height: auto;
         max-height: 300px;
         border-radius: 8px;
-        border: 1px solid #333;
+        border: 1px solid var(--border);
       }
 
       .eval-bar-wrap {
@@ -619,6 +861,12 @@
       }
     }
   </style>
+  <script>
+    (function() {
+      var t = localStorage.getItem('chess-teacher-theme') || 'dark';
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
 </head>
 <body>
   <div id="app"></div>
