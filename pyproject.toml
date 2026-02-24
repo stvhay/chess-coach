@@ -30,6 +30,12 @@ packages = ["src/server"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# python-chess 1.11.2 dead alias triggers DeprecationWarning on 3.14+.
+# Fixed upstream, not yet released: https://github.com/niklasf/python-chess/issues/1170
+# Remove when chess >= 1.12 ships.
+filterwarnings = [
+    "ignore:'asyncio.DefaultEventLoopPolicy':DeprecationWarning:chess.engine",
+]
 markers = [
     "integration: marks tests that require external services (deselect with '-m \"not integration\"')",
     "live: marks tests that call a real LLM (run with '-m live')",
