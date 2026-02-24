@@ -1234,24 +1234,26 @@ class Development:
 
 
 def analyze_development(board: chess.Board) -> Development:
-    w_dev = 0
-    for sq, pt in STARTING_MINORS[chess.WHITE]:
-        piece = board.piece_at(sq)
-        if piece is None or piece.color != chess.WHITE or piece.piece_type != pt:
-            w_dev += 1
-
-    b_dev = 0
-    for sq, pt in STARTING_MINORS[chess.BLACK]:
-        piece = board.piece_at(sq)
-        if piece is None or piece.color != chess.BLACK or piece.piece_type != pt:
-            b_dev += 1
+    def _count_developed(color: chess.Color) -> int:
+        """Count surviving minor pieces not on their starting squares."""
+        total_minors = (
+            len(board.pieces(chess.KNIGHT, color))
+            + len(board.pieces(chess.BISHOP, color))
+        )
+        on_home = sum(
+            1 for home_sq, pt in STARTING_MINORS[color]
+            if (p := board.piece_at(home_sq)) is not None
+            and p.color == color
+            and p.piece_type == pt
+        )
+        return total_minors - on_home
 
     ks_w = analyze_king_safety(board, chess.WHITE)
     ks_b = analyze_king_safety(board, chess.BLACK)
 
     return Development(
-        white_developed=w_dev,
-        black_developed=b_dev,
+        white_developed=_count_developed(chess.WHITE),
+        black_developed=_count_developed(chess.BLACK),
         white_castled=ks_w.castled,
         black_castled=ks_b.castled,
     )

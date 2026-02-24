@@ -1004,3 +1004,52 @@ def test_back_rank_no_heavy_pieces():
     tactics = analyze_tactics(board)
     br = [w for w in tactics.back_rank_weaknesses if w.weak_color == "white"]
     assert len(br) == 0
+
+
+# ---------------------------------------------------------------------------
+# Development counting tests
+# ---------------------------------------------------------------------------
+
+
+def test_development_captured_piece_not_counted():
+    """A captured knight should not count as developed."""
+    # White's g1 knight has been captured (not on board at all).
+    # b1 knight still on b1. Bc1 and Bf1 still on home squares.
+    # 3 surviving minors - 3 on home = 0 developed.
+    board = chess.Board("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKB1R w KQkq - 0 1")
+    result = analyze_development(board)
+    assert result.white_developed == 0
+
+
+def test_development_moved_piece_counted():
+    """A knight that moved to f3 should count as developed."""
+    # Nf3 is off home square. Nb1 still home. Bc1, Bf1 still home.
+    # 4 surviving minors - 3 on home = 1 developed.
+    board = chess.Board("rnbqkbnr/pppppppp/8/8/8/5N2/PPPPPPPP/RNBQKB1R w KQkq - 0 1")
+    result = analyze_development(board)
+    assert result.white_developed == 1
+
+
+def test_development_all_minors_off_home():
+    """All four minor pieces moved off home squares = 4 developed."""
+    # Nc3, Nf3, Bd4, Be4 — all off home. 4 surviving - 0 on home = 4.
+    board = chess.Board("r1bqk2r/pppppppp/2n1bn2/8/3BB3/2N2N2/PPPPPPPP/R2QK2R w KQkq - 0 1")
+    result = analyze_development(board)
+    assert result.white_developed == 4
+
+
+def test_development_two_captured_one_moved():
+    """Two captured minors + one moved + one home = 1 developed."""
+    # White has: Nf3 (developed), Bc1 (home). Nb1, Ng1, Bf1 captured.
+    # 2 surviving (Nf3, Bc1) - 1 on home (Bc1) = 1 developed.
+    board = chess.Board("rnbqkbnr/pppppppp/8/8/8/5N2/PPPPPPPP/R1BQK2R w KQkq - 0 1")
+    result = analyze_development(board)
+    assert result.white_developed == 1
+
+
+def test_development_starting_position():
+    """Starting position: 0 pieces developed for both sides."""
+    board = chess.Board()
+    result = analyze_development(board)
+    assert result.white_developed == 0
+    assert result.black_developed == 0
