@@ -20,6 +20,9 @@ dev = [
     "pytest-asyncio>=0.25",
 ]
 
+[project.scripts]
+chess-coach = "server.cli:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
