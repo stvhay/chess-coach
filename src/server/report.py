@@ -249,12 +249,7 @@ def serialize_report(
     # --- Student color ---
     lines.append(f"Student is playing: {player_color}")
 
-    # --- Game section ---
     pgn = _game_pgn(tree)
-    if pgn:
-        lines.append("")
-        lines.append("# Game")
-        lines.append(pgn)
     lines.append("")
 
     # --- Position Before Move ---

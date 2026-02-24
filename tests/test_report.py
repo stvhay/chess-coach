@@ -197,11 +197,22 @@ class TestSerializeReport:
         report = serialize_report(tree, "good", 0, rag_context="")
         assert "Relevant chess knowledge" not in report
 
-    def test_game_pgn_included(self):
+    def test_no_game_section(self):
+        """The # Game heading should not appear — PGN is in Position section."""
         tree = _tree_with_history()
         report = serialize_report(tree, "good", 0)
-        assert "# Game" in report
+        assert "# Game" not in report
+
+    def test_pgn_in_position_section(self):
+        """PGN appears after # Position Before heading."""
+        tree = _tree_with_history()
+        report = serialize_report(tree, "good", 0)
         assert "1. e4" in report
+        lines = report.split("\n")
+        position_idx = next(i for i, l in enumerate(lines) if l.startswith("# Position Before"))
+        # PGN should follow the Position heading
+        post_position = "\n".join(lines[position_idx:position_idx + 5])
+        assert "1. e4" in post_position
 
     def test_position_section_present(self):
         tree = _simple_tree()
@@ -222,8 +233,6 @@ class TestSerializeReport:
         for i, line in enumerate(lines):
             if line.startswith("Student is playing"):
                 section_indices["color"] = i
-            elif line == "# Game":
-                section_indices["game"] = i
             elif line.startswith("# Position Before"):
                 section_indices["position"] = i
             elif line == "# Student Move":
@@ -231,8 +240,7 @@ class TestSerializeReport:
             elif line.startswith("# Stronger") or line.startswith("# Other") or line.startswith("# Also"):
                 section_indices.setdefault("alt", i)
 
-        assert section_indices.get("color", 0) < section_indices.get("game", 999)
-        assert section_indices.get("game", 0) < section_indices.get("position", 999)
+        assert section_indices.get("color", 0) < section_indices.get("position", 999)
         assert section_indices.get("position", 0) < section_indices.get("move", 999)
         if "alt" in section_indices:
             assert section_indices["move"] < section_indices["alt"]
