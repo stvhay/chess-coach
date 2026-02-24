@@ -16,6 +16,7 @@ Run live tests:        uv run pytest tests/test_coaching_prompts.py -m live -s
 
 from __future__ import annotations
 
+import os
 from unittest.mock import AsyncMock
 
 import chess
@@ -28,6 +29,15 @@ from server.engine import EngineAnalysis, Evaluation, LineInfo
 from server.game_tree import GameTree, build_coaching_tree
 from server.llm import ChessTeacher
 from server.report import serialize_report
+
+
+def _live_teacher() -> ChessTeacher:
+    """Create a ChessTeacher for live/integration tests using env vars."""
+    return ChessTeacher(
+        base_url=os.environ.get("LLM_BASE_URL", "https://ollama.st5ve.com"),
+        model=os.environ.get("LLM_MODEL", "qwen2.5:14b"),
+        api_key=os.environ.get("LLM_API_KEY"),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -262,7 +272,7 @@ class TestLiveCoaching:
         s = SCENARIOS[scenario_name]
         prompt, _ = await _build_prompt_for_scenario(scenario_name)
 
-        teacher = ChessTeacher()
+        teacher = _live_teacher()
         response = await teacher.explain_move(prompt)
 
         print(f"\n{'='*60}")
@@ -667,7 +677,7 @@ class TestEvalScenariosLive:
     async def test_llm_response(self, scenario):
         """Full pipeline: Stockfish + LLM for each scenario."""
         result = await _build_eval_scenario(scenario)
-        teacher = ChessTeacher()
+        teacher = _live_teacher()
         response = await teacher.explain_move(result["prompt"])
 
         print(f"\n{'='*60}")

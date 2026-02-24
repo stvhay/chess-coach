@@ -298,7 +298,11 @@ async def evaluate_scenario(engine, teacher, scenario, profile):
 async def run_batch(scenarios, profile_name="intermediate"):
     """Run a batch of scenarios and return results."""
     engine = EngineAnalysis(hash_mb=64)
-    teacher = ChessTeacher()
+    teacher = ChessTeacher(
+        base_url=os.environ.get("LLM_BASE_URL", "https://ollama.st5ve.com"),
+        model=os.environ.get("LLM_MODEL", "qwen2.5:14b"),
+        api_key=os.environ.get("LLM_API_KEY"),
+    )
     profile = get_profile(profile_name)
     results = []
 

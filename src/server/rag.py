@@ -1,3 +1,9 @@
+"""RAG (Retrieval-Augmented Generation) for chess knowledge.
+
+Uses an OpenAI-compatible embedding API (Ollama /v1/embeddings,
+Together, OpenAI, etc.) and ChromaDB for vector storage.
+"""
+
 from dataclasses import dataclass
 import chromadb
 import httpx
@@ -21,13 +27,15 @@ class Result:
 class ChessRAG:
     def __init__(
         self,
-        ollama_url: str = "https://ollama.st5ve.com",
+        base_url: str,
         model: str = "nomic-embed-text",
+        api_key: str | None = None,
         persist_dir: str | None = None,
         collection_name: str = "chess_knowledge",
     ):
-        self._ollama_url = ollama_url.rstrip("/")
+        self._base_url = base_url.rstrip("/")
         self._model = model
+        self._api_key = api_key
         self._persist_dir = persist_dir
         self._collection_name = collection_name
         self._client: chromadb.ClientAPI | None = None
@@ -44,14 +52,20 @@ class ChessRAG:
         )
 
     async def _embed(self, texts: list[str]) -> list[list[float]]:
+        """Call OpenAI-compatible /v1/embeddings endpoint."""
+        headers: dict[str, str] = {}
+        if self._api_key:
+            headers["Authorization"] = f"Bearer {self._api_key}"
         async with httpx.AsyncClient() as client:
             response = await client.post(
-                f"{self._ollama_url}/api/embed",
+                f"{self._base_url}/v1/embeddings",
                 json={"model": self._model, "input": texts},
-                timeout=10.0,
+                headers=headers,
+                timeout=30.0,
             )
             response.raise_for_status()
-            return response.json()["embeddings"]
+            data = response.json()
+            return [d["embedding"] for d in data["data"]]
 
     async def ingest(self, chunks: list[Chunk]) -> None:
         if not chunks:

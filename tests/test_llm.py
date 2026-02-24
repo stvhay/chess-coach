@@ -93,13 +93,13 @@ class TestSerializeReport:
 
 class TestExplainMove:
     async def test_success(self, monkeypatch):
-        """Mock a successful Ollama response; verify string returned."""
-        teacher = ChessTeacher(ollama_url="http://fake", timeout=2.0)
+        """Mock a successful OpenAI-compatible response; verify string returned."""
+        teacher = ChessTeacher(base_url="http://fake", model="test", timeout=2.0)
 
         async def mock_post(self, url, **kwargs):
             resp = httpx.Response(
                 200,
-                json={"message": {"content": "Nice try, but d4 controls the center better."}},
+                json={"choices": [{"message": {"content": "Nice try, but d4 controls the center better."}}]},
                 request=httpx.Request("POST", url),
             )
             return resp
@@ -110,7 +110,7 @@ class TestExplainMove:
 
     async def test_timeout_returns_none(self, monkeypatch):
         """On timeout, explain_move returns None."""
-        teacher = ChessTeacher(ollama_url="http://fake", timeout=0.01)
+        teacher = ChessTeacher(base_url="http://fake", model="test", timeout=0.01)
 
         async def mock_post(self, url, **kwargs):
             raise httpx.ReadTimeout("timed out")
@@ -121,7 +121,7 @@ class TestExplainMove:
 
     async def test_connection_error_returns_none(self, monkeypatch):
         """On connection failure, explain_move returns None."""
-        teacher = ChessTeacher(ollama_url="http://fake", timeout=2.0)
+        teacher = ChessTeacher(base_url="http://fake", model="test", timeout=2.0)
 
         async def mock_post(self, url, **kwargs):
             raise httpx.ConnectError("connection refused")
@@ -132,7 +132,7 @@ class TestExplainMove:
 
     async def test_bad_json_returns_none(self, monkeypatch):
         """On malformed JSON response, explain_move returns None."""
-        teacher = ChessTeacher(ollama_url="http://fake", timeout=2.0)
+        teacher = ChessTeacher(base_url="http://fake", model="test", timeout=2.0)
 
         async def mock_post(self, url, **kwargs):
             return httpx.Response(
@@ -144,6 +144,40 @@ class TestExplainMove:
         monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
         result = await teacher.explain_move("test prompt")
         assert result is None
+
+    async def test_api_key_sent_in_header(self, monkeypatch):
+        """When api_key is set, Authorization header is sent."""
+        teacher = ChessTeacher(base_url="http://fake", model="test", api_key="sk-test", timeout=2.0)
+        captured_headers = {}
+
+        async def mock_post(self, url, **kwargs):
+            captured_headers.update(kwargs.get("headers", {}))
+            return httpx.Response(
+                200,
+                json={"choices": [{"message": {"content": "advice"}}]},
+                request=httpx.Request("POST", url),
+            )
+
+        monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+        await teacher.explain_move("test")
+        assert captured_headers.get("Authorization") == "Bearer sk-test"
+
+    async def test_no_api_key_no_header(self, monkeypatch):
+        """When api_key is None, no Authorization header is sent."""
+        teacher = ChessTeacher(base_url="http://fake", model="test", timeout=2.0)
+        captured_headers = {}
+
+        async def mock_post(self, url, **kwargs):
+            captured_headers.update(kwargs.get("headers", {}))
+            return httpx.Response(
+                200,
+                json={"choices": [{"message": {"content": "advice"}}]},
+                request=httpx.Request("POST", url),
+            )
+
+        monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+        await teacher.explain_move("test")
+        assert "Authorization" not in captured_headers
 
 
 class TestParseMoveSeletion:
@@ -175,13 +209,13 @@ class TestParseMoveSeletion:
 
 class TestSelectTeachingMove:
     async def test_success(self, monkeypatch):
-        """Mock a successful Ollama response with valid JSON."""
-        teacher = ChessTeacher(ollama_url="http://fake", timeout=2.0)
+        """Mock a successful OpenAI-compatible response with valid JSON."""
+        teacher = ChessTeacher(base_url="http://fake", model="test", timeout=2.0)
 
         async def mock_post(self, url, **kwargs):
             return httpx.Response(
                 200,
-                json={"message": {"content": '{"selected_move": "Nf3", "reason": "develops knight"}'}},
+                json={"choices": [{"message": {"content": '{"selected_move": "Nf3", "reason": "develops knight"}'}}]},
                 request=httpx.Request("POST", url),
             )
 
@@ -201,7 +235,7 @@ class TestSelectTeachingMove:
 
     async def test_timeout_returns_none(self, monkeypatch):
         """On timeout, select_teaching_move returns None."""
-        teacher = ChessTeacher(ollama_url="http://fake", timeout=0.01)
+        teacher = ChessTeacher(base_url="http://fake", model="test", timeout=0.01)
 
         async def mock_post(self, url, **kwargs):
             raise httpx.ReadTimeout("timed out")
@@ -216,12 +250,12 @@ class TestSelectTeachingMove:
 
     async def test_bad_json_returns_none(self, monkeypatch):
         """On garbage LLM output, select_teaching_move returns None."""
-        teacher = ChessTeacher(ollama_url="http://fake", timeout=2.0)
+        teacher = ChessTeacher(base_url="http://fake", model="test", timeout=2.0)
 
         async def mock_post(self, url, **kwargs):
             return httpx.Response(
                 200,
-                json={"message": {"content": "I think e5 is a great move."}},
+                json={"choices": [{"message": {"content": "I think e5 is a great move."}}]},
                 request=httpx.Request("POST", url),
             )
 

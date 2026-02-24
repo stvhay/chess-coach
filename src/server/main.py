@@ -17,7 +17,12 @@ from server.llm import ChessTeacher
 from server.puzzles import PuzzleDB
 from server.rag import ChessRAG
 
-_ollama_url = os.environ.get("OLLAMA_URL", "https://ollama.st5ve.com")
+_llm_base_url = os.environ.get("LLM_BASE_URL", "https://ollama.st5ve.com")
+_llm_model = os.environ.get("LLM_MODEL", "qwen2.5:14b")
+_llm_api_key = os.environ.get("LLM_API_KEY")
+_embed_base_url = os.environ.get("EMBED_BASE_URL", _llm_base_url)
+_embed_model = os.environ.get("EMBED_MODEL", "nomic-embed-text")
+_embed_api_key = os.environ.get("EMBED_API_KEY", _llm_api_key)
 _chromadb_dir = os.environ.get("CHROMADB_DIR", "data/chromadb")
 _puzzle_db_path = os.environ.get("PUZZLE_DB_PATH", "data/puzzles.db")
 _stockfish_hash = int(os.environ.get("STOCKFISH_HASH_MB", "64"))
@@ -33,8 +38,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 
 engine = EngineAnalysis(stockfish_path=_stockfish_path, hash_mb=_stockfish_hash)
-teacher = ChessTeacher(ollama_url=_ollama_url)
-rag = ChessRAG(ollama_url=_ollama_url, persist_dir=_chromadb_dir)
+teacher = ChessTeacher(base_url=_llm_base_url, model=_llm_model, api_key=_llm_api_key)
+rag = ChessRAG(base_url=_embed_base_url, model=_embed_model, api_key=_embed_api_key, persist_dir=_chromadb_dir)
 puzzle_db = PuzzleDB(db_path=_puzzle_db_path)
 games = GameManager(engine, teacher=teacher, rag=rag)
 

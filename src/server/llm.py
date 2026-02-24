@@ -1,8 +1,9 @@
 """LLM orchestrator for chess coaching.
 
-Sends structured move assessment data to a local Ollama instance and
-returns natural-language coaching messages.  Falls back gracefully
-(returns None) when the LLM is unreachable.
+Sends structured move assessment data to an OpenAI-compatible API
+(Ollama, OpenRouter, litellm, etc.) and returns natural-language
+coaching messages.  Falls back gracefully (returns None) when the
+LLM is unreachable.
 """
 
 from __future__ import annotations
@@ -31,16 +32,18 @@ class OpponentMoveContext:
 
 
 class ChessTeacher:
-    """Generates natural-language coaching via a local Ollama LLM."""
+    """Generates natural-language coaching via an OpenAI-compatible LLM API."""
 
     def __init__(
         self,
-        ollama_url: str = "https://ollama.st5ve.com",
-        model: str = "qwen2.5:14b",
-        timeout: float = 15.0,
+        base_url: str,
+        model: str,
+        api_key: str | None = None,
+        timeout: float = 30.0,
     ):
-        self._url = ollama_url.rstrip("/")
+        self._base_url = base_url.rstrip("/")
         self._model = model
+        self._api_key = api_key
         self._timeout = timeout
 
     async def explain_move(self, prompt: str) -> str | None:
@@ -75,22 +78,26 @@ class ChessTeacher:
     async def _chat(
         self, messages: list[dict], timeout: float | None = None
     ) -> str | None:
-        """POST to Ollama /api/chat and return the assistant content."""
+        """POST to OpenAI-compatible /v1/chat/completions endpoint."""
         t = timeout if timeout is not None else self._timeout
+        headers: dict[str, str] = {}
+        if self._api_key:
+            headers["Authorization"] = f"Bearer {self._api_key}"
         payload = {
             "model": self._model,
             "messages": messages,
-            "stream": False,
         }
         try:
             async with httpx.AsyncClient(timeout=t) as client:
                 resp = await client.post(
-                    f"{self._url}/api/chat", json=payload
+                    f"{self._base_url}/v1/chat/completions",
+                    json=payload,
+                    headers=headers,
                 )
                 resp.raise_for_status()
                 data = resp.json()
-                return data["message"]["content"]
-        except (httpx.HTTPError, KeyError, ValueError, TypeError):
+                return data["choices"][0]["message"]["content"]
+        except (httpx.HTTPError, KeyError, ValueError, TypeError, IndexError):
             return None
 
 

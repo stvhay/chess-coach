@@ -1,3 +1,5 @@
+import os
+
 import pytest
 from unittest.mock import AsyncMock
 from server.rag import ChessRAG, Chunk, Result
@@ -12,7 +14,7 @@ def fake_embed(texts: list[str]) -> list[list[float]]:
 @pytest.fixture
 async def rag(tmp_path):
     r = ChessRAG(
-        ollama_url="http://fake:11434",
+        base_url="http://fake:11434",
         model="nomic-embed-text",
         persist_dir=str(tmp_path / "chromadb"),
     )
@@ -74,9 +76,9 @@ async def test_query_empty_store(rag):
 
 @pytest.mark.integration
 async def test_real_ollama_embedding():
-    """Integration test — requires Ollama at https://ollama.st5ve.com/ with nomic-embed-text."""
+    """Integration test — requires an OpenAI-compatible embedding endpoint."""
     rag = ChessRAG(
-        ollama_url="https://ollama.st5ve.com",
+        base_url=os.environ.get("LLM_BASE_URL", "http://localhost:11434"),
         model="nomic-embed-text",
         persist_dir=None,  # in-memory only
     )

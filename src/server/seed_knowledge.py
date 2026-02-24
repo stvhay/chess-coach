@@ -8,15 +8,19 @@ from __future__ import annotations
 import asyncio
 import os
 
+from server.config import Settings
 from server.knowledge import seed_knowledge_base
 from server.rag import ChessRAG
 
 
 async def main() -> None:
+    settings = Settings()
     data_path = os.path.join(os.path.dirname(__file__), "..", "..", "data", "knowledge_base.json")
     rag = ChessRAG(
-        ollama_url=os.environ.get("OLLAMA_URL", "https://ollama.st5ve.com"),
-        persist_dir=os.environ.get("CHROMADB_DIR", "data/chromadb"),
+        base_url=settings.effective_embed_base_url,
+        model=settings.embed_model,
+        api_key=settings.effective_embed_api_key,
+        persist_dir=settings.chromadb_dir,
     )
     await rag.start()
     count = await seed_knowledge_base(rag, data_path)
