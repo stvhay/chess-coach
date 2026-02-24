@@ -3,13 +3,35 @@ import { BrowserEngine, MultiPVInfo } from "./eval";
 import { GameController, PromotionPiece } from "./game";
 import { CoachingData } from "./api";
 
+/** Generate a chessground-compatible board SVG with the given square colors. */
+function makeBoardSvg(lightHex: string, darkHex: string): string {
+  // SVG checkerboard: 8x8 grid, light squares = background, dark squares = fill
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8" shape-rendering="crispEdges">
+<rect width="8" height="8" fill="${lightHex}"/>
+<g fill="${darkHex}">
+<rect x="1" y="0" width="1" height="1"/><rect x="3" y="0" width="1" height="1"/><rect x="5" y="0" width="1" height="1"/><rect x="7" y="0" width="1" height="1"/>
+<rect x="0" y="1" width="1" height="1"/><rect x="2" y="1" width="1" height="1"/><rect x="4" y="1" width="1" height="1"/><rect x="6" y="1" width="1" height="1"/>
+<rect x="1" y="2" width="1" height="1"/><rect x="3" y="2" width="1" height="1"/><rect x="5" y="2" width="1" height="1"/><rect x="7" y="2" width="1" height="1"/>
+<rect x="0" y="3" width="1" height="1"/><rect x="2" y="3" width="1" height="1"/><rect x="4" y="3" width="1" height="1"/><rect x="6" y="3" width="1" height="1"/>
+<rect x="1" y="4" width="1" height="1"/><rect x="3" y="4" width="1" height="1"/><rect x="5" y="4" width="1" height="1"/><rect x="7" y="4" width="1" height="1"/>
+<rect x="0" y="5" width="1" height="1"/><rect x="2" y="5" width="1" height="1"/><rect x="4" y="5" width="1" height="1"/><rect x="6" y="5" width="1" height="1"/>
+<rect x="1" y="6" width="1" height="1"/><rect x="3" y="6" width="1" height="1"/><rect x="5" y="6" width="1" height="1"/><rect x="7" y="6" width="1" height="1"/>
+<rect x="0" y="7" width="1" height="1"/><rect x="2" y="7" width="1" height="1"/><rect x="4" y="7" width="1" height="1"/><rect x="6" y="7" width="1" height="1"/>
+</g>
+</svg>`;
+  return `url('data:image/svg+xml;base64,${btoa(svg)}')`;
+}
+
 function updateBoardColors() {
   const style = getComputedStyle(document.documentElement);
   const boardDark = style.getPropertyValue("--board-dark").trim();
   const boardLight = style.getPropertyValue("--board-light").trim();
+  if (!boardDark || !boardLight) return;
+
   const cgBoard = document.querySelector("cg-board") as HTMLElement | null;
   if (cgBoard) {
-    cgBoard.style.backgroundColor = boardDark;
+    cgBoard.style.backgroundColor = boardLight;
+    cgBoard.style.backgroundImage = makeBoardSvg(boardLight, boardDark);
   }
 }
 
