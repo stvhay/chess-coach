@@ -91,6 +91,57 @@ def _append_categorized(lines: list[str], header: str, items: list[str]) -> None
         lines.append(f"  - {item}")
 
 
+def _append_continuation_analysis(
+    lines: list[str],
+    node: GameNode,
+    move_number: int,
+    student_is_white: bool | None,
+    is_player_move: bool,
+) -> None:
+    """Append continuation, material result, sacrifice, and checkmate annotations.
+
+    Shared between player move and alternative sections.
+    """
+    # Continuation with move numbers
+    continuation = _continuation_san(node)
+    if continuation:
+        numbered = _format_pv_with_numbers(
+            continuation, move_number,
+            student_is_white if student_is_white is not None else True,
+        )
+        lines.append(f"\nContinuation: {numbered}")
+
+    # Material result (piece-level)
+    chain = _get_continuation_chain(node)
+    result = _describe_result(chain, student_is_white)
+    if result:
+        lines.append(f"\n{result}")
+
+    # Sacrifice detection
+    if _detect_sacrifice(chain, node.score_mate):
+        if is_player_move:
+            lines.append("\nThis line involves a sacrifice (material given up then recovered).")
+        else:
+            lines.append("\nThis line involves a sacrifice.")
+
+    # Checkmate detection
+    if is_player_move:
+        for idx, c_node in enumerate(chain[1:], start=1):
+            if c_node.board.is_checkmate():
+                if idx % 2 == 1:
+                    lines.append("\nWARNING: This move leads to checkmate AGAINST the student!")
+                    break
+    else:
+        for idx, c_node in enumerate(chain):
+            if c_node.board.is_checkmate():
+                if idx % 2 == 0:
+                    lines.append("\nThis alternative delivers checkmate for the student!")
+                    break
+                else:
+                    lines.append("\nWARNING: This alternative leads to checkmate AGAINST the student!")
+                    break
+
+
 def _game_pgn(tree: GameTree) -> str:
     """Generate PGN from root to decision point (excludes student's move)."""
     played = tree.played_line()
@@ -98,7 +149,7 @@ def _game_pgn(tree: GameTree) -> str:
         return ""
 
     parts = []
-    for i, node in enumerate(played[1:], start=0):  # skip root
+    for i, node in enumerate(played[1:]):  # skip root
         san = node.san
         if not san:
             continue
@@ -280,32 +331,9 @@ def serialize_report(
         _append_categorized(lines, "\nNew Opportunities", opps)
         _append_categorized(lines, "\nNew Observations", obs)
 
-        # Continuation with move numbers
-        continuation = _continuation_san(player_node)
-        if continuation:
-            numbered = _format_pv_with_numbers(
-                continuation, move_number,
-                student_is_white if student_is_white is not None else True,
-            )
-            lines.append(f"\nContinuation: {numbered}")
-
-        # Material result (piece-level)
-        chain = _get_continuation_chain(player_node)
-        result = _describe_result(chain, student_is_white)
-        if result:
-            lines.append(f"\n{result}")
-
-        # Sacrifice detection
-        if _detect_sacrifice(chain, player_node.score_mate):
-            lines.append("\nThis line involves a sacrifice (material given up then recovered).")
-
-        # Checkmate warnings
-        for c_node in chain[1:]:  # skip the move itself (ply 0)
-            if c_node.board.is_checkmate():
-                idx = chain.index(c_node)
-                if idx % 2 == 1:  # opponent's response leads to checkmate against student
-                    lines.append("\nWARNING: This move leads to checkmate AGAINST the student!")
-                    break
+        _append_continuation_analysis(
+            lines, player_node, move_number, student_is_white, is_player_move=True,
+        )
 
         lines.append("")
 
@@ -336,35 +364,9 @@ def serialize_report(
         _append_categorized(lines, "\nNew Opportunities", opps)
         _append_categorized(lines, "\nNew Observations", obs)
 
-        # Continuation
-        alt_cont = _continuation_san(alt)
-        if alt_cont:
-            numbered = _format_pv_with_numbers(
-                alt_cont, move_number,
-                student_is_white if student_is_white is not None else True,
-            )
-            lines.append(f"\nContinuation: {numbered}")
-
-        # Material result (piece-level)
-        alt_chain = _get_continuation_chain(alt)
-        result = _describe_result(alt_chain, student_is_white)
-        if result:
-            lines.append(f"\n{result}")
-
-        # Sacrifice
-        if _detect_sacrifice(alt_chain, alt.score_mate):
-            lines.append("\nThis line involves a sacrifice.")
-
-        # Checkmate detection
-        for c_node in alt_chain:
-            if c_node.board.is_checkmate():
-                idx = alt_chain.index(c_node)
-                if idx % 2 == 0:
-                    lines.append("\nThis alternative delivers checkmate for the student!")
-                    break
-                else:
-                    lines.append("\nWARNING: This alternative leads to checkmate AGAINST the student!")
-                    break
+        _append_continuation_analysis(
+            lines, alt, move_number, student_is_white, is_player_move=False,
+        )
 
         lines.append("")
 

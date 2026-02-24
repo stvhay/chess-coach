@@ -1559,26 +1559,12 @@ def analyze_development(
     king_safety_white: KingSafety | None = None,
     king_safety_black: KingSafety | None = None,
 ) -> Development:
-    def _count_developed(color: chess.Color) -> int:
-        """Count surviving minor pieces not on their starting squares."""
-        total_minors = (
-            len(board.pieces(chess.KNIGHT, color))
-            + len(board.pieces(chess.BISHOP, color))
-        )
-        on_home = sum(
-            1 for home_sq, pt in STARTING_MINORS[color]
-            if (p := board.piece_at(home_sq)) is not None
-            and p.color == color
-            and p.piece_type == pt
-        )
-        return total_minors - on_home
-
     ks_w = king_safety_white or analyze_king_safety(board, chess.WHITE)
     ks_b = king_safety_black or analyze_king_safety(board, chess.BLACK)
 
     return Development(
-        white_developed=_count_developed(chess.WHITE),
-        black_developed=_count_developed(chess.BLACK),
+        white_developed=_count_developed(board, chess.WHITE),
+        black_developed=_count_developed(board, chess.BLACK),
         white_castled=ks_w.castled,
         black_castled=ks_b.castled,
     )
@@ -1688,13 +1674,18 @@ class GamePhase(enum.Enum):
 
 
 def _count_developed(board: chess.Board, color: chess.Color) -> int:
-    """Count how many minor pieces have moved from starting squares."""
-    developed = 0
-    for sq, pt in STARTING_MINORS[color]:
-        piece = board.piece_at(sq)
-        if piece is None or piece.color != color or piece.piece_type != pt:
-            developed += 1
-    return developed
+    """Count surviving minor pieces not on their starting squares."""
+    total_minors = (
+        len(board.pieces(chess.KNIGHT, color))
+        + len(board.pieces(chess.BISHOP, color))
+    )
+    on_home = sum(
+        1 for home_sq, pt in STARTING_MINORS[color]
+        if (p := board.piece_at(home_sq)) is not None
+        and p.color == color
+        and p.piece_type == pt
+    )
+    return total_minors - on_home
 
 
 def detect_game_phase(board: chess.Board) -> GamePhase:

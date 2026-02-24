@@ -21,7 +21,7 @@ from server.analysis import (
     analyze_tactics,
 )
 from server.elo_profiles import EloProfile
-from server.engine import EngineAnalysis, Evaluation, LineInfo
+from server.engine import EngineAnalysis, Evaluation
 from server.motifs import (
     HIGH_VALUE_KEYS,
     MODERATE_VALUE_KEYS,
@@ -487,13 +487,21 @@ def _rank_nodes_by_teachability(
         node._interest_score = score
 
 
-def _get_continuation_chain(node: GameNode) -> list[GameNode]:
-    """Get the linear continuation chain from a node (the first child path)."""
+def _get_continuation_chain(node: GameNode, max_depth: int | None = None) -> list[GameNode]:
+    """Get the linear continuation chain from a node (the first child path).
+
+    max_depth limits how many children to follow (None = unlimited).
+    The node itself is always included as chain[0].
+    """
     chain = [node]
     current = node
+    depth = 0
     while current.children:
+        if max_depth is not None and depth >= max_depth:
+            break
         current = current.children[0]
         chain.append(current)
+        depth += 1
     return chain
 
 

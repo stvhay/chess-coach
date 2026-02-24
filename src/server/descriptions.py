@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 import chess
 
 from server.analysis import PositionReport, TacticalMotifs
-from server.game_tree import GameNode, GameTree
+from server.game_tree import GameNode, GameTree, _get_continuation_chain
 from server.motifs import (
     MOTIF_REGISTRY,
     RenderContext,
@@ -209,14 +209,8 @@ def describe_changes(
     all_threats: list[str] = []
     all_observations: list[str] = []
 
-    # Walk the continuation chain (node itself + its children linearly)
-    chain = [node]
-    current = node
-    for _ in range(max_plies - 1):
-        if not current.children:
-            break
-        current = current.children[0]
-        chain.append(current)
+    # Walk the continuation chain (node itself + up to max_plies-1 children)
+    chain = _get_continuation_chain(node, max_depth=max_plies - 1)
 
     prev_tactics = node.parent.tactics
 

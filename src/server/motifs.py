@@ -53,14 +53,6 @@ def _is_significant_discovery(da) -> bool:
     return not blocker_is_pawn or target_is_valuable
 
 
-def _ray_direction(from_sq: str, to_sq: str) -> tuple[int, int]:
-    """Normalized compass direction between two algebraic squares."""
-    df = ord(to_sq[0]) - ord(from_sq[0])
-    dr = int(to_sq[1]) - int(from_sq[1])
-    return ((1 if df > 0 else -1) if df else 0,
-            (1 if dr > 0 else -1) if dr else 0)
-
-
 # ---------------------------------------------------------------------------
 # Render context
 # ---------------------------------------------------------------------------
@@ -332,31 +324,18 @@ class MotifSpec:
     """Declarative specification for a motif type.
 
     Maps a TacticalMotifs field to its diff key, key extractor,
-    renderer, optional filter, and optional cap.
+    renderer, and optional cap. Ray-type motifs use ray_dedup_key
+    for cached deduplication in render_motifs().
     """
     diff_key: str
     field: str
     key_fn: Callable[[Any], tuple]
     render_fn: Callable[[Any, RenderContext], tuple[str, bool]]
-    filter_fn: Callable[[list, TacticalMotifs], list] | None = None
+    ray_dedup_key: str | None = None  # key into _dedup_ray_motifs result
     cap: int | None = None
     is_observation: bool = False  # True for latent/structural motifs
     priority: int = 50
     squares_fn: Callable[[Any], frozenset[str]] | None = None
-
-
-def _pin_filter(items: list, tactics: TacticalMotifs) -> list:
-    return _dedup_ray_motifs(tactics)["pins"]
-
-def _skewer_filter(items: list, tactics: TacticalMotifs) -> list:
-    return _dedup_ray_motifs(tactics)["skewers"]
-
-def _xray_filter(items: list, tactics: TacticalMotifs) -> list:
-    return _dedup_ray_motifs(tactics)["xray_attacks"]
-
-def _discovered_filter(items: list, tactics: TacticalMotifs) -> list:
-    deduped = _dedup_ray_motifs(tactics)["discovered_attacks"]
-    return [da for da in deduped if _is_significant_discovery(da)]
 
 
 MOTIF_REGISTRY: dict[str, MotifSpec] = {
@@ -364,7 +343,7 @@ MOTIF_REGISTRY: dict[str, MotifSpec] = {
         diff_key="pin", field="pins",
         key_fn=lambda t: ("pin", t.pinner_square, t.pinned_square),
         render_fn=render_pin,
-        filter_fn=_pin_filter,
+        ray_dedup_key="pins",
         priority=25,
     ),
     "fork": MotifSpec(
@@ -378,7 +357,7 @@ MOTIF_REGISTRY: dict[str, MotifSpec] = {
         diff_key="skewer", field="skewers",
         key_fn=lambda t: ("skewer", t.attacker_square, t.front_square, t.behind_square),
         render_fn=render_skewer,
-        filter_fn=_skewer_filter,
+        ray_dedup_key="skewers",
         priority=25,
     ),
     "hanging": MotifSpec(
@@ -392,7 +371,7 @@ MOTIF_REGISTRY: dict[str, MotifSpec] = {
         diff_key="discovered", field="discovered_attacks",
         key_fn=lambda t: ("discovered", t.slider_square, t.target_square),
         render_fn=render_discovered_attack,
-        filter_fn=_discovered_filter,
+        ray_dedup_key="discovered_attacks",
         cap=3,
         is_observation=True,
         priority=40,
@@ -432,7 +411,7 @@ MOTIF_REGISTRY: dict[str, MotifSpec] = {
         diff_key="xray", field="xray_attacks",
         key_fn=lambda t: ("xray", t.slider_square, t.target_square),
         render_fn=render_xray_attack,
-        filter_fn=_xray_filter,
+        ray_dedup_key="xray_attacks",
         cap=3,
         is_observation=True,
         priority=45,
@@ -530,12 +509,20 @@ def render_motifs(
         for fork in getattr(tactics, "forks", []):
             fork_squares.update(fork.targets)
 
+    # Compute ray dedup once (shared by pin/skewer/xray/discovered filters)
+    ray_dedup: dict[str, list] | None = None
+
     for spec in MOTIF_REGISTRY.values():
         if spec.diff_key not in new_types:
             continue
-        items = list(getattr(tactics, spec.field, []))
-        if spec.filter_fn:
-            items = spec.filter_fn(items, tactics)
+        if spec.ray_dedup_key:
+            if ray_dedup is None:
+                ray_dedup = _dedup_ray_motifs(tactics)
+            items = ray_dedup[spec.ray_dedup_key]
+            if spec.diff_key == "discovered":
+                items = [da for da in items if _is_significant_discovery(da)]
+        else:
+            items = list(getattr(tactics, spec.field, []))
         if spec.cap:
             items = items[:spec.cap]
         for item in items:
