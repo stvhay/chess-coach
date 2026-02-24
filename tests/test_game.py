@@ -1,7 +1,14 @@
+import os
+import time
 from unittest.mock import AsyncMock
 
 import pytest
 from fastapi.testclient import TestClient
+
+# Settings requires these env vars at import time
+os.environ.setdefault("LLM_BASE_URL", "http://localhost:11434")
+os.environ.setdefault("LLM_MODEL", "test-model")
+
 from server.engine import Evaluation, LineInfo, MoveInfo
 from server.game import GameManager
 from server.llm import ChessTeacher
@@ -12,6 +19,13 @@ from server.rag import Result
 @pytest.fixture()
 def client():
     with TestClient(app) as c:
+        # Wait for background init tasks to finish (stockfish, chromadb, puzzles)
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            resp = c.get("/api/status")
+            if resp.status_code == 200 and resp.json().get("ready"):
+                break
+            time.sleep(0.2)
         yield c
 
 

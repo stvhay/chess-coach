@@ -1,6 +1,9 @@
+import asyncio
+import logging
 import os
 from contextlib import asynccontextmanager
 from dataclasses import asdict
+from pathlib import Path
 
 import chess
 from fastapi import FastAPI, HTTPException
@@ -11,22 +14,136 @@ from starlette.requests import Request
 from starlette.responses import RedirectResponse, Response
 
 from server.analysis import analyze
+from server.config import Settings
 from server.engine import EngineAnalysis
 from server.game import GameManager
+from server.import_puzzles import (
+    LICHESS_PUZZLE_URL,
+    create_db,
+    download_and_stream_csv,
+    finalize_db,
+    import_puzzles,
+)
+from server.knowledge import seed_knowledge_base
 from server.llm import ChessTeacher
 from server.puzzles import PuzzleDB
 from server.rag import ChessRAG
 
-_llm_base_url = os.environ.get("LLM_BASE_URL", "https://ollama.st5ve.com")
-_llm_model = os.environ.get("LLM_MODEL", "qwen2.5:14b")
-_llm_api_key = os.environ.get("LLM_API_KEY")
-_embed_base_url = os.environ.get("EMBED_BASE_URL", _llm_base_url)
-_embed_model = os.environ.get("EMBED_MODEL", "nomic-embed-text")
-_embed_api_key = os.environ.get("EMBED_API_KEY", _llm_api_key)
-_chromadb_dir = os.environ.get("CHROMADB_DIR", "data/chromadb")
-_puzzle_db_path = os.environ.get("PUZZLE_DB_PATH", "data/puzzles.db")
-_stockfish_hash = int(os.environ.get("STOCKFISH_HASH_MB", "64"))
-_stockfish_path = os.environ.get("STOCKFISH_PATH", "stockfish")
+logger = logging.getLogger(__name__)
+
+settings = Settings()
+
+# --- Initialization status tracking ---
+
+_init_status: dict[str, dict] = {
+    "stockfish": {"state": "pending", "detail": ""},
+    "chromadb": {"state": "pending", "detail": ""},
+    "puzzles": {"state": "pending", "detail": ""},
+}
+
+
+def _set_status(task: str, state: str, detail: str = "") -> None:
+    _init_status[task] = {"state": state, "detail": detail}
+
+
+def _all_done() -> bool:
+    return all(t["state"] in ("done", "failed") for t in _init_status.values())
+
+
+# --- Service instances ---
+
+engine = EngineAnalysis(
+    stockfish_path=settings.stockfish_path, hash_mb=settings.stockfish_hash_mb
+)
+teacher = ChessTeacher(
+    base_url=settings.llm_base_url,
+    model=settings.llm_model,
+    api_key=settings.llm_api_key,
+    timeout=settings.llm_timeout,
+)
+rag = ChessRAG(
+    base_url=settings.effective_embed_base_url,
+    model=settings.embed_model,
+    api_key=settings.effective_embed_api_key,
+    persist_dir=settings.chromadb_dir,
+)
+puzzle_db = PuzzleDB(db_path=settings.puzzle_db_path)
+games = GameManager(engine, teacher=teacher, rag=rag)
+
+
+# --- Background initialization tasks ---
+
+async def _init_stockfish() -> None:
+    _set_status("stockfish", "running", "Starting Stockfish engine...")
+    try:
+        await engine.start()
+        _set_status("stockfish", "done", "Stockfish ready")
+    except Exception as e:
+        logger.error("Stockfish init failed: %s", e)
+        _set_status("stockfish", "failed", str(e))
+
+
+async def _init_chromadb() -> None:
+    _set_status("chromadb", "running", "Starting ChromaDB...")
+    try:
+        await rag.start()
+        # Seed knowledge base if empty
+        if rag._collection is not None and rag._collection.count() == 0:
+            _set_status("chromadb", "running", "Seeding knowledge base...")
+            data_path = os.path.join(
+                os.path.dirname(__file__), "..", "..", "data", "knowledge_base.json"
+            )
+            if Path(data_path).exists():
+                await seed_knowledge_base(rag, data_path)
+        _set_status("chromadb", "done", "ChromaDB ready")
+    except Exception as e:
+        logger.error("ChromaDB init failed: %s", e)
+        _set_status("chromadb", "failed", str(e))
+
+
+async def _init_puzzles() -> None:
+    db_path = settings.puzzle_db_path
+    if Path(db_path).exists():
+        _set_status("puzzles", "running", "Opening puzzle database...")
+        await puzzle_db.start()
+        _set_status("puzzles", "done", f"Puzzle database ready ({await _puzzle_count()} puzzles)")
+        return
+
+    if not settings.auto_init_puzzles:
+        _set_status("puzzles", "done", "Puzzle database not found (auto-init disabled)")
+        return
+
+    _set_status("puzzles", "running", "Downloading puzzles from Lichess...")
+    try:
+        # Run blocking import in a thread
+        def _do_import():
+            conn = create_db(db_path)
+            try:
+                rows = download_and_stream_csv(LICHESS_PUZZLE_URL)
+
+                def _on_progress(count):
+                    _set_status("puzzles", "running", f"Importing puzzles ({count:,} rows)...")
+
+                count = import_puzzles(conn, rows, verbose=False, on_progress=_on_progress)
+                finalize_db(conn)
+                return count
+            finally:
+                conn.close()
+
+        count = await asyncio.to_thread(_do_import)
+        await puzzle_db.start()
+        _set_status("puzzles", "done", f"Imported {count:,} puzzles")
+    except Exception as e:
+        logger.error("Puzzle init failed: %s", e)
+        _set_status("puzzles", "failed", str(e))
+
+
+async def _puzzle_count() -> int:
+    """Quick count for status messages."""
+    try:
+        return await puzzle_db.count()
+    except Exception:
+        return 0
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -37,19 +154,18 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
-engine = EngineAnalysis(stockfish_path=_stockfish_path, hash_mb=_stockfish_hash)
-teacher = ChessTeacher(base_url=_llm_base_url, model=_llm_model, api_key=_llm_api_key)
-rag = ChessRAG(base_url=_embed_base_url, model=_embed_model, api_key=_embed_api_key, persist_dir=_chromadb_dir)
-puzzle_db = PuzzleDB(db_path=_puzzle_db_path)
-games = GameManager(engine, teacher=teacher, rag=rag)
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await engine.start()
-    await rag.start()
-    await puzzle_db.start()
+    # Launch all init tasks in background
+    tasks = [
+        asyncio.create_task(_init_stockfish()),
+        asyncio.create_task(_init_chromadb()),
+        asyncio.create_task(_init_puzzles()),
+    ]
     yield
+    # Cleanup
+    for t in tasks:
+        t.cancel()
     await puzzle_db.close()
     await engine.stop()
 
@@ -57,6 +173,8 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Chess Teacher", lifespan=lifespan)
 app.add_middleware(SecurityHeadersMiddleware)
 
+
+# --- Request/Response models ---
 
 class AnalysisRequest(BaseModel):
     fen: str
@@ -83,6 +201,8 @@ class MoveRequest(BaseModel):
     move: str
 
 
+# --- Endpoints ---
+
 @app.get("/")
 async def root():
     return RedirectResponse(url="/static/index.html")
@@ -91,6 +211,14 @@ async def root():
 @app.get("/api/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/api/status")
+async def status():
+    return {
+        "ready": _all_done(),
+        "tasks": _init_status,
+    }
 
 
 @app.post("/api/analysis/position")

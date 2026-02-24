@@ -1,4 +1,11 @@
+import os
+import time
 import pytest
+
+# Settings requires these env vars at import time
+os.environ.setdefault("LLM_BASE_URL", "http://localhost:11434")
+os.environ.setdefault("LLM_MODEL", "test-model")
+
 from fastapi.testclient import TestClient
 from server.main import app
 
@@ -6,6 +13,13 @@ from server.main import app
 @pytest.fixture()
 def client():
     with TestClient(app) as c:
+        # Wait for background init tasks to finish (stockfish, chromadb, puzzles)
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            resp = c.get("/api/status")
+            if resp.status_code == 200 and resp.json().get("ready"):
+                break
+            time.sleep(0.2)
         yield c
 
 
@@ -89,3 +103,17 @@ def test_best_moves_illegal_fen(client):
     })
     assert response.status_code == 400
     assert "Illegal position" in response.json()["detail"]
+
+
+def test_status_endpoint(client):
+    response = client.get("/api/status")
+    assert response.status_code == 200
+    data = response.json()
+    assert "ready" in data
+    assert "tasks" in data
+    assert "stockfish" in data["tasks"]
+    assert "chromadb" in data["tasks"]
+    assert "puzzles" in data["tasks"]
+    for task in data["tasks"].values():
+        assert "state" in task
+        assert "detail" in task

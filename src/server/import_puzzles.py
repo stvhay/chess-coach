@@ -118,7 +118,7 @@ def parse_row(row: list[str]) -> tuple | None:
         return None
 
 
-def import_puzzles(conn: sqlite3.Connection, rows, verbose: bool = True) -> int:
+def import_puzzles(conn: sqlite3.Connection, rows, verbose: bool = True, on_progress=None) -> int:
     """Batch-insert parsed rows into the database. Returns count of rows inserted."""
     batch: list[tuple] = []
     count = 0
@@ -133,6 +133,8 @@ def import_puzzles(conn: sqlite3.Connection, rows, verbose: bool = True) -> int:
             conn.executemany(INSERT_SQL, batch)
             conn.commit()
             count += len(batch)
+            if on_progress and count % 100_000 == 0:
+                on_progress(count)
             batch.clear()
             if verbose and count % 100_000 == 0:
                 elapsed = time.time() - t0
