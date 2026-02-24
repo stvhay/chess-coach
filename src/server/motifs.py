@@ -96,7 +96,11 @@ class RenderedMotif:
 # ---------------------------------------------------------------------------
 
 def render_fork(fork, ctx: RenderContext) -> tuple[str, bool]:
-    """Render a fork. Returns (description, is_opportunity)."""
+    """Render a fork. Returns (description, is_opportunity).
+
+    Pin-forks get different language: "pins X while also attacking Y"
+    instead of "forks X and Y", since the pin is the primary motif.
+    """
     is_student = _piece_is_students(fork.forking_piece, ctx.student_is_white)
     forker = _own_their(fork.forking_piece, is_student)
     if fork.target_pieces:
@@ -107,7 +111,17 @@ def render_fork(fork, ctx: RenderContext) -> tuple[str, bool]:
         targets = " and ".join(target_descs)
     else:
         targets = ", ".join(fork.targets)
-    desc = f"{forker.capitalize()} on {fork.forking_square} forks {targets}."
+
+    if fork.is_pin_fork:
+        # Pin is the primary motif (rendered separately); describe the additional attack
+        non_pinned = [
+            f"{_own_their(tp, _piece_is_students(tp, ctx.student_is_white))} on {sq}"
+            for tp, sq in zip(fork.target_pieces, fork.targets)
+        ] if fork.target_pieces else fork.targets
+        # All targets are worth mentioning since the pin constrains the position
+        desc = f"{forker.capitalize()} on {fork.forking_square} pins and also attacks {targets}."
+    else:
+        desc = f"{forker.capitalize()} on {fork.forking_square} forks {targets}."
     if fork.target_pieces and any(tp.upper() == "K" for tp in fork.target_pieces):
         other = [
             _own_their(tp, _piece_is_students(tp, ctx.student_is_white))

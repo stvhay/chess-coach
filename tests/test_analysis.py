@@ -581,6 +581,33 @@ class TestTactics:
                        if f.forking_square == "d5" and f.forking_piece == "Q"]
         assert len(queen_forks) == 0
 
+    def test_fork_pin_fork_detected(self):
+        """Bishop pinning a knight and also attacking a pawn = pin-fork."""
+        # Bg5 pins Nf6 to Qd8, also attacks pawn on h6
+        board = chess.Board("r1bqk2r/ppp2pp1/2np1n1p/2b1p1B1/2B1P3/3P1N2/PPP2PPP/RN1Q1RK1 w kq - 0 7")
+        tactics = analyze_tactics(board)
+        bg5_forks = [f for f in tactics.forks if f.forking_square == "g5"]
+        assert len(bg5_forks) == 1
+        assert bg5_forks[0].is_pin_fork is True
+
+    def test_fork_pin_fork_not_set_for_regular_fork(self):
+        """A regular knight fork (no pin involved) should not be marked as pin-fork."""
+        # Classic knight fork on c7 hitting king and rook
+        board = chess.Board(FORK_POSITION)
+        tactics = analyze_tactics(board)
+        nc7_forks = [f for f in tactics.forks if f.forking_square == "c7"]
+        assert len(nc7_forks) == 1
+        assert nc7_forks[0].is_pin_fork is False
+
+    def test_fork_pin_fork_high_value_target(self):
+        """Bishop pinning knight and also attacking a rook = high-value pin-fork."""
+        # Bg5 pins Nf6 to Kd8, also attacks Rh6
+        board = chess.Board("3k4/8/5n1r/6B1/8/8/8/4K3 w - - 0 1")
+        tactics = analyze_tactics(board)
+        bg5_forks = [f for f in tactics.forks if f.forking_square == "g5"]
+        assert len(bg5_forks) == 1
+        assert bg5_forks[0].is_pin_fork is True
+
     def test_hanging_piece(self):
         # Black knight on e4 attacked by white rook, no defenders
         board = chess.Board(PIN_POSITION)

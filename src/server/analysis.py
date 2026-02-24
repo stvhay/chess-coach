@@ -610,6 +610,7 @@ class Fork:
     color: str = ""  # "white" or "black" — color of the forking piece
     is_check_fork: bool = False   # one target is the king
     is_royal_fork: bool = False   # targets include both king and queen
+    is_pin_fork: bool = False     # forker also pins one of the targets
 
 
 @dataclass
@@ -1002,7 +1003,13 @@ def _find_ray_motifs(board: chess.Board) -> _RayMotifs:
     )
 
 
-def _find_forks(board: chess.Board) -> list[Fork]:
+def _find_forks(board: chess.Board, pins: list | None = None) -> list[Fork]:
+    # Build pin lookup: (pinner_square, pinned_square) pairs for pin-fork detection
+    pin_pairs: set[tuple[str, str]] = set()
+    if pins:
+        for pin in pins:
+            pin_pairs.add((pin.pinner_square, pin.pinned_square))
+
     forks = []
     for color in (chess.WHITE, chess.BLACK):
         color_name = _color_name(color)
@@ -1052,14 +1059,22 @@ def _find_forks(board: chess.Board) -> list[Fork]:
 
             has_queen_target = chess.QUEEN in target_types
 
+            # Pin-fork detection: if the forker also pins one of the targets,
+            # this is a compound motif (pin + fork from the same piece)
+            forker_sq_name = chess.square_name(sq)
+            is_pin_fork = any(
+                (forker_sq_name, t) in pin_pairs for t in targets
+            )
+
             forks.append(Fork(
-                forking_square=chess.square_name(sq),
+                forking_square=forker_sq_name,
                 forking_piece=piece.symbol(),
                 targets=targets,
                 target_pieces=target_pieces,
                 color=color_name,
                 is_check_fork=has_king_target,
                 is_royal_fork=has_king_target and has_queen_target,
+                is_pin_fork=is_pin_fork,
             ))
     return forks
 
@@ -1443,7 +1458,7 @@ def analyze_tactics(board: chess.Board) -> TacticalMotifs:
     back_rank_weaknesses = _find_back_rank_weaknesses(board)
     return TacticalMotifs(
         pins=ray.pins,
-        forks=_find_forks(board),
+        forks=_find_forks(board, pins=ray.pins),
         skewers=ray.skewers,
         hanging=_find_hanging(board),
         discovered_attacks=ray.discovered_attacks,

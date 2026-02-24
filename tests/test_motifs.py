@@ -148,6 +148,20 @@ class TestMotifRenderers:
         desc, is_opp = render_fork(fork, _ctx(True))
         assert "wins" in desc.lower()
 
+    def test_render_pin_fork(self):
+        """Pin-fork uses 'pins and also attacks' language instead of 'forks'."""
+        fork = Fork("g5", "B", ["f6", "h6"], ["n", "p"], is_pin_fork=True)
+        desc, is_opp = render_fork(fork, _ctx(True))
+        assert "pins and also attacks" in desc.lower()
+        assert "forks" not in desc.lower()
+
+    def test_render_regular_fork_no_pin_fork_language(self):
+        """Regular fork should use 'forks' language, not pin-fork language."""
+        fork = Fork("e5", "N", ["c6", "g6"], ["r", "q"], is_pin_fork=False)
+        desc, is_opp = render_fork(fork, _ctx(True))
+        assert "forks" in desc.lower()
+        assert "pins and also attacks" not in desc.lower()
+
     def test_render_pin(self):
         # White bishop pins Black knight to Black king
         pin = Pin(
