@@ -178,7 +178,7 @@
       --footer-h: 28px;
       --pad: 12px;
       --panel-width: 260px;
-      --eval-bar-width: 32px;
+      --eval-bar-width: 24px;
 
       /* Board = min(available height, available width minus panels) */
       --available-height: calc(100vh - var(--header-h) - var(--footer-h) - var(--pad) * 2);
@@ -211,7 +211,8 @@
       padding: 12px;
       background: #16213e;
       border: 1px solid #333;
-      border-radius: 8px;
+      border-right: none;
+      border-radius: 8px 0 0 8px;
       display: flex;
       flex-direction: column;
       gap: 8px;
@@ -300,7 +301,7 @@
     .eval-bar-wrap {
       width: 24px;
       height: var(--board-size);
-      margin: 0 4px;
+      margin: 0;
       position: relative;
       border-radius: 4px;
       overflow: hidden;
@@ -379,7 +380,8 @@
       padding: 12px;
       background: #16213e;
       border: 1px solid #333;
-      border-radius: 8px;
+      border-left: none;
+      border-radius: 0 8px 8px 0;
     }
     .section-label {
       font-size: 11px;
