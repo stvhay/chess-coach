@@ -3,7 +3,7 @@
 import chess
 import pytest
 
-from server.analysis import MaterialCount
+from server.analysis import MaterialCount, analyze_material
 from server.game_tree import GameNode, GameTree
 from server.report import (
     _describe_capture,
@@ -11,6 +11,7 @@ from server.report import (
     _format_numbered_move,
     _format_pv_with_numbers,
     _game_pgn,
+    _net_piece_diff,
     _piece_diff,
     serialize_report,
 )
@@ -106,31 +107,70 @@ class TestPieceDiff:
 class TestDescribeResult:
     def test_result_describes_pieces(self):
         """When material is exchanged, result should use piece names."""
-        # Build a tree where white captures a knight
-        board1 = chess.Board("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1")
         root = GameNode(board=chess.Board(), source="played")
-        # e4
         e4 = root.add_child(chess.Move.from_uci("e2e4"), "played")
-        # e5
         e5 = e4.add_child(chess.Move.from_uci("e7e5"), "played")
-        # Nf3
         nf3 = e5.add_child(chess.Move.from_uci("g1f3"), "played")
-        # Nc6
         nc6 = nf3.add_child(chess.Move.from_uci("b8c6"), "played")
-        # Nxe5 (captures pawn)
         nxe5 = nc6.add_child(chess.Move.from_uci("f3e5"), "played")
 
         chain = [nxe5]
         result = _describe_result(chain, True)
         assert "Result:" in result
 
-    def test_equal_material(self):
-        """No captures → equal material."""
+    def test_no_material_changes(self):
+        """No captures — no material changes."""
         root = GameNode(board=chess.Board(), source="played")
         e4 = root.add_child(chess.Move.from_uci("e2e4"), "played")
         chain = [e4]
         result = _describe_result(chain, True)
-        assert "Equal material" in result
+        assert "No material changes" in result
+
+    def test_queen_trade_plus_pawn(self):
+        """Queen trade where student also wins a pawn — 'wins a pawn'."""
+        # W(Q, R), B(Q, Pg7, Ph7). Qxf6 gxf6 Rxh7.
+        # After: W(R), B(Pf6). Net: queens cancel, student wins a pawn.
+        before = chess.Board("4k3/6pp/5q2/8/8/5Q2/8/4K2R w - - 0 1")
+        root = GameNode(board=before, source="played")
+        n1 = root.add_child(chess.Move.from_uci("f3f6"), "played")  # Qxf6
+        n2 = n1.add_child(chess.Move.from_uci("g7f6"), "played")    # gxf6
+        n3 = n2.add_child(chess.Move.from_uci("h1h7"), "played")    # Rxh7
+
+        chain = [n1, n2, n3]
+        result = _describe_result(chain, True)
+        assert "wins a pawn" in result
+        assert "queen" not in result.lower()
+
+    def test_even_queen_trade(self):
+        """Even queen trade — 'No material changes'."""
+        before = chess.Board("4k3/6p1/5q2/8/8/5Q2/8/4K3 w - - 0 1")
+        root = GameNode(board=before, source="played")
+        n1 = root.add_child(chess.Move.from_uci("f3f6"), "played")  # Qxf6
+        n2 = n1.add_child(chess.Move.from_uci("g7f6"), "played")    # gxf6
+        chain = [n1, n2]
+        result = _describe_result(chain, True)
+        assert "No material changes" in result
+
+    def test_rook_for_knight_trade(self):
+        """Student trades rook for knight — 'trades a rook for a knight'."""
+        before = chess.Board("4k3/3n4/8/3R4/8/8/8/4K3 w - - 0 1")
+        root = GameNode(board=before, source="played")
+        n1 = root.add_child(chess.Move.from_uci("d5d7"), "played")  # Rxd7
+        n2 = n1.add_child(chess.Move.from_uci("e8d7"), "played")    # Kxd7
+        chain = [n1, n2]
+        result = _describe_result(chain, True)
+        assert "trades" in result
+        assert "rook" in result
+        assert "knight" in result
+
+    def test_simple_pawn_capture(self):
+        """One-sided pawn capture still says 'wins a pawn'."""
+        before = chess.Board("4k3/8/8/4p3/3P4/8/8/4K3 w - - 0 1")
+        root = GameNode(board=before, source="played")
+        n1 = root.add_child(chess.Move.from_uci("d4e5"), "played")  # dxe5
+        chain = [n1]
+        result = _describe_result(chain, True)
+        assert "wins a pawn" in result
 
 
 # --- serialize_report structure tests ---
@@ -259,3 +299,50 @@ class TestSerializeReportMoveNumbers:
         assert "# Student Move" in report
         lines = report.split("\n")
         assert any(line.strip() == "2. Nf3" for line in lines)
+
+
+# --- Bug #6 investigation: Bxf6 gxf6 material equality ---
+
+
+class TestBug6MaterialResult:
+    """Bug #6 claims 'Student wins a pawn' after an equal bishop-for-knight trade.
+
+    The reported FEN has equal material (35-35). These tests verify that
+    analyze_material and _describe_result agree it's equal.
+    """
+
+    def test_bxf6_gxf6_material_equal(self):
+        """Post-trade FEN has 0 material imbalance."""
+        # FEN from bug report: after Bxf6 gxf6 in a Ruy Lopez position
+        # White: K, Q, 2R, B, N, 7P  Black: K, Q, 2R, B, N, 7P (approx)
+        # Use a simplified position that matches the reported scenario:
+        # White has B on g5, Black has N on f6, pawns on g7
+        before_fen = "r1bqkb1r/ppp1pppp/2n2n2/3p2B1/3P4/2N2N2/PPP1PPPP/R2QKB1R w KQkq - 4 4"
+        before = chess.Board(before_fen)
+
+        # After Bxf6 gxf6: White loses bishop, Black loses knight + pawn g7 becomes f6
+        before.push_uci("g5f6")  # Bxf6
+        before.push_uci("g7f6")  # gxf6
+
+        mat = analyze_material(before)
+        # Both sides traded a minor piece (bishop for knight) — imbalance should be 0
+        assert mat.imbalance == 0, (
+            f"Expected 0 imbalance after Bxf6 gxf6 (bishop-for-knight trade), "
+            f"got {mat.imbalance}"
+        )
+
+    def test_describe_result_equal_trade(self):
+        """_describe_result for Bxf6 gxf6 reports no material win."""
+        before_fen = "r1bqkb1r/ppp1pppp/2n2n2/3p2B1/3P4/2N2N2/PPP1PPPP/R2QKB1R w KQkq - 4 4"
+        root_board = chess.Board(before_fen)
+        root = GameNode(board=root_board, source="played")
+
+        n1 = root.add_child(chess.Move.from_uci("g5f6"), "played")  # Bxf6
+        n2 = n1.add_child(chess.Move.from_uci("g7f6"), "played")    # gxf6
+
+        chain = [n1, n2]
+        result = _describe_result(chain, student_is_white=True)
+        # Should NOT say "wins a pawn" — the trade is equal
+        assert "wins" not in result.lower(), (
+            f"Equal bishop-for-knight trade should not say 'wins': {result}"
+        )

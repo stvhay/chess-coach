@@ -271,6 +271,30 @@ def describe_position(tree: GameTree, node: GameNode) -> PositionDescription:
 
 
 # ---------------------------------------------------------------------------
+# False discovered attack filter
+# ---------------------------------------------------------------------------
+
+def _blocker_is_move_dest(
+    key: tuple,
+    tactics: TacticalMotifs,
+    move_dest: str,
+) -> bool:
+    """Check if a discovered-attack key's blocker square is the move destination.
+
+    When a piece moves ONTO a slider ray, the after-position detects a
+    DiscoveredAttack with the arriving piece as "blocker". But nothing was
+    "discovered" — the piece arrived there, it didn't move away. Filter these.
+    """
+    if key[0] != "discovered":
+        return False
+    slider_sq, target_sq = key[1], key[2]
+    for da in tactics.discovered_attacks:
+        if da.slider_square == slider_sq and da.target_square == target_sq and da.blocker_square == move_dest:
+            return True
+    return False
+
+
+# ---------------------------------------------------------------------------
 # Change descriptions
 # ---------------------------------------------------------------------------
 
@@ -313,6 +337,16 @@ def describe_changes(
         # This prevents "pin of f7 to g8" from appearing in multiple plies
         # when the parent position already has that pin
         filtered_new_keys = diff.new_keys - seen_motif_keys
+
+        # Filter out false discovered attacks: when a piece moves ONTO a
+        # ray, the after-position has a DiscoveredAttack with the arriving
+        # piece as "blocker", but nothing was actually "discovered".
+        if chain_node.move is not None:
+            move_dest = chess.square_name(chain_node.move.to_square)
+            filtered_new_keys = {
+                k for k in filtered_new_keys
+                if not _blocker_is_move_dest(k, current_tactics, move_dest)
+            }
 
         # Render motifs via registry
         is_future = i > 0

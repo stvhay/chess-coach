@@ -3,6 +3,7 @@
 import chess
 
 from server.analysis import (
+    DiscoveredAttack,
     Fork,
     Pin,
     TacticalMotifs,
@@ -10,6 +11,7 @@ from server.analysis import (
 from server.analysis import analyze
 from server.descriptions import (
     PositionDescription,
+    _blocker_is_move_dest,
     diff_tactics,
     describe_changes,
     describe_position,
@@ -168,3 +170,150 @@ def test_as_text_max_items():
     assert "t0" in text
     assert "t2" in text
     assert "t3" not in text
+
+
+# --- key-level filtering regression tests ---
+
+
+def test_describe_changes_no_duplicate_persistent_motifs():
+    """Persistent motifs should not be re-rendered when a new motif of the same type appears.
+
+    Regression test: _new_motif_types collapsed keys to types, causing ALL
+    items of a type to render when only some were new.
+    """
+    # Parent has fork A
+    fork_a = Fork("d5", "N", ["c3", "f6"], target_pieces=["B", "R"])
+    parent_tactics = TacticalMotifs(forks=[fork_a])
+
+    # Child has fork A (persistent) + fork B (new)
+    fork_b = Fork("e4", "N", ["c5", "g5"], target_pieces=["B", "Q"])
+    child_tactics = TacticalMotifs(forks=[fork_a, fork_b])
+
+    # Build a minimal tree with mocked tactics
+    parent_board = chess.Board()
+    parent_node = GameNode(board=parent_board, source="played")
+
+    move = chess.Move.from_uci("g1f3")
+    child_node = parent_node.add_child(move, "played")
+
+    tree = GameTree(
+        root=parent_node, decision_point=parent_node, player_color=chess.WHITE,
+    )
+
+    # Patch tactics caches directly
+    parent_node._tactics = parent_tactics
+    child_node._tactics = child_tactics
+
+    opps, thrs, obs = describe_changes(tree, child_node)
+    all_text = " ".join(opps + thrs + obs).lower()
+
+    # Fork B (e4) should appear
+    assert "e4" in all_text, "New fork on e4 should be described"
+    # Fork A (d5) should NOT appear — it was persistent, not new
+    assert "d5" not in all_text, "Persistent fork on d5 should NOT be re-rendered"
+
+
+# --- False discovered attack tests (Bug #8) ---
+
+
+class TestFalseDiscoveredAttack:
+    """Bug #8: piece moving ONTO a ray reports false 'discovered attack'."""
+
+    def test_blocker_is_move_dest_helper(self):
+        """_blocker_is_move_dest returns True when blocker == move dest."""
+        da = DiscoveredAttack(
+            blocker_square="f6", blocker_piece="B",
+            slider_square="d4", slider_piece="Q",
+            target_square="g7", target_piece="p",
+        )
+        tactics = TacticalMotifs(discovered_attacks=[da])
+        key = ("discovered", "d4", "g7")
+        assert _blocker_is_move_dest(key, tactics, "f6") is True
+
+    def test_blocker_is_move_dest_false_for_other_square(self):
+        """_blocker_is_move_dest returns False when blocker != move dest."""
+        da = DiscoveredAttack(
+            blocker_square="e5", blocker_piece="N",
+            slider_square="d4", slider_piece="Q",
+            target_square="g7", target_piece="p",
+        )
+        tactics = TacticalMotifs(discovered_attacks=[da])
+        key = ("discovered", "d4", "g7")
+        assert _blocker_is_move_dest(key, tactics, "f6") is False
+
+    def test_blocker_is_move_dest_non_discovered_key(self):
+        """_blocker_is_move_dest returns False for non-discovered keys."""
+        tactics = TacticalMotifs()
+        key = ("pin", "b5", "e8")
+        assert _blocker_is_move_dest(key, tactics, "c6") is False
+
+    def test_false_discovered_attack_blocker_arrives(self):
+        """Piece moves ONTO ray → discovered attack is suppressed in describe_changes.
+
+        Scenario: White Qd4, Black pawns g7/h6. Move: Bxf6 (bishop lands
+        on the d4→g7 ray). The after-position has a DiscoveredAttack with
+        blocker=f6, but the bishop just arrived there — nothing was "discovered".
+        """
+        # Parent: White Qd4, Bg5; Black Nf6, pawns g7/h6
+        parent_board = chess.Board("4k3/6p1/5n1p/6B1/3Q4/8/8/4K3 w - - 0 1")
+        parent_node = GameNode(board=parent_board, source="played")
+
+        # Move: Bxf6 (bishop captures on f6, landing on d4-g7 ray)
+        move = chess.Move.from_uci("g5f6")
+        child_node = parent_node.add_child(move, "played")
+
+        # Patch tactics: parent has no discovered attacks, child has one
+        # where the blocker (f6) is the move destination
+        parent_node._tactics = TacticalMotifs()
+        child_node._tactics = TacticalMotifs(discovered_attacks=[
+            DiscoveredAttack(
+                blocker_square="f6", blocker_piece="B",
+                slider_square="d4", slider_piece="Q",
+                target_square="g7", target_piece="p",
+                color="white",
+            ),
+        ])
+
+        tree = GameTree(
+            root=parent_node, decision_point=parent_node,
+            player_color=chess.WHITE,
+        )
+        opps, thrs, obs = describe_changes(tree, child_node)
+        all_text = " ".join(opps + thrs + obs).lower()
+        assert "discover" not in all_text, \
+            "False discovered attack (blocker arrived at square) should be suppressed"
+
+    def test_genuine_discovered_attack_preserved(self):
+        """Blocker was already there → discovered attack is preserved.
+
+        Scenario: White Rb1, Na4; Black Qa8. Move: Ra1 (rook slides to a1,
+        creating Ra1-Na4-Qa8 alignment). The blocker Na4 was NOT the piece
+        that moved, so the discovered attack should survive filtering.
+        """
+        parent_board = chess.Board("q3k3/8/8/8/N7/8/8/1R2K3 w - - 0 1")
+        parent_node = GameNode(board=parent_board, source="played")
+
+        # Move: Rb1-a1 (rook moves, knight is already on a4)
+        move = chess.Move.from_uci("b1a1")
+        child_node = parent_node.add_child(move, "played")
+
+        # Patch tactics: child has discovered attack with blocker=a4 (the knight)
+        parent_node._tactics = TacticalMotifs()
+        child_node._tactics = TacticalMotifs(discovered_attacks=[
+            DiscoveredAttack(
+                blocker_square="a4", blocker_piece="N",
+                slider_square="a1", slider_piece="R",
+                target_square="a8", target_piece="q",
+                color="white",
+            ),
+        ])
+
+        tree = GameTree(
+            root=parent_node, decision_point=parent_node,
+            player_color=chess.WHITE,
+        )
+        opps, thrs, obs = describe_changes(tree, child_node)
+        all_text = " ".join(opps + thrs + obs).lower()
+        # The discovered attack should be preserved (blocker a4 != move dest a1)
+        assert "discover" in all_text or "x-ray" in all_text or "a4" in all_text, \
+            "Genuine discovered attack (blocker already in place) should be preserved"
