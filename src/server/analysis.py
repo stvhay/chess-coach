@@ -1093,17 +1093,53 @@ def _find_exposed_kings(board: chess.Board) -> list[ExposedKing]:
     return exposed
 
 
-def _find_overloaded_pieces(board: chess.Board) -> list[OverloadedPiece]:
-    """Find pieces that are the sole defender of 2+ attacked targets."""
+def _find_overloaded_pieces(
+    board: chess.Board,
+    back_rank_weaknesses: list[BackRankWeakness] | None = None,
+    mate_threats: list[MateThreat] | None = None,
+) -> list[OverloadedPiece]:
+    """Find pieces that are the sole defender of 2+ duties.
+
+    Duties include:
+    - Sole defender of an attacked friendly piece (traditional)
+    - Sole defender of a back-rank square against heavy piece intrusion
+    - Sole blocker of a mate-threat mating square
+    """
+    if back_rank_weaknesses is None:
+        back_rank_weaknesses = []
+    if mate_threats is None:
+        mate_threats = []
+
     overloaded = []
     for color in (chess.WHITE, chess.BLACK):
         enemy = not color
+        # Collect back-rank squares that need defense for this color
+        br_squares: set[int] = set()
+        back_rank = 0 if color == chess.WHITE else 7
+        for brw in back_rank_weaknesses:
+            if brw.weak_color == _color_name(color):
+                # All squares on the back rank attacked by enemy heavy pieces
+                for f in range(8):
+                    sq_br = chess.square(f, back_rank)
+                    if board.attackers(enemy, sq_br):
+                        br_squares.add(sq_br)
+
+        # Collect mate-threat mating squares that need blocking for this color
+        mt_squares: set[int] = set()
+        for mt in mate_threats:
+            if mt.threatening_color != _color_name(color):
+                # This color is threatened
+                mt_sq = chess.parse_square(mt.mating_square)
+                mt_squares.add(mt_sq)
+
         for sq in chess.SquareSet(board.occupied_co[color]):
             piece = board.piece_at(sq)
             if piece is None or piece.piece_type in (chess.PAWN, chess.KING):
                 continue
-            # Find friendly pieces this piece defends that are attacked by enemy
-            sole_defended: list[int] = []
+
+            duties: list[int] = []
+
+            # Traditional: sole defender of attacked friendly pieces
             for defended_sq in board.attacks(sq):
                 defended_piece = board.piece_at(defended_sq)
                 if defended_piece is None or defended_piece.color != color:
@@ -1117,12 +1153,31 @@ def _find_overloaded_pieces(board: chess.Board) -> list[OverloadedPiece]:
                 all_defenders = board.attackers(color, defended_sq)
                 other_defenders = chess.SquareSet(all_defenders) - chess.SquareSet(chess.BB_SQUARES[sq])
                 if not other_defenders:
-                    sole_defended.append(defended_sq)
-            if len(sole_defended) >= 2:
+                    duties.append(defended_sq)
+
+            # Back-rank duty: sole defender of a critical back-rank square
+            for br_sq in br_squares:
+                if br_sq in board.attacks(sq):
+                    all_defenders = board.attackers(color, br_sq)
+                    other_defenders = chess.SquareSet(all_defenders) - chess.SquareSet(chess.BB_SQUARES[sq])
+                    if not other_defenders:
+                        if br_sq not in duties:  # avoid double-counting
+                            duties.append(br_sq)
+
+            # Mate-threat blocking duty: sole blocker of a mating square
+            for mt_sq in mt_squares:
+                if mt_sq in board.attacks(sq):
+                    all_defenders = board.attackers(color, mt_sq)
+                    other_defenders = chess.SquareSet(all_defenders) - chess.SquareSet(chess.BB_SQUARES[sq])
+                    if not other_defenders:
+                        if mt_sq not in duties:
+                            duties.append(mt_sq)
+
+            if len(duties) >= 2:
                 overloaded.append(OverloadedPiece(
                     square=chess.square_name(sq),
                     piece=piece.symbol(),
-                    defended_squares=[chess.square_name(s) for s in sole_defended],
+                    defended_squares=[chess.square_name(s) for s in duties],
                     color=_color_name(color),
                 ))
     return overloaded
@@ -1175,6 +1230,8 @@ def _find_capturable_defenders(board: chess.Board) -> list[CapturableDefender]:
 
 def analyze_tactics(board: chess.Board) -> TacticalMotifs:
     ray = _find_ray_motifs(board)
+    mate_threats = _find_mate_threats(board)
+    back_rank_weaknesses = _find_back_rank_weaknesses(board)
     return TacticalMotifs(
         pins=ray.pins,
         forks=_find_forks(board),
@@ -1184,12 +1241,16 @@ def analyze_tactics(board: chess.Board) -> TacticalMotifs:
         double_checks=_find_double_checks(board),
         trapped_pieces=_find_trapped_pieces(board),
         mate_patterns=_find_mate_patterns(board),
-        mate_threats=_find_mate_threats(board),
-        back_rank_weaknesses=_find_back_rank_weaknesses(board),
+        mate_threats=mate_threats,
+        back_rank_weaknesses=back_rank_weaknesses,
         xray_attacks=ray.xray_attacks,
         xray_defenses=ray.xray_defenses,
         exposed_kings=_find_exposed_kings(board),
-        overloaded_pieces=_find_overloaded_pieces(board),
+        overloaded_pieces=_find_overloaded_pieces(
+            board,
+            back_rank_weaknesses=back_rank_weaknesses,
+            mate_threats=mate_threats,
+        ),
         capturable_defenders=_find_capturable_defenders(board),
     )
 
