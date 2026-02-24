@@ -177,7 +177,45 @@
       --header-h: 44px;
       --footer-h: 28px;
       --pad: 16px;
-      --board-size: calc(100vh - var(--header-h) - var(--footer-h) - var(--pad) * 2);
+
+      /* Available space calculations */
+      --available-height: calc(100vh - var(--header-h) - var(--footer-h) - var(--pad) * 2);
+      --available-width: calc(100vw - var(--pad) * 2);
+
+      /* Board size picks whichever dimension is more constraining */
+      /* Desktop: min(height, width-minus-panels) */
+      --board-size: min(
+        var(--available-height),
+        min(600px, calc(var(--available-width) - 400px))
+      );
+    }
+
+    /* Mobile: Stack vertically */
+    @media (max-width: 768px) {
+      :root {
+        --board-size: min(var(--available-width), 500px);
+      }
+
+      .layout {
+        grid-template-columns: 1fr !important;
+        grid-template-rows: auto auto auto auto;
+        gap: 12px;
+      }
+
+      .coach-column,
+      .right-panel {
+        height: auto;
+        max-height: 300px;
+      }
+    }
+
+    /* Tablet: Smaller panels */
+    @media (min-width: 769px) and (max-width: 1024px) {
+      .coach-column,
+      .right-panel {
+        min-width: 200px;
+        max-width: 250px;
+      }
     }
     .layout-wrap {
       display: flex;
@@ -332,6 +370,24 @@
     .board-wrap {
       width: var(--board-size);
       height: var(--board-size);
+      position: relative;
+    }
+
+    .board-wrap::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0);
+      pointer-events: none;
+      transition: background 0.2s ease;
+      border-radius: 4px;
+    }
+
+    .board-wrap.viewing-history::after {
+      background: rgba(0, 0, 0, 0.15);
     }
 
     /* Board color overrides: cool blue-gray */
@@ -365,6 +421,45 @@
     }
     .game-status.thinking {
       color: #fbbf24;
+    }
+    .new-game-btn {
+      width: 100%;
+      padding: 10px 16px;
+      background: #1e3a5f;
+      color: #e0e0e0;
+      border: 1px solid #333;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      font-family: inherit;
+      transition: background 0.15s ease, border-color 0.15s ease;
+      margin-bottom: 8px;
+    }
+    .new-game-btn:hover {
+      background: #2a5080;
+      border-color: #4ade80;
+    }
+    .elo-select-main {
+      width: 100%;
+      padding: 8px 12px;
+      background: #0f1729;
+      border: 1px solid #333;
+      border-radius: 4px;
+      color: #e0e0e0;
+      font-family: inherit;
+      font-size: 13px;
+      cursor: pointer;
+      margin-bottom: 12px;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 5l3 3 3-3' fill='none' stroke='%23888' stroke-width='1.5'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 8px center;
+    }
+    .elo-select-main:focus {
+      outline: none;
+      border-color: #4ade80;
+      box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.15);
     }
     .eval-display {
       font-family: 'JetBrains Mono', 'Fira Code', monospace;
@@ -406,6 +501,26 @@
       text-align: center;
       min-height: 16px;
       font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+    .fen-display {
+      width: 100%;
+      padding: 6px 10px;
+      background: #0f1729;
+      border: 1px solid #333;
+      border-radius: 4px;
+      color: #888;
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      font-size: 11px;
+      cursor: pointer;
+      transition: border-color 0.3s ease;
+      margin-top: 8px;
+    }
+    .fen-display:hover {
+      border-color: #4ade80;
+    }
+    .fen-display:focus {
+      outline: none;
+      border-color: #4ade80;
     }
 
     /* --- Move list grid --- */

@@ -29,34 +29,6 @@ function init() {
   hamburgerMenu.className = "hamburger-menu";
   header.appendChild(hamburgerMenu);
 
-  const menuNewGameBtn = document.createElement("button");
-  menuNewGameBtn.textContent = "New Game";
-  hamburgerMenu.appendChild(menuNewGameBtn);
-
-  // ELO profile selector
-  const eloLabel = document.createElement("div");
-  eloLabel.className = "menu-label";
-  eloLabel.textContent = "Skill Level";
-  hamburgerMenu.appendChild(eloLabel);
-
-  const eloSelect = document.createElement("select");
-  eloSelect.className = "elo-select";
-  const eloOptions: [string, string][] = [
-    ["beginner", "Beginner (600-800)"],
-    ["intermediate", "Intermediate (800-1000)"],
-    ["advancing", "Advancing (1000-1200)"],
-    ["club", "Club (1200-1400)"],
-    ["competitive", "Competitive (1400+)"],
-  ];
-  for (const [value, label] of eloOptions) {
-    const opt = document.createElement("option");
-    opt.value = value;
-    opt.textContent = label;
-    if (value === "intermediate") opt.selected = true;
-    eloSelect.appendChild(opt);
-  }
-  hamburgerMenu.appendChild(eloSelect);
-
   const menuFenInput = document.createElement("input");
   menuFenInput.type = "text";
   menuFenInput.placeholder = "Load FEN\u2026";
@@ -67,7 +39,7 @@ function init() {
   shortcutsRef.className = "shortcuts-ref";
   shortcutsRef.innerHTML =
     "<kbd>\u2190</kbd> <kbd>\u2192</kbd> navigate moves<br>" +
-    "<kbd>Home</kbd> <kbd>End</kbd> first / last<br>" +
+    "<kbd>\u2191</kbd> <kbd>\u2193</kbd> <kbd>Home</kbd> <kbd>End</kbd> first / last<br>" +
     "<kbd>n</kbd> new game";
   hamburgerMenu.appendChild(shortcutsRef);
 
@@ -136,6 +108,36 @@ function init() {
   rightPanel.className = "right-panel";
   layout.appendChild(rightPanel);
 
+  // New Game button
+  const newGameBtn = document.createElement("button");
+  newGameBtn.className = "new-game-btn";
+  newGameBtn.textContent = "New Game";
+  rightPanel.appendChild(newGameBtn);
+
+  // Skill Level
+  const skillLevelLabel = document.createElement("div");
+  skillLevelLabel.className = "section-label";
+  skillLevelLabel.textContent = "Skill Level";
+  rightPanel.appendChild(skillLevelLabel);
+
+  const eloSelect = document.createElement("select");
+  eloSelect.className = "elo-select-main";
+  const eloOptions: [string, string][] = [
+    ["beginner", "Beginner (600-800)"],
+    ["intermediate", "Intermediate (800-1000)"],
+    ["advancing", "Advancing (1000-1200)"],
+    ["club", "Club (1200-1400)"],
+    ["competitive", "Competitive (1400+)"],
+  ];
+  for (const [value, label] of eloOptions) {
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = label;
+    if (value === "intermediate") opt.selected = true;
+    eloSelect.appendChild(opt);
+  }
+  rightPanel.appendChild(eloSelect);
+
   // Game status
   const statusDisplay = document.createElement("div");
   statusDisplay.className = "game-status";
@@ -174,6 +176,34 @@ function init() {
   const viewingIndicator = document.createElement("div");
   viewingIndicator.className = "viewing-indicator";
   rightPanel.appendChild(viewingIndicator);
+
+  // FEN display (click to copy)
+  const fenDisplay = document.createElement("input");
+  fenDisplay.type = "text";
+  fenDisplay.readOnly = true;
+  fenDisplay.className = "fen-display";
+  fenDisplay.placeholder = "Position FEN";
+  fenDisplay.title = "Click to copy FEN";
+  rightPanel.appendChild(fenDisplay);
+
+  function updateFenDisplay(fen: string) {
+    fenDisplay.value = fen;
+  }
+
+  fenDisplay.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(fenDisplay.value);
+      const originalBorder = fenDisplay.style.borderColor;
+      fenDisplay.style.borderColor = "#4ade80";
+      setTimeout(() => {
+        fenDisplay.style.borderColor = originalBorder;
+      }, 300);
+    } catch (err) {
+      // Fallback for older browsers
+      fenDisplay.select();
+      document.execCommand("copy");
+    }
+  });
 
   // --- Footer ---
   const footer = document.createElement("footer");
@@ -320,6 +350,9 @@ function init() {
       moveHistory.appendChild(row);
     }
     moveHistory.scrollTop = moveHistory.scrollHeight;
+
+    // Update FEN display
+    updateFenDisplay(gc.fen());
   }
 
   // --- Ply change handler ---
@@ -341,9 +374,14 @@ function init() {
 
     if (ply < maxPly) {
       viewingIndicator.textContent = `Viewing move ${ply} of ${maxPly}`;
+      boardWrap.classList.add("viewing-history");
     } else {
       viewingIndicator.textContent = "";
+      boardWrap.classList.remove("viewing-history");
     }
+
+    // Update FEN display
+    updateFenDisplay(gc.fen());
   }
 
   // --- Coaching display ---
@@ -408,6 +446,9 @@ function init() {
       viewingIndicator.textContent = "";
       updateEvalBar(null, null);
       evalBarWrap.classList.remove("visible");
+
+      // Update FEN display
+      updateFenDisplay(gc.fen());
     });
   }
 
@@ -446,10 +487,12 @@ function init() {
         e.preventDefault();
         gc.stepForward();
         break;
+      case "ArrowUp":
       case "Home":
         e.preventDefault();
         gc.jumpToPly(0);
         break;
+      case "ArrowDown":
       case "End":
         e.preventDefault();
         gc.jumpToPly(gc.getMaxPly());
@@ -461,17 +504,15 @@ function init() {
     }
   });
 
-  // Menu: New game button
-  menuNewGameBtn.addEventListener("click", () => {
+  // New game button
+  newGameBtn.addEventListener("click", () => {
     resetUI();
-    hamburgerMenu.classList.remove("open");
   });
 
-  // Menu: ELO profile change
+  // ELO select
   eloSelect.addEventListener("change", () => {
     gc.setEloProfile(eloSelect.value);
     resetUI();
-    hamburgerMenu.classList.remove("open");
   });
 
   // Menu: FEN input
