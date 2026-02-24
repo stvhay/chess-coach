@@ -168,6 +168,9 @@
       flex-shrink: 0;
       display: flex;
       align-items: center;
+      max-width: 1200px;
+      margin: 0 auto;
+      width: 100%;
     }
     .app-footer .engine-status.connected { color: #4ade80; }
     .app-footer .engine-status.error { color: #f87171; }
@@ -186,7 +189,7 @@
       /* Desktop: min(height, width-minus-panels) */
       --board-size: min(
         var(--available-height),
-        min(600px, calc(var(--available-width) - 400px))
+        min(600px, calc(var(--available-width) - 280px))
       );
     }
 
