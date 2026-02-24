@@ -3,6 +3,16 @@ import { BrowserEngine, MultiPVInfo } from "./eval";
 import { GameController, PromotionPiece } from "./game";
 import { CoachingData } from "./api";
 
+function updateBoardColors() {
+  const style = getComputedStyle(document.documentElement);
+  const boardDark = style.getPropertyValue("--board-dark").trim();
+  const boardLight = style.getPropertyValue("--board-light").trim();
+  const cgBoard = document.querySelector("cg-board") as HTMLElement | null;
+  if (cgBoard) {
+    cgBoard.style.backgroundColor = boardDark;
+  }
+}
+
 function init() {
   const root = document.getElementById("app");
   if (!root) return;
@@ -34,6 +44,43 @@ function init() {
   menuFenInput.placeholder = "Load FEN\u2026";
   menuFenInput.className = "fen-input";
   hamburgerMenu.appendChild(menuFenInput);
+
+  // Theme selector
+  const themeLabel = document.createElement("div");
+  themeLabel.className = "menu-label";
+  themeLabel.textContent = "theme";
+  hamburgerMenu.appendChild(themeLabel);
+
+  const themeSelect = document.createElement("select");
+  themeSelect.className = "elo-select"; // reuse same styling as ELO select in menu
+  const builtInThemes: [string, string][] = [
+    ["dark", "Dark"],
+    ["light", "Light"],
+    ["wood", "Wood"],
+    ["marble", "Marble"],
+    ["rose", "Rose"],
+    ["clean", "Clean"],
+  ];
+  for (const [value, label] of builtInThemes) {
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = label;
+    themeSelect.appendChild(opt);
+  }
+
+  // Set initial value from current theme
+  const currentTheme = document.documentElement.getAttribute("data-theme") || "dark";
+  themeSelect.value = currentTheme;
+
+  hamburgerMenu.appendChild(themeSelect);
+
+  // Theme change handler
+  themeSelect.addEventListener("change", () => {
+    const theme = themeSelect.value;
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("chess-teacher-theme", theme);
+    updateBoardColors();
+  });
 
   const shortcutsRef = document.createElement("div");
   shortcutsRef.className = "shortcuts-ref";
@@ -473,6 +520,8 @@ function init() {
 
   // Create initial server session
   gc.newGame();
+
+  requestAnimationFrame(() => updateBoardColors());
 
   // Keyboard navigation
   document.addEventListener("keydown", (e) => {
