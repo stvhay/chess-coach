@@ -22,7 +22,13 @@ from server.elo_profiles import get_profile
 from server.engine import EngineAnalysis
 from server.game_tree import build_coaching_tree
 from server.llm import ChessTeacher
+from server.prompts import COACHING_SYSTEM_PROMPT
 from server.report import serialize_report
+
+SIMPLE_SYSTEM_PROMPT = (
+    "You are a chess coach speaking to a student. "
+    "Give me 50-100 words about this chess position."
+)
 
 
 # ---------------------------------------------------------------------------
@@ -129,6 +135,12 @@ SCENARIOS = [
         "desc": "Trades queens when materially ahead — simplifying correctly",
         "fen": "r1b2rk1/ppp2ppp/2n5/3qN3/8/8/PPPQ1PPP/R1B2RK1 w - - 0 10",
         "student_move": "d2d5",
+    },
+    {
+        "name": "queen_trade_when_behind",
+        "desc": "Trades queens when materially behind — makes deficit permanent",
+        "fen": "3r1r1k/pb1p1p1q/2p1p3/8/8/P1NQ4/1P4PP/3R3K w - - 0 28",
+        "student_move": "d3h7",
     },
 
     # ===================================================================
@@ -295,13 +307,14 @@ async def evaluate_scenario(engine, teacher, scenario, profile):
     }
 
 
-async def run_batch(scenarios, profile_name="intermediate"):
+async def run_batch(scenarios, profile_name="intermediate", system_prompt=None):
     """Run a batch of scenarios and return results."""
     engine = EngineAnalysis(hash_mb=64)
     teacher = ChessTeacher(
         base_url=os.environ.get("LLM_BASE_URL", "https://ollama.st5ve.com"),
         model=os.environ.get("LLM_MODEL", "qwen2.5:14b"),
         api_key=os.environ.get("LLM_API_KEY"),
+        system_prompt=system_prompt,
     )
     profile = get_profile(profile_name)
     results = []
@@ -349,7 +362,13 @@ def main():
     parser.add_argument("--batch", type=int, default=None, help="Batch index (0-based)")
     parser.add_argument("--size", type=int, default=5, help="Batch size")
     parser.add_argument("--json", action="store_true", help="Output JSON instead of formatted text")
+    parser.add_argument(
+        "--prompt", choices=["full", "simple"], default="full",
+        help="System prompt: 'full' (default) or 'simple' (minimal)",
+    )
     args = parser.parse_args()
+
+    system_prompt = COACHING_SYSTEM_PROMPT if args.prompt == "full" else SIMPLE_SYSTEM_PROMPT
 
     if args.batch is not None:
         start = args.batch * args.size
@@ -358,7 +377,7 @@ def main():
     else:
         scenarios = SCENARIOS
 
-    results = asyncio.run(run_batch(scenarios))
+    results = asyncio.run(run_batch(scenarios, system_prompt=system_prompt))
 
     if args.json:
         print(json.dumps(results, indent=2))

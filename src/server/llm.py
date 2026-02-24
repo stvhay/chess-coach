@@ -40,11 +40,13 @@ class ChessTeacher:
         model: str,
         api_key: str | None = None,
         timeout: float = 30.0,
+        system_prompt: str | None = None,
     ):
         self._base_url = base_url.rstrip("/")
         self._model = model
         self._api_key = api_key
         self._timeout = timeout
+        self._system_prompt = system_prompt or COACHING_SYSTEM_PROMPT
 
     async def explain_move(self, prompt: str) -> str | None:
         """Ask the LLM to explain a move given a grounded prompt.
@@ -54,7 +56,7 @@ class ChessTeacher:
         Returns None on any failure.
         """
         messages = [
-            {"role": "system", "content": COACHING_SYSTEM_PROMPT},
+            {"role": "system", "content": self._system_prompt},
             {"role": "user", "content": prompt},
         ]
         return await self._chat(messages)
