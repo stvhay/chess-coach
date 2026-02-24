@@ -192,6 +192,15 @@ def _piece_diff(before: MaterialCount, after: MaterialCount) -> dict[str, int]:
     }
 
 
+def _net_piece_diff(student_diff: dict[str, int], opponent_diff: dict[str, int]) -> dict[str, int]:
+    """Net per-piece change from the student's perspective.
+
+    Positive = student gained more than opponent (e.g. both lose a queen
+    but student also captures a pawn → pawns = +1).
+    """
+    return {k: student_diff[k] - opponent_diff[k] for k in student_diff}
+
+
 def _describe_piece_changes(diff: dict[str, int]) -> str:
     """Describe losses/gains as human-readable text.
 
@@ -199,7 +208,7 @@ def _describe_piece_changes(diff: dict[str, int]) -> str:
     """
     parts: list[str] = []
     for piece_type in ("queens", "rooks", "bishops", "knights", "pawns"):
-        count = abs(diff[piece_type])
+        count = abs(diff.get(piece_type, 0))
         if count == 0:
             continue
         if count == 1:
@@ -242,33 +251,37 @@ def _describe_result(nodes: list[GameNode], student_is_white: bool | None) -> st
     student_diff = _piece_diff(student_before, student_after)
     opponent_diff = _piece_diff(opponent_before, opponent_after)
 
-    # Net CP change from student's perspective
+    # Net diff: positive = student gained more than opponent
+    net = _net_piece_diff(student_diff, opponent_diff)
+
+    gains = {k: v for k, v in net.items() if v > 0}
+    losses = {k: -v for k, v in net.items() if v < 0}
+
+    gains_desc = _describe_piece_changes(gains)
+    losses_desc = _describe_piece_changes(losses)
+
+    if gains_desc and losses_desc:
+        return f"Result: Student trades {losses_desc} for {gains_desc}."
+    if gains_desc:
+        return f"Result: Student wins {gains_desc}."
+    if losses_desc:
+        return f"Result: Student loses {losses_desc}."
+
+    # No net piece changes — check CP for promotions etc.
     start_cp = _material_cp(start_board)
     end_cp = _material_cp(end_board)
     net_cp = end_cp - start_cp
     if student_is_white is not None and not student_is_white:
         net_cp = -net_cp
 
-    if abs(net_cp) < 50:
-        return "Result: Equal material."
-
-    if net_cp > 0:
-        # Student wins material
-        desc = _describe_piece_changes(opponent_diff)
-        if desc:
-            return f"Result: Student wins {desc}."
-        # Fallback to pawn count
+    if abs(net_cp) >= 50:
         pawns = abs(net_cp) // _CP_PER_PAWN
         unit = "pawn" if pawns == 1 else "pawns"
-        return f"Result: Student wins {pawns} {unit}."
-    else:
-        # Student loses material
-        desc = _describe_piece_changes(student_diff)
-        if desc:
-            return f"Result: Student loses {desc}."
-        pawns = abs(net_cp) // _CP_PER_PAWN
-        unit = "pawn" if pawns == 1 else "pawns"
+        if net_cp > 0:
+            return f"Result: Student wins {pawns} {unit}."
         return f"Result: Student loses {pawns} {unit}."
+
+    return "Result: No material changes."
 
 
 # ---------------------------------------------------------------------------
