@@ -17,8 +17,10 @@ __pycache__/
 CLAUDE.md
 docs/plans/
 data/chromadb/
+data/*.db
 .env
 test-results/
 playwright-report/
 blob-report/
 playwright/.cache/
+tools/
