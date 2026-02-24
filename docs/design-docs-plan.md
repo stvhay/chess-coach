@@ -15,16 +15,16 @@ local LLM to coach beginner-to-intermediate chess players during live games.
 
 | Document | Status | Description |
 |----------|--------|-------------|
-| DESIGN.md | **To write** | Hub document — purpose, motivation, vision, overview, links |
-| PEDAGOGY.md | **To write** | Teaching philosophy and coaching model |
-| UX.md | **To write** | User interaction flows, user stories, delegation model |
-| UI.md | **To write** | Interface layout, visual design, component structure |
+| DESIGN.md | **Written** | Hub document — purpose, motivation, vision, overview, links |
+| PEDAGOGY.md | **Written** | Teaching philosophy and coaching model |
+| UX.md | **Written** | User interaction flows, user stories, delegation model |
+| UI.md | **Written** | Interface layout, visual design, component structure |
 | ARCHITECTURE.md | **Written** | Software structure, modules, data flow, deployment |
 | ANALYSIS-PIPELINE.md | **Written** | The transformation chain from board position to coaching prompt |
 | DESIGN-THEORY.md | **Exists** | Position analysis formalism — maps MATH.md concepts to code |
-| TRADE-OFFS.md | **To write** | Technology choices, alternatives, limitations |
-| LANDSCAPE.md | **To write** | Other chess products, related work, differentiation |
-| ROADMAP.md | **To write** | Future ideas, planned features |
+| TRADE-OFFS.md | **Written** | Technology choices, alternatives, limitations |
+| LANDSCAPE.md | **Written** | Other chess products, related work, differentiation |
+| ROADMAP.md | **Written** | Future ideas, planned features |
 | MATH.md | **Exists** | Theoretical/aspirational formalisms not yet implemented |
 | TACTICS.md | **Exists** | User-facing explanation of tactical and positional detection |
 
