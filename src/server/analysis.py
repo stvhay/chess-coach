@@ -511,6 +511,7 @@ class PieceActivity:
     piece: str  # e.g. "N", "b"
     mobility: int
     centralization: int  # min distance to center squares
+    assessment: str = ""  # "restricted", "normal", "active"
 
 
 @dataclass
@@ -521,17 +522,57 @@ class ActivityInfo:
     black_total_mobility: int
 
 
+def _enemy_pawn_attacks(board: chess.Board, enemy_color: chess.Color) -> int:
+    """Return bitboard of all squares attacked by enemy pawns."""
+    enemy_pawns = board.pieces_mask(chess.PAWN, enemy_color)
+    if enemy_color == chess.WHITE:
+        # White pawns attack diagonally upward
+        left = (enemy_pawns & ~chess.BB_FILE_A) << 7
+        right = (enemy_pawns & ~chess.BB_FILE_H) << 9
+    else:
+        # Black pawns attack diagonally downward
+        left = (enemy_pawns & ~chess.BB_FILE_H) >> 7
+        right = (enemy_pawns & ~chess.BB_FILE_A) >> 9
+    return (left | right) & chess.BB_ALL
+
+
+_MOBILITY_THRESHOLDS: dict[int, tuple[int, int]] = {
+    # piece_type: (restricted_below, active_above)
+    chess.KNIGHT: (3, 5),
+    chess.BISHOP: (4, 8),
+    chess.ROOK: (5, 9),
+    chess.QUEEN: (8, 15),
+}
+
+
+def _assess_mobility(piece_type: int, mobility: int) -> str:
+    """Classify piece mobility as restricted, normal, or active."""
+    low, high = _MOBILITY_THRESHOLDS.get(piece_type, (3, 8))
+    if mobility < low:
+        return "restricted"
+    elif mobility > high:
+        return "active"
+    return "normal"
+
+
 def analyze_activity(board: chess.Board) -> ActivityInfo:
     white_pieces: list[PieceActivity] = []
     black_pieces: list[PieceActivity] = []
 
     for color in (chess.WHITE, chess.BLACK):
+        enemy = not color
+        # Improved mobility area: exclude own pieces, enemy pawn attacks, own king square
         own_occupied = board.occupied_co[color]
+        enemy_pawn_att = _enemy_pawn_attacks(board, enemy)
+        king_sq = board.king(color)
+        king_bb = chess.BB_SQUARES[king_sq] if king_sq is not None else 0
+        excluded = own_occupied | enemy_pawn_att | king_bb
+
         piece_list = white_pieces if color == chess.WHITE else black_pieces
 
         for pt in (chess.KNIGHT, chess.BISHOP, chess.ROOK, chess.QUEEN):
             for sq in board.pieces(pt, color):
-                mobility = len(chess.SquareSet(board.attacks_mask(sq) & ~own_occupied))
+                mobility = len(chess.SquareSet(board.attacks_mask(sq) & ~excluded))
                 cent = min(chess.square_distance(sq, c) for c in CENTER_SQUARES)
                 symbol = chess.Piece(pt, color).symbol()
                 piece_list.append(PieceActivity(
@@ -539,6 +580,7 @@ def analyze_activity(board: chess.Board) -> ActivityInfo:
                     piece=symbol,
                     mobility=mobility,
                     centralization=cent,
+                    assessment=_assess_mobility(pt, mobility),
                 ))
 
     return ActivityInfo(
