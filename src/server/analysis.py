@@ -574,6 +574,88 @@ class TacticalMotifs:
 
 
 @dataclass
+class PieceInvolvement:
+    motif_type: str   # "pin", "fork", "skewer", "hanging", etc.
+    role: str         # "attacker", "target", "defender", "pinned", "blocker"
+    motif_index: int  # index into the relevant list in TacticalMotifs
+
+
+def index_by_piece(tactics: TacticalMotifs) -> dict[str, list[PieceInvolvement]]:
+    """Build square -> motif involvement mapping from all detected tactics."""
+    idx: dict[str, list[PieceInvolvement]] = {}
+
+    def _add(square: str, motif_type: str, role: str, motif_index: int) -> None:
+        idx.setdefault(square, []).append(
+            PieceInvolvement(motif_type=motif_type, role=role, motif_index=motif_index)
+        )
+
+    for i, pin in enumerate(tactics.pins):
+        _add(pin.pinner_square, "pin", "attacker", i)
+        _add(pin.pinned_square, "pin", "pinned", i)
+        _add(pin.pinned_to, "pin", "target", i)
+
+    for i, fork in enumerate(tactics.forks):
+        _add(fork.forking_square, "fork", "attacker", i)
+        for t in fork.targets:
+            _add(t, "fork", "target", i)
+
+    for i, skewer in enumerate(tactics.skewers):
+        _add(skewer.attacker_square, "skewer", "attacker", i)
+        _add(skewer.front_square, "skewer", "target", i)
+        _add(skewer.behind_square, "skewer", "target", i)
+
+    for i, h in enumerate(tactics.hanging):
+        _add(h.square, "hanging", "target", i)
+        for a in h.attacker_squares:
+            _add(a, "hanging", "attacker", i)
+
+    for i, da in enumerate(tactics.discovered_attacks):
+        _add(da.blocker_square, "discovered_attack", "blocker", i)
+        _add(da.slider_square, "discovered_attack", "attacker", i)
+        _add(da.target_square, "discovered_attack", "target", i)
+
+    for i, dc in enumerate(tactics.double_checks):
+        for sq in dc.checker_squares:
+            _add(sq, "double_check", "attacker", i)
+
+    for i, tp in enumerate(tactics.trapped_pieces):
+        _add(tp.square, "trapped", "target", i)
+
+    # MatePattern has no square fields - skip
+
+    for i, mt in enumerate(tactics.mate_threats):
+        _add(mt.mating_square, "mate_threat", "target", i)
+
+    for i, br in enumerate(tactics.back_rank_weaknesses):
+        _add(br.king_square, "back_rank_weakness", "target", i)
+
+    for i, xa in enumerate(tactics.xray_attacks):
+        _add(xa.slider_square, "xray_attack", "attacker", i)
+        _add(xa.through_square, "xray_attack", "target", i)
+        _add(xa.target_square, "xray_attack", "target", i)
+
+    for i, xd in enumerate(tactics.xray_defenses):
+        _add(xd.slider_square, "xray_defense", "defender", i)
+        _add(xd.through_square, "xray_defense", "target", i)
+        _add(xd.defended_square, "xray_defense", "defended", i)
+
+    for i, ek in enumerate(tactics.exposed_kings):
+        _add(ek.king_square, "exposed_king", "target", i)
+
+    for i, op in enumerate(tactics.overloaded_pieces):
+        _add(op.square, "overloaded", "target", i)
+        for ds in op.defended_squares:
+            _add(ds, "overloaded", "defended", i)
+
+    for i, cd in enumerate(tactics.capturable_defenders):
+        _add(cd.defender_square, "capturable_defender", "defender", i)
+        _add(cd.charge_square, "capturable_defender", "defended", i)
+        _add(cd.attacker_square, "capturable_defender", "attacker", i)
+
+    return idx
+
+
+@dataclass
 class _RayMotifs:
     """Internal result container for unified ray detection."""
     pins: list[Pin]
@@ -1309,6 +1391,7 @@ class PositionReport:
     center_control: CenterControl
     development: Development
     space: Space
+    piece_index: dict = field(default_factory=dict)
 
 
 def summarize_position(report: PositionReport) -> str:
@@ -1461,6 +1544,7 @@ def summarize_position(report: PositionReport) -> str:
 
 
 def analyze(board: chess.Board) -> PositionReport:
+    tactics = analyze_tactics(board)
     return PositionReport(
         fen=board.fen(),
         turn=_color_name(board.turn),
@@ -1473,9 +1557,10 @@ def analyze(board: chess.Board) -> PositionReport:
         king_safety_white=analyze_king_safety(board, chess.WHITE),
         king_safety_black=analyze_king_safety(board, chess.BLACK),
         activity=analyze_activity(board),
-        tactics=analyze_tactics(board),
+        tactics=tactics,
         files_and_diagonals=analyze_files_and_diagonals(board),
         center_control=analyze_center_control(board),
         development=analyze_development(board),
         space=analyze_space(board),
+        piece_index=index_by_piece(tactics),
     )

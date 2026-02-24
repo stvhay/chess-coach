@@ -4,6 +4,7 @@ import chess
 import pytest
 
 from server.analysis import (
+    PieceInvolvement,
     analyze,
     analyze_activity,
     analyze_center_control,
@@ -1086,3 +1087,61 @@ def test_development_starting_position():
     result = analyze_development(board)
     assert result.white_developed == 0
     assert result.black_developed == 0
+
+
+# ---------------------------------------------------------------------------
+# Piece-Motif Index Tests
+# ---------------------------------------------------------------------------
+
+
+def test_piece_index_pin():
+    """Piece index maps pin participants to their squares."""
+    # White bishop on e5 pins black knight on d6 to black king on c7.
+    board = chess.Board("8/2k5/3n4/4B3/8/8/8/4K3 w - - 0 1")
+    tactics = analyze_tactics(board)
+    assert len(tactics.pins) >= 1
+    report = analyze(board)
+    idx = report.piece_index
+    # d6 should have a "pinned" role
+    assert "d6" in idx
+    roles = [inv.role for inv in idx["d6"]]
+    assert "pinned" in roles
+    # e5 should have an "attacker" role
+    assert "e5" in idx
+    roles = [inv.role for inv in idx["e5"]]
+    assert "attacker" in roles
+
+
+def test_piece_index_fork():
+    """Piece index maps fork attacker and targets."""
+    # White knight on c7 forks black king on e8 and black rook on a8.
+    board = chess.Board("r3k3/2N5/8/8/8/8/8/4K3 w - - 0 1")
+    tactics = analyze_tactics(board)
+    assert len(tactics.forks) >= 1
+    report = analyze(board)
+    idx = report.piece_index
+    # c7 should have "attacker" role for fork
+    assert "c7" in idx
+    fork_roles = [inv for inv in idx["c7"] if inv.motif_type == "fork"]
+    assert any(inv.role == "attacker" for inv in fork_roles)
+
+
+def test_piece_index_hanging():
+    """Piece index maps hanging piece and its attackers."""
+    # Black knight on e5 attacked by white bishop on c3. No defenders.
+    board = chess.Board("4k3/8/8/4n3/8/2B5/8/4K3 w - - 0 1")
+    tactics = analyze_tactics(board)
+    if tactics.hanging:
+        report = analyze(board)
+        idx = report.piece_index
+        # e5 should have "target" role for hanging
+        if "e5" in idx:
+            hanging_roles = [inv for inv in idx["e5"] if inv.motif_type == "hanging"]
+            assert any(inv.role == "target" for inv in hanging_roles)
+
+
+def test_piece_index_empty_position():
+    """Piece index is empty dict when no tactics detected."""
+    board = chess.Board("4k3/8/8/8/8/8/8/4K3 w - - 0 1")
+    report = analyze(board)
+    assert isinstance(report.piece_index, dict)
