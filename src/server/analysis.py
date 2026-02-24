@@ -299,6 +299,15 @@ class KingSafety:
     pawn_shield_squares: list[str]
     open_files_near_king: list[int]
     semi_open_files_near_king: list[int]
+    # King danger features:
+    king_zone_attacks: int = 0
+    weak_squares: int = 0
+    safe_checks: dict = field(default_factory=dict)
+    pawn_storm: int = 0
+    pawn_shelter: int = 0
+    knight_defender: bool = False
+    queen_absent: bool = False
+    danger_score: int = 0
 
 
 def analyze_king_safety(board: chess.Board, color: chess.Color) -> KingSafety:
@@ -315,10 +324,11 @@ def analyze_king_safety(board: chess.Board, color: chess.Color) -> KingSafety:
             semi_open_files_near_king=[],
         )
 
+    enemy = not color
     king_file = chess.square_file(king_sq)
     king_rank = chess.square_rank(king_sq)
 
-    # Castled heuristic
+    # --- Existing: castled heuristic ---
     _CASTLED = {
         chess.G1: "kingside", chess.H1: "kingside",
         chess.C1: "queenside", chess.B1: "queenside",
@@ -327,7 +337,7 @@ def analyze_king_safety(board: chess.Board, color: chess.Color) -> KingSafety:
     }
     castled = _CASTLED.get(king_sq, "none")
 
-    # Pawn shield: friendly pawns 1-2 ranks ahead on king file +/- 1
+    # --- Existing: pawn shield ---
     shield_squares = []
     shield_files = [f for f in (king_file - 1, king_file, king_file + 1) if 0 <= f <= 7]
     for sf in shield_files:
@@ -342,7 +352,7 @@ def analyze_king_safety(board: chess.Board, color: chess.Color) -> KingSafety:
                 if piece and piece.piece_type == chess.PAWN and piece.color == color:
                     shield_squares.append(chess.square_name(ssq))
 
-    # Open / semi-open files near king
+    # --- Existing: open/semi-open files ---
     open_files = []
     semi_open = []
     for sf in shield_files:
@@ -356,6 +366,120 @@ def analyze_king_safety(board: chess.Board, color: chess.Color) -> KingSafety:
         elif color == chess.BLACK and not black_pawns:
             semi_open.append(sf)
 
+    # --- NEW: king ring (8 surrounding squares + king square) ---
+    king_ring = chess.SquareSet(board.attacks_mask(king_sq)) | chess.SquareSet(
+        chess.BB_SQUARES[king_sq]
+    )
+
+    # --- NEW: king_zone_attacks ---
+    # Count enemy non-pawn piece attacks on king ring squares
+    zone_attacks = 0
+    for sq in king_ring:
+        for attacker_sq in board.attackers(enemy, sq):
+            attacker = board.piece_at(attacker_sq)
+            if attacker and attacker.piece_type != chess.PAWN:
+                zone_attacks += 1
+
+    # --- NEW: weak_squares ---
+    # King zone squares attacked by enemy but not defended by own pawns
+    own_pawn_attacks = chess.SquareSet()
+    for pawn_sq in board.pieces(chess.PAWN, color):
+        own_pawn_attacks |= board.attacks(pawn_sq)
+    weak = 0
+    for sq in king_ring:
+        if board.attackers(enemy, sq) and sq not in own_pawn_attacks:
+            weak += 1
+
+    # --- NEW: safe_checks ---
+    # For each piece type, count enemy pieces that can move to a square
+    # giving check where the destination is not defended by our pieces.
+    safe = {"knight": 0, "bishop": 0, "rook": 0, "queen": 0}
+    _name_map = {
+        chess.KNIGHT: "knight",
+        chess.BISHOP: "bishop",
+        chess.ROOK: "rook",
+        chess.QUEEN: "queen",
+    }
+    if enemy == board.turn:
+        # Enemy has the move -- use legal_moves directly
+        for move in board.legal_moves:
+            piece = board.piece_at(move.from_square)
+            if piece is None:
+                continue
+            pt = piece.piece_type
+            if pt not in _name_map:
+                continue
+            board.push(move)
+            if board.is_check() and not board.attackers(color, move.to_square):
+                safe[_name_map[pt]] += 1
+            board.pop()
+    else:
+        # We have the move -- use null move to see enemy's perspective
+        board.push(chess.Move.null())
+        if not board.is_check():
+            for move in board.legal_moves:
+                piece = board.piece_at(move.from_square)
+                if piece is None:
+                    continue
+                pt = piece.piece_type
+                if pt not in _name_map:
+                    continue
+                board.push(move)
+                if board.is_check() and not board.attackers(color, move.to_square):
+                    safe[_name_map[pt]] += 1
+                board.pop()
+        board.pop()
+
+    # --- NEW: pawn_storm ---
+    # Count enemy pawns advancing toward king on nearby files
+    storm = 0
+    for sf in shield_files:
+        for pawn_sq in board.pieces(chess.PAWN, enemy):
+            if chess.square_file(pawn_sq) == sf:
+                pawn_rank = chess.square_rank(pawn_sq)
+                if color == chess.WHITE:
+                    # Enemy (black) pawns advancing down -- rank closer to 0 is dangerous
+                    distance = pawn_rank
+                    if distance <= 4:
+                        storm += 5 - distance
+                else:
+                    # Enemy (white) pawns advancing up -- rank closer to 7 is dangerous
+                    distance = 7 - pawn_rank
+                    if distance <= 4:
+                        storm += 5 - distance
+
+    # --- NEW: pawn_shelter ---
+    # Count own pawns on rank immediately ahead on king file +/- 1
+    shelter = 0
+    ahead_rank = king_rank + 1 if color == chess.WHITE else king_rank - 1
+    if 0 <= ahead_rank <= 7:
+        for sf in shield_files:
+            ssq = chess.square(sf, ahead_rank)
+            piece = board.piece_at(ssq)
+            if piece and piece.piece_type == chess.PAWN and piece.color == color:
+                shelter += 1
+
+    # --- NEW: knight_defender ---
+    has_knight_defender = False
+    for knight_sq in board.pieces(chess.KNIGHT, color):
+        if knight_sq in king_ring:
+            has_knight_defender = True
+            break
+
+    # --- NEW: queen_absent ---
+    enemy_queen_absent = not bool(board.pieces(chess.QUEEN, enemy))
+
+    # --- NEW: danger_score ---
+    danger = (
+        zone_attacks * 20
+        + weak * 30
+        + sum(safe.values()) * 25
+        + storm * 15
+        - shelter * 20
+        - (40 if has_knight_defender else 0)
+        - (200 if enemy_queen_absent else 0)
+    )
+
     return KingSafety(
         king_square=chess.square_name(king_sq),
         castled=castled,
@@ -365,6 +489,14 @@ def analyze_king_safety(board: chess.Board, color: chess.Color) -> KingSafety:
         pawn_shield_squares=shield_squares,
         open_files_near_king=open_files,
         semi_open_files_near_king=semi_open,
+        king_zone_attacks=zone_attacks,
+        weak_squares=weak,
+        safe_checks=safe,
+        pawn_storm=storm,
+        pawn_shelter=shelter,
+        knight_defender=has_knight_defender,
+        queen_absent=enemy_queen_absent,
+        danger_score=danger,
     )
 
 

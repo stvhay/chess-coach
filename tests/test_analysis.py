@@ -235,6 +235,118 @@ class TestKingSafety:
 
 
 # ---------------------------------------------------------------------------
+# King Danger Features
+# ---------------------------------------------------------------------------
+
+
+class TestKingDanger:
+    def test_king_zone_attacks_detected(self):
+        """Enemy pieces attacking king zone squares are counted."""
+        # Kg1 with Qh4 attacking f2 and h2 (king zone squares)
+        board = chess.Board("4k3/8/8/8/7q/8/6PP/6K1 w - - 0 1")
+        ks = analyze_king_safety(board, chess.WHITE)
+        assert ks.king_zone_attacks > 0
+
+    def test_weak_squares_near_king(self):
+        """Squares in king zone attacked by enemy but not defended by own pawns."""
+        # Kg1, pawns g2/h2, Nf3 attacks g1 and h2 -- g1 and h2 are not pawn-defended
+        board = chess.Board("4k3/8/8/8/8/5n2/6PP/6K1 w - - 0 1")
+        ks = analyze_king_safety(board, chess.WHITE)
+        assert ks.weak_squares >= 1
+
+    def test_safe_checks_structure(self):
+        """safe_checks should be a dict with piece type keys."""
+        board = chess.Board("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
+        ks = analyze_king_safety(board, chess.WHITE)
+        assert isinstance(ks.safe_checks, dict)
+        # In starting position, no safe checks possible
+        assert sum(ks.safe_checks.values()) == 0
+
+    def test_safe_checks_queen_attack(self):
+        """Queen on h4 can give safe check to Kg1."""
+        board = chess.Board("4k3/8/8/8/7q/8/6PP/6K1 w - - 0 1")
+        ks = analyze_king_safety(board, chess.WHITE)
+        assert ks.safe_checks["queen"] >= 1
+
+    def test_pawn_shelter_full_shield(self):
+        """King behind full pawn shield (3 pawns on f2/g2/h2) = shelter 3."""
+        board = chess.Board("4k3/8/8/8/8/8/5PPP/6K1 w - - 0 1")
+        ks = analyze_king_safety(board, chess.WHITE)
+        assert ks.pawn_shelter == 3
+
+    def test_pawn_shelter_no_shield(self):
+        """King with no pawns ahead = shelter 0."""
+        board = chess.Board("4k3/8/8/8/8/8/8/6K1 w - - 0 1")
+        ks = analyze_king_safety(board, chess.WHITE)
+        assert ks.pawn_shelter == 0
+
+    def test_knight_defender_in_king_zone(self):
+        """Friendly knight near king sets knight_defender=True."""
+        # Nf1 is in Kg1's king ring
+        board = chess.Board("4k3/8/8/8/8/8/6PP/5NK1 w - - 0 1")
+        ks = analyze_king_safety(board, chess.WHITE)
+        assert ks.knight_defender is True
+
+    def test_knight_defender_absent(self):
+        """No friendly knight in king zone -> knight_defender=False."""
+        board = chess.Board("4k3/8/8/8/8/8/6PP/6K1 w - - 0 1")
+        ks = analyze_king_safety(board, chess.WHITE)
+        assert ks.knight_defender is False
+
+    def test_queen_absent(self):
+        """Enemy has no queen -> queen_absent=True."""
+        board = chess.Board("4k3/8/8/8/8/8/6PP/6K1 w - - 0 1")
+        ks = analyze_king_safety(board, chess.WHITE)
+        assert ks.queen_absent is True
+
+    def test_queen_present(self):
+        """Enemy has queen -> queen_absent=False."""
+        board = chess.Board("3qk3/8/8/8/8/8/6PP/6K1 w - - 0 1")
+        ks = analyze_king_safety(board, chess.WHITE)
+        assert ks.queen_absent is False
+
+    def test_pawn_storm_detected(self):
+        """Enemy pawns advancing toward king on nearby files."""
+        # White king on g1, Black pawns on g4 and h4 storming
+        board = chess.Board("4k3/8/8/8/6pp/8/6PP/6K1 w - - 0 1")
+        ks = analyze_king_safety(board, chess.WHITE)
+        assert ks.pawn_storm >= 1
+
+    def test_pawn_storm_no_enemy_pawns(self):
+        """No enemy pawns near king -> pawn_storm=0."""
+        board = chess.Board("4k3/8/8/8/8/8/6PP/6K1 w - - 0 1")
+        ks = analyze_king_safety(board, chess.WHITE)
+        assert ks.pawn_storm == 0
+
+    def test_danger_score_computed(self):
+        """danger_score is an integer combining all features."""
+        board = chess.Board("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
+        ks = analyze_king_safety(board, chess.WHITE)
+        assert isinstance(ks.danger_score, int)
+
+    def test_danger_score_higher_when_attacked(self):
+        """Position under attack has higher danger score than quiet position."""
+        quiet = chess.Board("4k3/8/8/8/8/8/5PPP/6K1 w - - 0 1")
+        attacked = chess.Board("4k3/8/8/8/7q/8/6PP/6K1 w - - 0 1")
+        ks_quiet = analyze_king_safety(quiet, chess.WHITE)
+        ks_attacked = analyze_king_safety(attacked, chess.WHITE)
+        assert ks_attacked.danger_score > ks_quiet.danger_score
+
+    def test_no_king_returns_defaults(self):
+        """No king on board returns all-zero danger fields."""
+        board = chess.Board("8/8/8/8/8/8/8/8 w - - 0 1")
+        ks = analyze_king_safety(board, chess.WHITE)
+        assert ks.king_zone_attacks == 0
+        assert ks.weak_squares == 0
+        assert ks.safe_checks == {}
+        assert ks.pawn_storm == 0
+        assert ks.pawn_shelter == 0
+        assert ks.knight_defender is False
+        assert ks.queen_absent is False
+        assert ks.danger_score == 0
+
+
+# ---------------------------------------------------------------------------
 # Piece Activity
 # ---------------------------------------------------------------------------
 
