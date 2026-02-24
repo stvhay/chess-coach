@@ -177,6 +177,34 @@ function init() {
   viewingIndicator.className = "viewing-indicator";
   rightPanel.appendChild(viewingIndicator);
 
+  // FEN display (click to copy)
+  const fenDisplay = document.createElement("input");
+  fenDisplay.type = "text";
+  fenDisplay.readOnly = true;
+  fenDisplay.className = "fen-display";
+  fenDisplay.placeholder = "Position FEN";
+  fenDisplay.title = "Click to copy FEN";
+  rightPanel.appendChild(fenDisplay);
+
+  function updateFenDisplay(fen: string) {
+    fenDisplay.value = fen;
+  }
+
+  fenDisplay.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(fenDisplay.value);
+      const originalBorder = fenDisplay.style.borderColor;
+      fenDisplay.style.borderColor = "#4ade80";
+      setTimeout(() => {
+        fenDisplay.style.borderColor = originalBorder;
+      }, 300);
+    } catch (err) {
+      // Fallback for older browsers
+      fenDisplay.select();
+      document.execCommand("copy");
+    }
+  });
+
   // --- Footer ---
   const footer = document.createElement("footer");
   footer.className = "app-footer";
@@ -322,6 +350,9 @@ function init() {
       moveHistory.appendChild(row);
     }
     moveHistory.scrollTop = moveHistory.scrollHeight;
+
+    // Update FEN display
+    updateFenDisplay(gc.fen());
   }
 
   // --- Ply change handler ---
@@ -343,9 +374,14 @@ function init() {
 
     if (ply < maxPly) {
       viewingIndicator.textContent = `Viewing move ${ply} of ${maxPly}`;
+      boardWrap.classList.add("viewing-history");
     } else {
       viewingIndicator.textContent = "";
+      boardWrap.classList.remove("viewing-history");
     }
+
+    // Update FEN display
+    updateFenDisplay(gc.fen());
   }
 
   // --- Coaching display ---
@@ -410,6 +446,9 @@ function init() {
       viewingIndicator.textContent = "";
       updateEvalBar(null, null);
       evalBarWrap.classList.remove("visible");
+
+      // Update FEN display
+      updateFenDisplay(gc.fen());
     });
   }
 
@@ -448,10 +487,12 @@ function init() {
         e.preventDefault();
         gc.stepForward();
         break;
+      case "ArrowUp":
       case "Home":
         e.preventDefault();
         gc.jumpToPly(0);
         break;
+      case "ArrowDown":
       case "End":
         e.preventDefault();
         gc.jumpToPly(gc.getMaxPly());
