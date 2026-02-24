@@ -1181,38 +1181,67 @@ def analyze_files_and_diagonals(board: chess.Board) -> FilesAndDiagonals:
 
 
 @dataclass
+class SquareControl:
+    square: str
+    white_pawn_attacks: int
+    white_piece_attacks: int
+    black_pawn_attacks: int
+    black_piece_attacks: int
+    occupied_by: str | None  # e.g. "white_pawn", "black_knight", or None
+
+
+_PIECE_TYPE_NAMES = {
+    chess.PAWN: "pawn", chess.KNIGHT: "knight", chess.BISHOP: "bishop",
+    chess.ROOK: "rook", chess.QUEEN: "queen", chess.KING: "king",
+}
+
+
+def _analyze_square_control(board: chess.Board, sq: int) -> SquareControl:
+    """Count attackers of a square, split by color and pawn/piece."""
+    wp, wpc, bp, bpc = 0, 0, 0, 0
+    for attacker_sq in board.attackers(chess.WHITE, sq):
+        if board.piece_type_at(attacker_sq) == chess.PAWN:
+            wp += 1
+        else:
+            wpc += 1
+    for attacker_sq in board.attackers(chess.BLACK, sq):
+        if board.piece_type_at(attacker_sq) == chess.PAWN:
+            bp += 1
+        else:
+            bpc += 1
+
+    occupied_by = None
+    piece = board.piece_at(sq)
+    if piece is not None:
+        color_name = "white" if piece.color == chess.WHITE else "black"
+        type_name = _PIECE_TYPE_NAMES.get(piece.piece_type, "piece")
+        occupied_by = f"{color_name}_{type_name}"
+
+    return SquareControl(
+        square=chess.square_name(sq),
+        white_pawn_attacks=wp,
+        white_piece_attacks=wpc,
+        black_pawn_attacks=bp,
+        black_piece_attacks=bpc,
+        occupied_by=occupied_by,
+    )
+
+
+@dataclass
 class CenterControl:
-    white_pawn_control: int
-    white_piece_control: int
-    black_pawn_control: int
-    black_piece_control: int
-    white_total: int
-    black_total: int
+    squares: list[SquareControl]  # 4 entries: d4, e4, d5, e5
+    white_total: int              # sum of all white attacks (pawn + piece)
+    black_total: int              # sum of all black attacks (pawn + piece)
 
 
 def analyze_center_control(board: chess.Board) -> CenterControl:
-    wp, wpc = 0, 0
-    bp, bpc = 0, 0
-    for sq in CENTER_SQUARES:
-        for attacker_sq in board.attackers(chess.WHITE, sq):
-            pt = board.piece_type_at(attacker_sq)
-            if pt == chess.PAWN:
-                wp += 1
-            else:
-                wpc += 1
-        for attacker_sq in board.attackers(chess.BLACK, sq):
-            pt = board.piece_type_at(attacker_sq)
-            if pt == chess.PAWN:
-                bp += 1
-            else:
-                bpc += 1
+    sq_controls = [_analyze_square_control(board, sq) for sq in CENTER_SQUARES]
+    white_total = sum(sc.white_pawn_attacks + sc.white_piece_attacks for sc in sq_controls)
+    black_total = sum(sc.black_pawn_attacks + sc.black_piece_attacks for sc in sq_controls)
     return CenterControl(
-        white_pawn_control=wp,
-        white_piece_control=wpc,
-        black_pawn_control=bp,
-        black_piece_control=bpc,
-        white_total=wp + wpc,
-        black_total=bp + bpc,
+        squares=sq_controls,
+        white_total=white_total,
+        black_total=black_total,
     )
 
 

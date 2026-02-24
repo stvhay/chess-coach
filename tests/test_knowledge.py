@@ -66,8 +66,7 @@ def _minimal_report(**overrides) -> PositionReport:
             bishops_on_long_diagonals=[],
         ),
         center_control=CenterControl(
-            white_pawn_control=2, white_piece_control=0,
-            black_pawn_control=2, black_piece_control=0,
+            squares=[],
             white_total=2, black_total=2,
         ),
         development=Development(

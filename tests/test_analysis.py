@@ -859,19 +859,23 @@ class TestCenterControl:
         board = chess.Board(STARTING)
         cc = analyze_center_control(board)
         # Only d-pawn and e-pawn attack center squares from each side
-        # White: d2 attacks e3 (not center), c3 (not center)... wait
+        # White: d2 attacks e3 (not center), c3 (not center)
         # Center squares: d4, e4, d5, e5
         # White pawns: d2 attacks c3, e3; e2 attacks d3, f3 — none attack center
-        assert cc.white_pawn_control == 0
-        assert cc.black_pawn_control == 0
+        white_pawn_total = sum(sq.white_pawn_attacks for sq in cc.squares)
+        black_pawn_total = sum(sq.black_pawn_attacks for sq in cc.squares)
+        assert white_pawn_total == 0
+        assert black_pawn_total == 0
 
     def test_after_1e4_e5(self):
         board = chess.Board(AFTER_1E4_E5)
         cc = analyze_center_control(board)
         # e4 pawn attacks d5 and f5 — d5 is center
-        assert cc.white_pawn_control >= 1
+        white_pawn_total = sum(sq.white_pawn_attacks for sq in cc.squares)
+        assert white_pawn_total >= 1
         # e5 pawn attacks d4 and f4 — d4 is center
-        assert cc.black_pawn_control >= 1
+        black_pawn_total = sum(sq.black_pawn_attacks for sq in cc.squares)
+        assert black_pawn_total >= 1
 
     def test_castled_position(self):
         board = chess.Board(CASTLED_KS)
@@ -1086,3 +1090,66 @@ def test_development_starting_position():
     result = analyze_development(board)
     assert result.white_developed == 0
     assert result.black_developed == 0
+
+
+# ---------------------------------------------------------------------------
+# Center Control — per-square tests
+# ---------------------------------------------------------------------------
+
+
+def test_center_control_per_square():
+    """Center control reports per-square attacker breakdown."""
+    # White pawns on d4, e4. Black pawns on d5, e5.
+    # d4: attacked by e5 pawn (black). Occupied by white pawn.
+    # e4: attacked by d5 pawn (black). Occupied by white pawn.
+    # d5: attacked by e4 pawn (white). Occupied by black pawn.
+    # e5: attacked by d4 pawn (white). Occupied by black pawn.
+    board = chess.Board("4k3/8/8/3pp3/3PP3/8/8/4K3 w - - 0 1")
+    result = analyze_center_control(board)
+    assert hasattr(result, 'squares')
+    assert len(result.squares) == 4
+    # Find d5 square control
+    d5 = [sq for sq in result.squares if sq.square == "d5"][0]
+    assert d5.white_pawn_attacks >= 1  # e4 pawn attacks d5
+    assert d5.occupied_by == "black_pawn"
+
+
+def test_center_control_totals_still_work():
+    """Aggregate totals are still computed for backwards compatibility."""
+    board = chess.Board("4k3/8/8/3pp3/3PP3/8/8/4K3 w - - 0 1")
+    result = analyze_center_control(board)
+    assert isinstance(result.white_total, int)
+    assert isinstance(result.black_total, int)
+    assert result.white_total >= 2  # e4->d5, d4->e5 at minimum
+
+
+def test_center_control_occupation():
+    """SquareControl records what piece occupies each square."""
+    # White knight on e4.
+    board = chess.Board("4k3/8/8/8/4N3/8/8/4K3 w - - 0 1")
+    result = analyze_center_control(board)
+    e4 = [sq for sq in result.squares if sq.square == "e4"][0]
+    assert e4.occupied_by == "white_knight"
+
+
+def test_center_control_empty_center():
+    """Empty center square has no occupation."""
+    board = chess.Board("4k3/8/8/8/8/8/8/4K3 w - - 0 1")
+    result = analyze_center_control(board)
+    d4 = [sq for sq in result.squares if sq.square == "d4"][0]
+    assert d4.occupied_by is None
+    assert d4.white_pawn_attacks == 0
+    assert d4.black_pawn_attacks == 0
+
+
+def test_square_control_helper():
+    """_analyze_square_control correctly splits pawn vs piece attackers."""
+    # White pawn on c3 attacks d4. White knight on e3 attacks d5 (not d4).
+    # c3 pawn attacks d4 and b4. e3 knight attacks d1,f1,c2,g2,c4,g4,d5,f5.
+    # d4: attacked by c3 pawn (pawn attack) and not by e3 knight.
+    board = chess.Board("4k3/8/8/8/8/2P1N3/8/4K3 w - - 0 1")
+    from server.analysis import _analyze_square_control
+    result = _analyze_square_control(board, chess.D4)
+    assert result.white_pawn_attacks >= 1  # c3 pawn
+    assert result.white_piece_attacks == 0  # Ne3 doesn't attack d4
+    assert result.square == "d4"
