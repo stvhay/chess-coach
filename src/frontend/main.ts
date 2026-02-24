@@ -35,9 +35,136 @@ function updateBoardColors() {
   }
 }
 
+interface CustomTheme {
+  label: string;
+  mode: "dark" | "light";
+  bg: {
+    body: string; header: string; panel: string; input: string;
+    button: string; buttonHover: string; rowOdd: string; rowEven: string;
+  };
+  border: { subtle: string; normal: string; strong: string };
+  text: { primary: string; muted: string; dim: string; accent: string };
+  board: { light: string; dark: string };
+  lastUsed: number; // timestamp
+}
+
+const CUSTOM_THEMES_KEY = "chess-teacher-custom-themes";
+const MAX_CUSTOM_THEMES = 5;
+
+function loadCustomThemes(): CustomTheme[] {
+  try {
+    const raw = localStorage.getItem(CUSTOM_THEMES_KEY);
+    if (!raw) return [];
+    const themes = JSON.parse(raw) as CustomTheme[];
+    // Sort by lastUsed descending (most recent first)
+    return themes.sort((a, b) => b.lastUsed - a.lastUsed);
+  } catch {
+    return [];
+  }
+}
+
+function saveCustomTheme(theme: CustomTheme): CustomTheme[] {
+  let themes = loadCustomThemes();
+  // Remove existing with same label (case-insensitive) to avoid duplicates
+  themes = themes.filter(t => t.label.toLowerCase() !== theme.label.toLowerCase());
+  themes.unshift(theme);
+  // Evict oldest if over limit
+  if (themes.length > MAX_CUSTOM_THEMES) {
+    themes = themes.slice(0, MAX_CUSTOM_THEMES);
+  }
+  localStorage.setItem(CUSTOM_THEMES_KEY, JSON.stringify(themes));
+  return themes;
+}
+
+function touchCustomTheme(label: string): void {
+  const themes = loadCustomThemes();
+  const theme = themes.find(t => t.label.toLowerCase() === label.toLowerCase());
+  if (theme) {
+    theme.lastUsed = Date.now();
+    localStorage.setItem(CUSTOM_THEMES_KEY, JSON.stringify(
+      themes.sort((a, b) => b.lastUsed - a.lastUsed)
+    ));
+  }
+}
+
+/** Dark-mode coaching severity variables */
+const DARK_COACHING: Record<string, string> = {
+  "--brilliant-bg": "rgba(74, 222, 128, 0.1)",
+  "--brilliant-border": "#4ade80", "--brilliant-text": "#4ade80",
+  "--inaccuracy-bg": "rgba(251, 191, 36, 0.1)",
+  "--inaccuracy-border": "#fbbf24", "--inaccuracy-text": "#fbbf24",
+  "--mistake-bg": "rgba(251, 146, 60, 0.1)",
+  "--mistake-border": "#fb923c", "--mistake-text": "#fb923c",
+  "--blunder-bg": "rgba(248, 113, 113, 0.1)",
+  "--blunder-border": "#f87171", "--blunder-text": "#f87171",
+  "--status-connected": "#4ade80", "--status-error": "#f87171", "--status-thinking": "#fbbf24",
+};
+
+/** Light-mode coaching severity variables */
+const LIGHT_COACHING: Record<string, string> = {
+  "--brilliant-bg": "rgba(22, 163, 74, 0.1)",
+  "--brilliant-border": "#16a34a", "--brilliant-text": "#15803d",
+  "--inaccuracy-bg": "rgba(202, 138, 4, 0.1)",
+  "--inaccuracy-border": "#ca8a04", "--inaccuracy-text": "#a16207",
+  "--mistake-bg": "rgba(234, 88, 12, 0.1)",
+  "--mistake-border": "#ea580c", "--mistake-text": "#c2410c",
+  "--blunder-bg": "rgba(220, 38, 38, 0.1)",
+  "--blunder-border": "#dc2626", "--blunder-text": "#b91c1c",
+  "--status-connected": "#15803d", "--status-error": "#dc2626", "--status-thinking": "#a16207",
+};
+
+function applyCustomTheme(theme: CustomTheme) {
+  const root = document.documentElement;
+  // Remove data-theme so built-in vars don't interfere
+  root.removeAttribute("data-theme");
+
+  const vars: Record<string, string> = {
+    "--bg-body": theme.bg.body, "--bg-header": theme.bg.header,
+    "--bg-panel": theme.bg.panel, "--bg-input": theme.bg.input,
+    "--bg-button": theme.bg.button, "--bg-button-hover": theme.bg.buttonHover,
+    "--bg-row-odd": theme.bg.rowOdd, "--bg-row-even": theme.bg.rowEven,
+    "--border-subtle": theme.border.subtle, "--border": theme.border.normal,
+    "--border-strong": theme.border.strong,
+    "--text": theme.text.primary, "--text-muted": theme.text.muted,
+    "--text-dim": theme.text.dim, "--accent": theme.text.accent,
+    "--accent-glow": theme.text.accent.replace(/^#(..)(..)(..)$/, (_, r, g, b) =>
+      `rgba(${parseInt(r, 16)}, ${parseInt(g, 16)}, ${parseInt(b, 16)}, 0.15)`),
+    "--board-light": theme.board.light, "--board-dark": theme.board.dark,
+    "--move-hover": theme.mode === "dark" ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)",
+    "--move-active": theme.text.accent.replace(/^#(..)(..)(..)$/, (_, r, g, b) =>
+      `rgba(${parseInt(r, 16)}, ${parseInt(g, 16)}, ${parseInt(b, 16)}, 0.15)`),
+    "--debug-bg": theme.mode === "dark" ? "rgba(100,100,140,0.12)" : "rgba(80,80,100,0.08)",
+    ...(theme.mode === "dark" ? DARK_COACHING : LIGHT_COACHING),
+  };
+
+  for (const [prop, val] of Object.entries(vars)) {
+    root.style.setProperty(prop, val);
+  }
+
+  updateBoardColors();
+}
+
+function clearCustomThemeVars() {
+  const root = document.documentElement;
+  // Remove all inline CSS variables so data-theme takes over again
+  root.removeAttribute("style");
+}
+
 function init() {
   const root = document.getElementById("app");
   if (!root) return;
+
+  // Restore custom theme if previously selected
+  const savedTheme = localStorage.getItem("chess-teacher-theme") || "dark";
+  if (savedTheme.startsWith("custom:")) {
+    const label = savedTheme.slice(7);
+    const themes = loadCustomThemes();
+    const theme = themes.find(t => t.label === label);
+    if (theme) {
+      // Will be applied after board is created (needs cg-board element)
+      requestAnimationFrame(() => applyCustomTheme(theme));
+    }
+  }
 
   // --- Header ---
   const header = document.createElement("header");
@@ -90,19 +217,119 @@ function init() {
     themeSelect.appendChild(opt);
   }
 
-  // Set initial value from current theme
-  const currentTheme = document.documentElement.getAttribute("data-theme") || "dark";
-  themeSelect.value = currentTheme;
-
   hamburgerMenu.appendChild(themeSelect);
+
+  const themeDescInput = document.createElement("input");
+  themeDescInput.type = "text";
+  themeDescInput.placeholder = "Describe a theme\u2026";
+  themeDescInput.className = "fen-input"; // reuse FEN input styling
+  hamburgerMenu.appendChild(themeDescInput);
+
+  const generateBtn = document.createElement("button");
+  generateBtn.textContent = "Generate";
+  hamburgerMenu.appendChild(generateBtn);
+
+  generateBtn.addEventListener("click", async () => {
+    const desc = themeDescInput.value.trim();
+    if (!desc) return;
+
+    generateBtn.textContent = "Generating\u2026";
+    generateBtn.disabled = true;
+
+    try {
+      const resp = await fetch("/api/theme/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ description: desc }),
+      });
+      if (!resp.ok) {
+        throw new Error("Generation failed");
+      }
+      const palette = await resp.json() as CustomTheme;
+      palette.lastUsed = Date.now();
+
+      // Save and apply
+      const themes = saveCustomTheme(palette);
+      applyCustomTheme(palette);
+
+      // Update dropdown
+      localStorage.setItem("chess-teacher-theme", `custom:${palette.label}`);
+      rebuildThemeOptions(themes);
+      themeSelect.value = `custom:${palette.label}`;
+
+      themeDescInput.value = "";
+    } catch {
+      generateBtn.style.borderColor = "#f87171";
+      setTimeout(() => { generateBtn.style.borderColor = ""; }, 1500);
+    } finally {
+      generateBtn.textContent = "Generate";
+      generateBtn.disabled = false;
+    }
+  });
+
+  // Also generate on Enter in the description input
+  themeDescInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      generateBtn.click();
+    }
+  });
 
   // Theme change handler
   themeSelect.addEventListener("change", () => {
-    const theme = themeSelect.value;
-    document.documentElement.setAttribute("data-theme", theme);
-    localStorage.setItem("chess-teacher-theme", theme);
-    updateBoardColors();
+    const val = themeSelect.value;
+
+    if (val.startsWith("custom:")) {
+      const label = val.slice(7); // strip "custom:" prefix
+      const themes = loadCustomThemes();
+      const theme = themes.find(t => t.label === label);
+      if (theme) {
+        touchCustomTheme(label);
+        applyCustomTheme(theme);
+        localStorage.setItem("chess-teacher-theme", val);
+      }
+    } else {
+      // Built-in theme
+      clearCustomThemeVars();
+      document.documentElement.setAttribute("data-theme", val);
+      localStorage.setItem("chess-teacher-theme", val);
+      updateBoardColors();
+    }
   });
+
+  function rebuildThemeOptions(customThemes: CustomTheme[]) {
+    // Remove all options
+    themeSelect.innerHTML = "";
+
+    // Built-in themes
+    for (const [value, label] of builtInThemes) {
+      const opt = document.createElement("option");
+      opt.value = value;
+      opt.textContent = label;
+      themeSelect.appendChild(opt);
+    }
+
+    // Separator + custom themes
+    if (customThemes.length > 0) {
+      const sep = document.createElement("option");
+      sep.disabled = true;
+      sep.textContent = "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500";
+      themeSelect.appendChild(sep);
+
+      for (const ct of customThemes) {
+        const opt = document.createElement("option");
+        opt.value = `custom:${ct.label}`;
+        opt.textContent = ct.label;
+        themeSelect.appendChild(opt);
+      }
+    }
+  }
+
+  // Initialize dropdown with any saved custom themes
+  rebuildThemeOptions(loadCustomThemes());
+
+  // Set correct initial value (may be custom theme)
+  themeSelect.value = savedTheme;
 
   const shortcutsRef = document.createElement("div");
   shortcutsRef.className = "shortcuts-ref";
