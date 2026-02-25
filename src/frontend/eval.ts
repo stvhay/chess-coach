@@ -199,6 +199,110 @@ export class BrowserEngine {
     this.worker.postMessage(`go depth ${depth}`);
   }
 
+  /**
+   * Evaluate a position and return a Promise that resolves when search completes.
+   * Resolves with the last EvalInfo received (deepest depth).
+   */
+  evaluateAsync(fen: string, depth: number = 20): Promise<EvalInfo> {
+    return new Promise((resolve, reject) => {
+      if (!this.worker || !this.ready) {
+        reject(new Error("Engine not ready"));
+        return;
+      }
+
+      let lastInfo: EvalInfo | null = null;
+
+      const prevOnMessage = this.worker.onmessage;
+      this.worker.onmessage = (e: MessageEvent) => {
+        const line = typeof e.data === "string" ? e.data : (e.data?.toString?.() ?? "");
+
+        if (line.startsWith("info") && line.includes("score")) {
+          const depthMatch = line.match(/\bdepth (\d+)/);
+          const cpMatch = line.match(/\bscore cp (-?\d+)/);
+          const mateMatch = line.match(/\bscore mate (-?\d+)/);
+          const pvMatch = line.match(/ pv (.+)/);
+          if (depthMatch) {
+            lastInfo = {
+              depth: parseInt(depthMatch[1], 10),
+              scoreCp: cpMatch ? parseInt(cpMatch[1], 10) : null,
+              scoreMate: mateMatch ? parseInt(mateMatch[1], 10) : null,
+              pv: pvMatch ? pvMatch[1].split(" ") : [],
+            };
+          }
+        }
+
+        if (line.startsWith("bestmove")) {
+          this.worker!.onmessage = prevOnMessage;
+          if (lastInfo) {
+            resolve(lastInfo);
+          } else {
+            reject(new Error("No eval info received"));
+          }
+        }
+      };
+
+      this.worker.postMessage("stop");
+      this.worker.postMessage(`position fen ${fen}`);
+      this.worker.postMessage(`go depth ${depth}`);
+    });
+  }
+
+  /**
+   * Evaluate with MultiPV and return a Promise that resolves when search completes.
+   * Resolves with all PV lines at the final reported depth.
+   */
+  evaluateMultiPVAsync(fen: string, n: number, depth: number = 16): Promise<EvalLine[]> {
+    return new Promise((resolve, reject) => {
+      if (!this.worker || !this.ready) {
+        reject(new Error("Engine not ready"));
+        return;
+      }
+
+      const lines = new Map<number, EvalLine>();
+      let currentDepth = 0;
+
+      const prevOnMessage = this.worker.onmessage;
+      this.worker.onmessage = (e: MessageEvent) => {
+        const line = typeof e.data === "string" ? e.data : (e.data?.toString?.() ?? "");
+
+        if (line.startsWith("info") && line.includes("score")) {
+          const depthMatch = line.match(/\bdepth (\d+)/);
+          const cpMatch = line.match(/\bscore cp (-?\d+)/);
+          const mateMatch = line.match(/\bscore mate (-?\d+)/);
+          const pvMatch = line.match(/ pv (.+)/);
+          const mpvMatch = line.match(/\bmultipv (\d+)/);
+          if (depthMatch) {
+            const d = parseInt(depthMatch[1], 10);
+            const pvNum = mpvMatch ? parseInt(mpvMatch[1], 10) : 1;
+            if (pvNum === 1 && d > currentDepth) {
+              lines.clear();
+              currentDepth = d;
+            }
+            if (d === currentDepth) {
+              lines.set(pvNum, {
+                multipv: pvNum,
+                scoreCp: cpMatch ? parseInt(cpMatch[1], 10) : null,
+                scoreMate: mateMatch ? parseInt(mateMatch[1], 10) : null,
+                pv: pvMatch ? pvMatch[1].split(" ") : [],
+              });
+            }
+          }
+        }
+
+        if (line.startsWith("bestmove")) {
+          this.worker!.onmessage = prevOnMessage;
+          resolve(Array.from(lines.values()).sort((a, b) => a.multipv - b.multipv));
+        }
+      };
+
+      this.worker.postMessage("stop");
+      this.worker.postMessage(`setoption name MultiPV value ${n}`);
+      this.worker.postMessage("isready");
+      this.worker.postMessage(`position fen ${fen}`);
+      this.worker.postMessage(`go depth ${depth}`);
+    });
+  }
+
   /** Stop the current search. */
   stop(): void {
     this.worker?.postMessage("stop");
