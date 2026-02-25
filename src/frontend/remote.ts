@@ -43,7 +43,12 @@ export class RemoteUCI {
       this.handleMessage(event.data);
     };
 
-    this.ws.onclose = () => {
+    this.ws.onclose = (event) => {
+      if (event.code === 1008) {
+        // Server not in browser engine mode — stop reconnecting
+        console.log("[RemoteUCI] Server not in browser mode, stopping");
+        return;
+      }
       console.log("[RemoteUCI] Disconnected, reconnecting in 3s...");
       this.reconnectTimer = window.setTimeout(() => this.connect(), 3000);
     };

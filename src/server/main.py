@@ -373,13 +373,12 @@ async def ws_engine_endpoint(ws: WebSocket):
     logger.info("Browser engine connected")
     _ws_engine.attach(ws)
     try:
-        # Keep connection alive — read_loop handles message dispatch
-        while True:
-            await asyncio.sleep(1)
-    except WebSocketDisconnect:
-        logger.info("Browser engine disconnected")
-    finally:
-        _ws_engine.detach()
+        # Block until the read loop exits (on disconnect or error)
+        await _ws_engine._reader_task
+    except Exception:
+        pass
+    logger.info("Browser engine disconnected")
+    _ws_engine.detach()
 
 
 # Mount static files last — catches all non-API routes

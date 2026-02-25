@@ -75,7 +75,7 @@ class WebSocketEngine(EngineProtocol):
         req_id = f"req-{next(self._counter)}"
         payload = json.dumps({"id": req_id, "method": method, "params": params})
 
-        fut: asyncio.Future = asyncio.get_event_loop().create_future()
+        fut: asyncio.Future = asyncio.get_running_loop().create_future()
         self._pending[req_id] = fut
 
         await self._ws.send_text(payload)
