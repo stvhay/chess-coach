@@ -76,6 +76,64 @@ def _detect_pin_hanging_chains(tactics: TacticalMotifs) -> dict[tuple, tuple]:
     return chains
 
 
+def _detect_overload_hanging_chains(
+    tactics: TacticalMotifs,
+) -> dict[tuple, list[tuple]]:
+    """Match OverloadedPiece.defended_squares against HangingPiece.square.
+
+    Returns {overloaded_key: [hanging_key, ...]} for each chain found.
+    An overloaded piece can link to multiple hanging pieces (it defends
+    multiple squares, more than one may be hanging).
+
+    Only active when is_tier2_chains_enabled().
+    """
+    from server.config_flags import is_tier2_chains_enabled
+    if not is_tier2_chains_enabled():
+        return {}
+
+    # Build hanging lookup: square -> hanging key
+    hanging_by_square: dict[str, tuple] = {}
+    for h in tactics.hanging:
+        h_key = ("hanging", h.square, h.piece, h.color)
+        hanging_by_square[h.square] = h_key
+
+    chains: dict[tuple, list[tuple]] = {}
+    for op in tactics.overloaded_pieces:
+        matched_hanging: list[tuple] = []
+        for sq in op.defended_squares:
+            if sq in hanging_by_square:
+                matched_hanging.append(hanging_by_square[sq])
+        if matched_hanging:
+            op_key = ("overloaded", op.square, op.piece, tuple(sorted(op.defended_squares)))
+            chains[op_key] = matched_hanging
+    return chains
+
+
+def _detect_capturable_defender_hanging_chains(
+    tactics: TacticalMotifs,
+) -> dict[tuple, tuple]:
+    """Match CapturableDefender.charge_square against HangingPiece.square.
+
+    Returns {cd_key: hanging_key} for each chain found.
+    Only active when is_tier2_chains_enabled().
+    """
+    from server.config_flags import is_tier2_chains_enabled
+    if not is_tier2_chains_enabled():
+        return {}
+
+    hanging_by_square: dict[str, tuple] = {}
+    for h in tactics.hanging:
+        h_key = ("hanging", h.square, h.piece, h.color)
+        hanging_by_square[h.square] = h_key
+
+    chains: dict[tuple, tuple] = {}
+    for cd in tactics.capturable_defenders:
+        if cd.charge_square in hanging_by_square:
+            cd_key = ("capturable_defender", cd.defender_square, cd.charge_square)
+            chains[cd_key] = hanging_by_square[cd.charge_square]
+    return chains
+
+
 def _render_chain_merged(pin, hanging, ctx: RenderContext) -> tuple[str, bool]:
     """Render pin->hanging chain as one merged description."""
     pin_text, pin_is_opp = render_pin(pin, ctx)
