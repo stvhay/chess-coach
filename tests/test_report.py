@@ -49,12 +49,19 @@ def _tree_with_history() -> GameTree:
 
 
 def _tree_with_changes() -> GameTree:
-    """Tree after 1.e4 e5 — both Nf3 (attacks e5) and Bc4 (pins f7) produce changes."""
+    """Tree after 1.e4 e5 — Nf3 (attacks e5) produces changes; Bc4 is the alternative.
+
+    Player's move (Nf3) is weaker than alternative so quality stays as given.
+    Nf3 creates a hanging-pawn opportunity on e5 (sound motif).
+    """
     root = GameNode(board=chess.Board(), source="played")
     e4 = root.add_child(chess.Move.from_uci("e2e4"), "played")
     e5 = e4.add_child(chess.Move.from_uci("e7e5"), "played")
-    e5.add_child(chess.Move.from_uci("g1f3"), "played", score_cp=30)
-    e5.add_child(chess.Move.from_uci("f1c4"), "engine", score_cp=25)
+    # Player's move is weaker than alternative (so quality stays as given)
+    nf3 = e5.add_child(chess.Move.from_uci("g1f3"), "played", score_cp=20)
+    # Alternative: Nf3 attacks e5 — use same move as engine alt so both produce changes
+    # Use d2d4 which attacks e5 directly and creates a sound hanging-pawn opportunity
+    e5.add_child(chess.Move.from_uci("d2d4"), "engine", score_cp=30)
     return GameTree(root=root, decision_point=e5, player_color=chess.WHITE)
 
 
@@ -571,3 +578,70 @@ class TestContinuationInsight:
         insight = _continuation_insight(after, move, mover_is_white=False)
         # Nh6 doesn't attack anything notable or go to center
         assert insight == "" or "defending" in insight
+
+
+# --- Bug 1: Brilliancy detection tests ---
+
+class TestBrilliancyDetection:
+    def test_player_better_than_alternatives_becomes_brilliant(self):
+        """When player's deep eval >= best alternative, quality becomes 'brilliant'."""
+        # Player move (e4) scores +50, alternative (d4) scores +30
+        tree = _simple_tree(player_cp=50, alt_cp=30)
+        report = serialize_report(tree, "inaccuracy", 20)
+        assert "Move classification: brilliant" in report
+        # Alternatives should be labeled "Other option" not "Stronger Alternative"
+        assert "# Other option" in report
+        assert "# Stronger Alternative" not in report
+
+    def test_player_worse_than_alternatives_stays_original(self):
+        """When player's eval < best alternative, quality stays as given."""
+        # Player move (e4) scores +10, alternative (d4) scores +30
+        tree = _simple_tree(player_cp=10, alt_cp=30)
+        report = serialize_report(tree, "inaccuracy", 20)
+        assert "Move classification: inaccuracy" in report
+        assert "# Stronger Alternative" in report
+
+    def test_player_equal_to_alternative_becomes_brilliant(self):
+        """When player's eval == best alternative, quality becomes 'brilliant'."""
+        tree = _simple_tree(player_cp=30, alt_cp=30)
+        report = serialize_report(tree, "inaccuracy", 10)
+        assert "Move classification: brilliant" in report
+
+    def test_brilliancy_detection_respects_black_perspective(self):
+        """For Black, lower cp is better — detect brilliancy correctly."""
+        root = GameNode(board=chess.Board(), source="played")
+        e4 = root.add_child(chess.Move.from_uci("e2e4"), "played")
+        # Decision point for Black (after 1.e4)
+        # Black's move: e5 with score -20 (better for black = lower)
+        e5 = e4.add_child(chess.Move.from_uci("e7e5"), "played", score_cp=-20)
+        # Alternative: d5 with score -10 (worse for black = higher)
+        e4.add_child(chess.Move.from_uci("d7d5"), "engine", score_cp=-10)
+        tree = GameTree(root=root, decision_point=e4, player_color=chess.BLACK)
+        report = serialize_report(tree, "inaccuracy", 10)
+        assert "Move classification: brilliant" in report
+
+    def test_brilliancy_detection_black_worse_stays_original(self):
+        """For Black, higher cp is worse — don't upgrade."""
+        root = GameNode(board=chess.Board(), source="played")
+        e4 = root.add_child(chess.Move.from_uci("e2e4"), "played")
+        # Black's move: e5 with score +10 (bad for black)
+        e5 = e4.add_child(chess.Move.from_uci("e7e5"), "played", score_cp=10)
+        # Alternative: d5 with score -10 (better for black)
+        e4.add_child(chess.Move.from_uci("d7d5"), "engine", score_cp=-10)
+        tree = GameTree(root=root, decision_point=e4, player_color=chess.BLACK)
+        report = serialize_report(tree, "inaccuracy", 20)
+        assert "Move classification: inaccuracy" in report
+
+    def test_no_alternatives_skips_brilliancy(self):
+        """No alternatives → skip brilliancy detection, keep original quality."""
+        root = GameNode(board=chess.Board(), source="played")
+        root.add_child(chess.Move.from_uci("e2e4"), "played", score_cp=50)
+        tree = GameTree(root=root, decision_point=root, player_color=chess.WHITE)
+        report = serialize_report(tree, "good", 0)
+        assert "Move classification: good" in report
+
+    def test_no_score_skips_brilliancy(self):
+        """Missing score on player/alt → skip brilliancy detection."""
+        tree = _simple_tree(player_cp=None, alt_cp=30)
+        report = serialize_report(tree, "inaccuracy", 20)
+        assert "Move classification: inaccuracy" in report

@@ -377,6 +377,8 @@ def describe_changes(
     tree: GameTree,
     node: GameNode,
     max_plies: int = 3,
+    *,
+    is_played_move: bool = False,
 ) -> tuple[list[str], list[str], list[str]]:
     """Describe what changed from parent to this node.
 
@@ -433,6 +435,7 @@ def describe_changes(
         )
         opps_rm, thrs_rm, obs_rm, rendered_keys = render_motifs(
             current_tactics, new_types, ctx, new_keys=filtered_new_keys,
+            suppress_unsound_opps=(not is_played_move),
         )
 
         # Extract text lists for this ply

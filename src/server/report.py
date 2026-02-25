@@ -452,6 +452,26 @@ def serialize_report(
     # --- Student Move ---
     player_node = tree.player_move_node()
     if player_node is not None:
+        # Brilliancy detection: if player's deep eval ≥ best alternative's,
+        # the screening pass missed this move — upgrade to "brilliant".
+        alts_for_brilliancy = tree.alternatives()
+        player_uci_check = player_node.move.uci() if player_node.move else ""
+        alts_for_brilliancy = [a for a in alts_for_brilliancy if a.move.uci() != player_uci_check]
+        if (
+            alts_for_brilliancy
+            and player_node.score_cp is not None
+            and alts_for_brilliancy[0].score_cp is not None
+        ):
+            best_alt_cp = alts_for_brilliancy[0].score_cp
+            player_cp = player_node.score_cp
+            # Scores are from White's POV: higher is better for White, lower for Black
+            if student_is_white:
+                player_beats_alts = player_cp >= best_alt_cp
+            else:
+                player_beats_alts = player_cp <= best_alt_cp
+            if player_beats_alts:
+                quality = "brilliant"
+
         player_san = player_node.san
         numbered_move = _format_numbered_move(player_san, move_number, student_is_white)
         lines.append("# Move Played")
@@ -462,7 +482,7 @@ def serialize_report(
             lines.append(f"\nMove classification: {quality}")
 
         # Changes (three-bucket)
-        opps, thrs, obs = describe_changes(tree, player_node, max_plies=2)
+        opps, thrs, obs = describe_changes(tree, player_node, max_plies=2, is_played_move=True)
         if thrs or opps or obs:
             lines.append("\nAfter this move:")
         _append_categorized(lines, "New Threats", thrs)

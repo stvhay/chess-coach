@@ -130,7 +130,7 @@ SCENARIOS: dict[str, dict] = {
         ),
         "quality": "good",
         "cp_loss": 0,
-        "expect_in_prompt": ["# Move Played", "1. e4", "good"],
+        "expect_in_prompt": ["# Move Played", "1. e4", "brilliant"],
         "expect_not_in_prompt": ["You played"],
     },
 }

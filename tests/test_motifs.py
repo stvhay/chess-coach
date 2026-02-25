@@ -694,3 +694,69 @@ class TestThresholdFiltering:
         ctx = _ctx(True)
         opps, thrs, obs, _ = render_motifs(tactics, {"fork"}, ctx, min_value=500)
         assert len(opps) == 1  # passes through — no value to filter on
+
+
+# --- Bug 2: Suppress unsound opportunity motifs ---
+
+class TestSuppressUnsoundOpps:
+    def test_unsound_opp_suppressed_by_default_false(self):
+        """suppress_unsound_opps=True removes unsound fork from opportunities."""
+        fork = Fork("e5", "N", ["c6", "g6"], ["r", "q"],
+                     value=TacticValue(material_delta=-800, is_sound=False))
+        tactics = TacticalMotifs(forks=[fork])
+        ctx = _ctx(True)
+        opps, thrs, obs, _ = render_motifs(
+            tactics, {"fork"}, ctx, suppress_unsound_opps=True,
+        )
+        assert len(opps) == 0
+
+    def test_unsound_opp_kept_when_not_suppressed(self):
+        """suppress_unsound_opps=False keeps unsound fork in opportunities."""
+        from server.motifs import RenderConfig
+        fork = Fork("e5", "N", ["c6", "g6"], ["r", "q"],
+                     value=TacticValue(material_delta=-800, is_sound=False))
+        tactics = TacticalMotifs(forks=[fork])
+        ctx = RenderContext(
+            student_is_white=True, player_color="White",
+            render_config=RenderConfig(always_qualify_unsound=True),
+        )
+        opps, thrs, obs, _ = render_motifs(
+            tactics, {"fork"}, ctx, suppress_unsound_opps=False,
+        )
+        assert len(opps) == 1
+        # Should include the value suffix showing it loses material
+        assert "loses" in opps[0].text.lower() or "800" in opps[0].text
+
+    def test_sound_opp_unaffected_by_suppression(self):
+        """Sound opportunity motifs are unaffected by suppress_unsound_opps."""
+        fork = Fork("e5", "N", ["c6", "g6"], ["r", "q"],
+                     value=TacticValue(material_delta=500, is_sound=True))
+        tactics = TacticalMotifs(forks=[fork])
+        ctx = _ctx(True)
+        opps, thrs, obs, _ = render_motifs(
+            tactics, {"fork"}, ctx, suppress_unsound_opps=True,
+        )
+        assert len(opps) == 1
+
+    def test_no_value_opp_unaffected_by_suppression(self):
+        """Opportunity motifs with no value are unaffected by suppress_unsound_opps."""
+        fork = Fork("e5", "N", ["c6", "g6"], ["r", "q"])
+        tactics = TacticalMotifs(forks=[fork])
+        ctx = _ctx(True)
+        opps, thrs, obs, _ = render_motifs(
+            tactics, {"fork"}, ctx, suppress_unsound_opps=True,
+        )
+        assert len(opps) == 1
+
+    def test_unsound_threat_not_suppressed(self):
+        """Unsound threats (opponent motifs) are not affected by suppress_unsound_opps."""
+        # Opponent's fork — it's a threat to the student
+        fork = Fork("e5", "n", ["c6", "g6"], ["R", "Q"],
+                     value=TacticValue(material_delta=-200, is_sound=False))
+        tactics = TacticalMotifs(forks=[fork])
+        ctx = _ctx(True)
+        opps, thrs, obs, _ = render_motifs(
+            tactics, {"fork"}, ctx, suppress_unsound_opps=True,
+        )
+        # Opponent's fork is a threat, not an opportunity — should still appear
+        assert len(thrs) == 1

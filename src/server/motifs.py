@@ -727,6 +727,7 @@ def render_motifs(
     new_keys: set[tuple] | None = None,
     min_value: int = 0,
     guarantee_min: int = 1,
+    suppress_unsound_opps: bool = False,
 ) -> tuple[list[RenderedMotif], list[RenderedMotif], list[RenderedMotif], set[tuple]]:
     """Render all new motifs, returning (opportunities, threats, observations, rendered_keys).
 
@@ -854,6 +855,10 @@ def render_motifs(
             if spec.is_observation:
                 obs.append(rm)
             elif is_opp:
+                # Suppress unsound opportunity motifs (e.g. fork that loses 800cp)
+                # unless this is the actually-played move
+                if suppress_unsound_opps and item_value and not item_value.is_sound:
+                    continue
                 opps.append(rm)
             else:
                 thrs.append(rm)
