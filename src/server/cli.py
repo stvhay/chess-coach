@@ -83,9 +83,8 @@ async def _run(args: argparse.Namespace) -> dict:
     advice = None
     if not args.no_llm:
         teacher = ChessTeacher(
-            ollama_url=args.ollama_url,
+            base_url=args.ollama_url,
             model=args.model,
-            system_prompt=args.system_prompt_text,
         )
         advice = await teacher.explain_move(prompt)
 

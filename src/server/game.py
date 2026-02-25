@@ -24,7 +24,7 @@ class GameState:
     board: chess.Board = field(default_factory=chess.Board)
     depth: int = 10
     elo_profile: str = "intermediate"
-    coach_name: str = "a chess coach"
+    coach_name: str = "Anna Cramling"
 
 
 def _game_status(board: chess.Board) -> str:
@@ -60,7 +60,7 @@ class GameManager:
         self._sessions: dict[str, GameState] = {}
 
     def new_game(
-        self, depth: int = 10, elo_profile: str = "intermediate", coach_name: str = "a chess coach"
+        self, depth: int = 10, elo_profile: str = "intermediate", coach_name: str = "Anna Cramling"
     ) -> tuple[str, str, str]:
         """Create a new game session. Returns (session_id, fen, status)."""
         session_id = str(uuid.uuid4())
@@ -112,7 +112,8 @@ class GameManager:
         # Build full debug prompt (system + user) if teacher is available
         if self._teacher is not None:
             coaching_data.debug_prompt = self._teacher.build_debug_prompt(
-                prompt, coach=coach_name, verbosity=verbosity
+                prompt, coach=coach_name, verbosity=verbosity,
+                move_quality=coaching_data.quality.value, elo_profile=elo_profile,
             )
         else:
             coaching_data.debug_prompt = prompt
@@ -130,7 +131,8 @@ class GameManager:
         # LLM
         if self._teacher is not None:
             llm_message = await self._teacher.explain_move(
-                prompt, coach=coach_name, verbosity=verbosity
+                prompt, coach=coach_name, verbosity=verbosity,
+                move_quality=coaching_data.quality.value, elo_profile=elo_profile,
             )
             if llm_message is not None:
                 coaching_data.message = llm_message

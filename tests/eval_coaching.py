@@ -307,14 +307,13 @@ async def evaluate_scenario(engine, teacher, scenario, profile):
     }
 
 
-async def run_batch(scenarios, profile_name="intermediate", system_prompt=None):
+async def run_batch(scenarios, profile_name="intermediate"):
     """Run a batch of scenarios and return results."""
     engine = EngineAnalysis(hash_mb=64)
     teacher = ChessTeacher(
         base_url=os.environ.get("LLM_BASE_URL", "https://ollama.st5ve.com"),
         model=os.environ.get("LLM_MODEL", "qwen2.5:14b"),
         api_key=os.environ.get("LLM_API_KEY"),
-        system_prompt=system_prompt,
     )
     profile = get_profile(profile_name)
     results = []
@@ -368,8 +367,6 @@ def main():
     )
     args = parser.parse_args()
 
-    system_prompt = COACHING_SYSTEM_PROMPT if args.prompt == "full" else SIMPLE_SYSTEM_PROMPT
-
     if args.batch is not None:
         start = args.batch * args.size
         end = start + args.size
@@ -377,7 +374,7 @@ def main():
     else:
         scenarios = SCENARIOS
 
-    results = asyncio.run(run_batch(scenarios, system_prompt=system_prompt))
+    results = asyncio.run(run_batch(scenarios))
 
     if args.json:
         print(json.dumps(results, indent=2))

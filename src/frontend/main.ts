@@ -486,16 +486,22 @@ function init() {
 
   const coachSelect = document.createElement("select");
   coachSelect.className = "elo-select-main";
-  const savedCoach = localStorage.getItem("chess-teacher-coach") || "a chess coach";
+  const savedCoach = localStorage.getItem("chess-teacher-coach") || "Anna Cramling";
   const coachOptions: [string, string][] = [
-    ["a chess coach", "Generic Coach"],
-    ["Judit Polgar", "Judit Polgar"],
+    ["Anna Cramling", "Anna Cramling"],
+    ["Daniel Naroditsky", "Daniel Naroditsky"],
+    ["GothamChess", "GothamChess"],
     ["GM Ben Finegold", "GM Ben Finegold"],
     ["Hikaru", "Hikaru"],
-    ["Daniel Naroditsky", "Daniel Naroditsky"],
-    ["Paul Morphy", "Paul Morphy"],
+    ["Judit Polgar", "Judit Polgar"],
     ["Magnus Carlsen", "Magnus Carlsen"],
-    ["GothamChess", "GothamChess"],
+    ["Vishy Anand", "Vishy Anand"],
+    ["Garry Kasparov", "Garry Kasparov"],
+    ["Mikhail Botvinnik", "Mikhail Botvinnik"],
+    ["Paul Morphy", "Paul Morphy"],
+    ["Mikhail Tal", "Mikhail Tal"],
+    ["Jose Raul Capablanca", "Jose Raul Capablanca"],
+    ["Faustino Oro", "Faustino Oro"],
   ];
   for (const [value, label] of coachOptions) {
     const opt = document.createElement("option");

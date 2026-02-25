@@ -39,7 +39,7 @@ const API_BASE = "/api";
 export async function createGame(
   depth: number = 10,
   eloProfile: string = "intermediate",
-  coachName: string = "a chess coach",
+  coachName: string = "Anna Cramling",
 ): Promise<NewGameResponse> {
   const res = await fetch(`${API_BASE}/game/new`, {
     method: "POST",

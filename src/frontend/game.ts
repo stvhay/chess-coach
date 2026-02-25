@@ -72,7 +72,7 @@ export class GameController {
   private maxPly = 0;
   private coachingByPly: Map<number, CoachingData> = new Map();
   private eloProfile: string = "intermediate";
-  private coachName: string = "a chess coach";
+  private coachName: string = "Anna Cramling";
 
   constructor(board: Api, engine: BrowserEngine | null) {
     this.game = new Chess();

@@ -15,9 +15,10 @@ from dataclasses import dataclass
 import httpx
 
 from server.prompts import (
-    COACHING_SYSTEM_PROMPT,
     OPPONENT_SYSTEM_PROMPT,
+    build_coaching_system_prompt,
     build_opponent_prompt,
+    get_persona,
 )
 
 
@@ -40,16 +41,35 @@ class ChessTeacher:
         model: str,
         api_key: str | None = None,
         timeout: float = 30.0,
-        system_prompt: str | None = None,
     ):
         self._base_url = base_url.rstrip("/")
         self._model = model
         self._api_key = api_key
         self._timeout = timeout
-        self._system_prompt = system_prompt or COACHING_SYSTEM_PROMPT
+
+    def _build_system_prompt(
+        self,
+        coach: str,
+        verbosity: str,
+        move_quality: str | None = None,
+        elo_profile: str | None = None,
+    ) -> str:
+        """Build system prompt with persona, quality, ELO, and verbosity."""
+        persona = get_persona(coach)
+        return build_coaching_system_prompt(
+            persona_block=persona.persona_block,
+            move_quality=move_quality,
+            elo_profile=elo_profile,
+            verbosity=verbosity,
+        )
 
     async def explain_move(
-        self, prompt: str, coach: str = "a chess coach", verbosity: str = "normal"
+        self,
+        prompt: str,
+        coach: str = "Anna Cramling",
+        verbosity: str = "normal",
+        move_quality: str | None = None,
+        elo_profile: str | None = None,
     ) -> str | None:
         """Ask the LLM to explain a move given a grounded prompt.
 
@@ -57,15 +77,9 @@ class ChessTeacher:
         contains only pre-computed facts for the LLM to reference.
         Returns None on any failure.
         """
-        word_counts = {
-            "terse": "25-75 words",
-            "normal": "50-100 words",
-            "verbose": "100-250 words",
-        }
-        wc = word_counts.get(verbosity, word_counts["normal"])
-        system = self._system_prompt.replace("{{PERSONA}}", coach)
-        system = system + f"\n\nIMPORTANT: Keep your response between {wc}. Be concise and focused."
-
+        system = self._build_system_prompt(
+            coach, verbosity, move_quality=move_quality, elo_profile=elo_profile,
+        )
         messages = [
             {"role": "system", "content": system},
             {"role": "user", "content": prompt},
@@ -73,22 +87,21 @@ class ChessTeacher:
         return await self._chat(messages)
 
     def build_debug_prompt(
-        self, prompt: str, coach: str = "a chess coach", verbosity: str = "normal"
+        self,
+        prompt: str,
+        coach: str = "Anna Cramling",
+        verbosity: str = "normal",
+        move_quality: str | None = None,
+        elo_profile: str | None = None,
     ) -> str:
         """Build the full prompt (system + user) for debugging.
 
         Returns a formatted string showing both the system and user messages
         that would be sent to the LLM.
         """
-        word_counts = {
-            "terse": "25-75 words",
-            "normal": "50-100 words",
-            "verbose": "100-250 words",
-        }
-        wc = word_counts.get(verbosity, word_counts["normal"])
-        system = self._system_prompt.replace("{{PERSONA}}", coach)
-        system = system + f"\n\nIMPORTANT: Keep your response between {wc}. Be concise and focused."
-
+        system = self._build_system_prompt(
+            coach, verbosity, move_quality=move_quality, elo_profile=elo_profile,
+        )
         return f"SYSTEM:\n{system}\n\nUSER:\n{prompt}"
 
     async def select_teaching_move(
