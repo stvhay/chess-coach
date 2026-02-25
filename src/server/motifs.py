@@ -66,11 +66,20 @@ class RenderMode(enum.Enum):
 
 
 @dataclass
+class RenderConfig:
+    """Tunable configuration for value-aware motif rendering."""
+    min_notable_value: int = 300      # mention value if material_delta >= this (centipawns)
+    always_qualify_unsound: bool = True  # always explain why unsound tactics fail
+    show_exact_cp: bool = True        # include centipawn numbers in text
+
+
+@dataclass
 class RenderContext:
     """Context for motif renderers."""
     student_is_white: bool | None
     player_color: str           # "White" or "Black"
     mode: RenderMode = RenderMode.OPPORTUNITY
+    render_config: RenderConfig | None = None
 
     @property
     def is_threat(self) -> bool:
@@ -81,6 +90,25 @@ class RenderContext:
         return self.mode == RenderMode.POSITION
 
 
+def _value_suffix(item, ctx: RenderContext) -> str:
+    """Generate value text suffix for a tactic, or empty string."""
+    config = ctx.render_config
+    if config is None:
+        return ""
+    value = getattr(item, "value", None)
+    if value is None:
+        return ""
+    if value.is_sound and value.material_delta >= config.min_notable_value:
+        if config.show_exact_cp:
+            return f", wins ~{value.material_delta}cp in the exchange"
+        return ", wins material in the exchange"
+    if not value.is_sound and config.always_qualify_unsound:
+        if config.show_exact_cp:
+            return f", but loses ~{abs(value.material_delta)}cp in the exchange"
+        return ", but loses material in the exchange"
+    return ""
+
+
 @dataclass
 class RenderedMotif:
     """A rendered motif description with metadata."""
@@ -89,6 +117,7 @@ class RenderedMotif:
     diff_key: str
     priority: int
     target_squares: frozenset[str] = frozenset()
+    material_delta: int | None = None  # from TacticValue, for threshold filtering
 
 
 # ---------------------------------------------------------------------------
@@ -129,6 +158,10 @@ def render_fork(fork, ctx: RenderContext) -> tuple[str, bool]:
         ]
         if other:
             desc = desc[:-1] + f" — wins {other[0]}."
+    # Append value suffix before final period
+    suffix = _value_suffix(fork, ctx)
+    if suffix and desc.endswith("."):
+        desc = desc[:-1] + suffix + "."
     return desc, is_student
 
 
@@ -144,6 +177,10 @@ def render_pin(pin, ctx: RenderContext) -> tuple[str, bool]:
     abs_label = " — it cannot move" if pin.is_absolute else ""
     desc = (f"{pinner.capitalize()} on {pin.pinner_square} pins "
             f"{pinned} on {pin.pinned_square} to {to_desc}{abs_label}.")
+    # Append value suffix before final period
+    suffix = _value_suffix(pin, ctx)
+    if suffix and desc.endswith("."):
+        desc = desc[:-1] + suffix + "."
     return desc, is_student
 
 
@@ -156,6 +193,10 @@ def render_skewer(skewer, ctx: RenderContext) -> tuple[str, bool]:
     desc = (f"{attacker.capitalize()} on {skewer.attacker_square} skewers "
             f"{front} on {skewer.front_square} behind "
             f"{behind} on {skewer.behind_square}.")
+    # Append value suffix before final period
+    suffix = _value_suffix(skewer, ctx)
+    if suffix and desc.endswith("."):
+        desc = desc[:-1] + suffix + "."
     return desc, is_student
 
 
@@ -173,6 +214,10 @@ def render_hanging(hp, ctx: RenderContext) -> tuple[str, bool]:
         desc = f"{piece_desc.capitalize()} on {hp.square} is hanging."
     else:
         desc = f"{piece_desc.capitalize()} on {hp.square} is undefended."
+    # Append value suffix before final period
+    suffix = _value_suffix(hp, ctx)
+    if suffix and desc.endswith("."):
+        desc = desc[:-1] + suffix + "."
     return desc, is_opponents
 
 
@@ -194,6 +239,10 @@ def render_discovered_attack(da, ctx: RenderContext) -> tuple[str, bool]:
         desc = (f"Discovered attack: {blocker} on {da.blocker_square} "
                 f"reveals {slider} on {da.slider_square} targeting "
                 f"{target} on {da.target_square}.")
+    # Append value suffix before final period
+    suffix = _value_suffix(da, ctx)
+    if suffix and desc.endswith("."):
+        desc = desc[:-1] + suffix + "."
     return desc, is_student
 
 
@@ -280,6 +329,10 @@ def render_overloaded_piece(op, ctx: RenderContext) -> tuple[str, bool]:
     charges = ", ".join(op.defended_squares)
     desc = (f"{piece_desc.capitalize()} on {op.square} is overloaded, "
             f"sole defender of {charges}.")
+    # Append value suffix before final period
+    suffix = _value_suffix(op, ctx)
+    if suffix and desc.endswith("."):
+        desc = desc[:-1] + suffix + "."
     return desc, is_opponents
 
 
@@ -293,6 +346,10 @@ def render_capturable_defender(cd, ctx: RenderContext) -> tuple[str, bool]:
     if cd.attacker_square:
         desc += f" — if captured, {charge} on {cd.charge_square} is left hanging"
     desc += "."
+    # Append value suffix before final period
+    suffix = _value_suffix(cd, ctx)
+    if suffix and desc.endswith("."):
+        desc = desc[:-1] + suffix + "."
     return desc, is_opponents
 
 
@@ -515,6 +572,23 @@ def motif_labels(tactics: TacticalMotifs, board: chess.Board | None = None) -> s
     return labels
 
 
+def _apply_value_filter(
+    bucket: list[RenderedMotif],
+    min_value: int,
+    guarantee_min: int,
+) -> None:
+    """Filter bucket in-place: remove valued items below min_value, keep guarantee_min."""
+    if not bucket:
+        return
+    passing = [rm for rm in bucket if rm.material_delta is None or rm.material_delta >= min_value]
+    failing = [rm for rm in bucket if rm.material_delta is not None and rm.material_delta < min_value]
+    if len(passing) < guarantee_min and failing:
+        failing.sort(key=lambda rm: rm.material_delta or 0, reverse=True)
+        needed = guarantee_min - len(passing)
+        passing.extend(failing[:needed])
+    bucket[:] = sorted(passing, key=lambda r: r.priority)
+
+
 def render_motifs(
     tactics: TacticalMotifs,
     new_types: set[str],
@@ -522,6 +596,8 @@ def render_motifs(
     max_items: int | None = None,
     *,
     new_keys: set[tuple] | None = None,
+    min_value: int = 0,
+    guarantee_min: int = 1,
 ) -> tuple[list[RenderedMotif], list[RenderedMotif], list[RenderedMotif], set[tuple]]:
     """Render all new motifs, returning (opportunities, threats, observations, rendered_keys).
 
@@ -542,11 +618,16 @@ def render_motifs(
     for every motif that was actually rendered (non-empty text, not
     filtered out). This allows callers to track exactly which motifs
     were shown, rather than inferring from the full tactic set.
+
+    When *min_value* > 0, valued motifs below the threshold are filtered
+    out (at the render layer only). *guarantee_min* ensures at least N
+    items survive per bucket even if all are below threshold.
     """
     opps: list[RenderedMotif] = []
     thrs: list[RenderedMotif] = []
     obs: list[RenderedMotif] = []
     rendered_keys: set[tuple] = set()
+    rm_to_key: dict[int, tuple] = {}  # id(RenderedMotif) -> key_fn tuple
 
     # Collect fork target squares for fork-implies-hanging dedup
     fork_squares: set[str] = set()
@@ -585,10 +666,12 @@ def render_motifs(
             if not desc or not desc.strip():
                 continue
             target_sq = spec.squares_fn(item) if spec.squares_fn else frozenset()
+            item_value = getattr(item, "value", None)
             rm = RenderedMotif(
                 text=desc, is_opportunity=is_opp,
                 diff_key=spec.diff_key, priority=spec.priority,
                 target_squares=target_sq,
+                material_delta=item_value.material_delta if item_value else None,
             )
             if spec.is_observation:
                 obs.append(rm)
@@ -597,11 +680,21 @@ def render_motifs(
             else:
                 thrs.append(rm)
             rendered_keys.add(spec.key_fn(item))
+            rm_to_key[id(rm)] = spec.key_fn(item)
 
     # Sort by priority (ascending = most important first)
     opps.sort(key=lambda r: r.priority)
     thrs.sort(key=lambda r: r.priority)
     obs.sort(key=lambda r: r.priority)
+
+    # Apply value threshold filter
+    if min_value > 0:
+        _apply_value_filter(opps, min_value, guarantee_min)
+        _apply_value_filter(thrs, min_value, guarantee_min)
+        _apply_value_filter(obs, min_value, guarantee_min)
+        # Rebuild rendered_keys from survivors
+        surviving_ids = {id(rm) for rm in opps + thrs + obs}
+        rendered_keys = {k for rm_id, k in rm_to_key.items() if rm_id in surviving_ids}
 
     # Apply max_items cap
     if max_items is not None:

@@ -13,6 +13,7 @@ from server.analysis import (
     OverloadedPiece,
     Pin,
     Skewer,
+    TacticValue,
     TacticalMotifs,
     XRayAttack,
 )
@@ -505,3 +506,142 @@ class TestRenderedKeys:
         ctx = _ctx(True)
         opps, thrs, obs, rendered_keys = render_motifs(tactics, {"xray"}, ctx)
         assert len(rendered_keys) == 0
+
+
+# --- Value-aware rendering tests ---
+
+class TestValueAwareRendering:
+    def test_sound_tactic_above_threshold_shows_value(self):
+        """Sound fork with material_delta >= min_notable_value includes value text."""
+        from server.motifs import RenderConfig
+        fork = Fork("e5", "N", ["c6", "g6"], ["r", "q"],
+                     value=TacticValue(material_delta=500, is_sound=True))
+        config = RenderConfig(min_notable_value=300)
+        ctx = RenderContext(
+            student_is_white=True, player_color="White",
+            render_config=config,
+        )
+        desc, is_opp = render_fork(fork, ctx)
+        assert "500" in desc or "wins" in desc.lower()
+
+    def test_sound_tactic_below_threshold_no_value(self):
+        """Sound fork with material_delta < min_notable_value omits value text."""
+        from server.motifs import RenderConfig
+        fork = Fork("e5", "N", ["c6", "g6"], ["r", "q"],
+                     value=TacticValue(material_delta=100, is_sound=True))
+        config = RenderConfig(min_notable_value=300)
+        ctx = RenderContext(
+            student_is_white=True, player_color="White",
+            render_config=config,
+        )
+        desc, is_opp = render_fork(fork, ctx)
+        assert "wins" not in desc.lower()
+        assert "100" not in desc
+
+    def test_unsound_tactic_qualifies(self):
+        """Unsound fork includes qualification text."""
+        from server.motifs import RenderConfig
+        fork = Fork("e5", "N", ["c6", "g6"], ["r", "q"],
+                     value=TacticValue(material_delta=-200, is_sound=False))
+        config = RenderConfig(always_qualify_unsound=True)
+        ctx = RenderContext(
+            student_is_white=True, player_color="White",
+            render_config=config,
+        )
+        desc, is_opp = render_fork(fork, ctx)
+        assert "loses" in desc.lower() or "200" in desc
+
+    def test_no_value_no_extra_text(self):
+        """Tactic with value=None renders normally with no value text."""
+        fork = Fork("e5", "N", ["c6", "g6"], ["r", "q"])
+        ctx = _ctx(True)
+        desc, is_opp = render_fork(fork, ctx)
+        assert "wins" not in desc.lower()
+        assert "loses" not in desc.lower()
+
+    def test_render_config_defaults(self):
+        """RenderConfig defaults match design spec."""
+        from server.motifs import RenderConfig
+        config = RenderConfig()
+        assert config.min_notable_value == 300
+        assert config.always_qualify_unsound is True
+        assert config.show_exact_cp is True
+
+    def test_hanging_value_rendering(self):
+        """Hanging piece with value shows exchange info."""
+        from server.motifs import RenderConfig
+        hp = HangingPiece("d5", "n", ["e3"], color="Black",
+                          value=TacticValue(material_delta=300, is_sound=True))
+        config = RenderConfig(min_notable_value=300)
+        ctx = RenderContext(
+            student_is_white=True, player_color="White",
+            render_config=config,
+        )
+        desc, is_opp = render_hanging(hp, ctx)
+        assert "300" in desc or "wins" in desc.lower()
+
+    def test_pin_value_rendering(self):
+        """Pin with value shows exchange info."""
+        from server.motifs import RenderConfig
+        pin = Pin("c6", "n", "b5", "B", "e8", "k", True,
+                  value=TacticValue(material_delta=300, is_sound=True))
+        config = RenderConfig(min_notable_value=300)
+        ctx = RenderContext(
+            student_is_white=True, player_color="White",
+            render_config=config,
+        )
+        desc, is_opp = render_pin(pin, ctx)
+        assert "300" in desc or "wins" in desc.lower()
+
+
+# --- Threshold filtering tests ---
+
+class TestThresholdFiltering:
+    def test_min_value_filters_low_value(self):
+        """Tactics below min_value are filtered out."""
+        fork_big = Fork("e5", "N", ["c6", "g6"], ["r", "q"],
+                        value=TacticValue(material_delta=500, is_sound=True))
+        fork_small = Fork("d4", "N", ["c6", "e6"], ["p", "p"],
+                          value=TacticValue(material_delta=50, is_sound=True))
+        tactics = TacticalMotifs(forks=[fork_big, fork_small])
+        ctx = _ctx(True)
+        opps, thrs, obs, _ = render_motifs(tactics, {"fork"}, ctx, min_value=100)
+        assert len(opps) == 1
+        assert "e5" in opps[0].text
+
+    def test_guarantee_min_preserves_top_tactic(self):
+        """Even if all tactics are below threshold, guarantee_min=1 keeps the best."""
+        fork = Fork("e5", "N", ["c6", "g6"], ["r", "q"],
+                    value=TacticValue(material_delta=50, is_sound=True))
+        tactics = TacticalMotifs(forks=[fork])
+        ctx = _ctx(True)
+        opps, thrs, obs, _ = render_motifs(tactics, {"fork"}, ctx,
+                                            min_value=100, guarantee_min=1)
+        assert len(opps) == 1
+
+    def test_guarantee_min_zero_allows_empty(self):
+        """guarantee_min=0 allows filtering everything."""
+        fork = Fork("e5", "N", ["c6", "g6"], ["r", "q"],
+                    value=TacticValue(material_delta=50, is_sound=True))
+        tactics = TacticalMotifs(forks=[fork])
+        ctx = _ctx(True)
+        opps, thrs, obs, _ = render_motifs(tactics, {"fork"}, ctx,
+                                            min_value=100, guarantee_min=0)
+        assert len(opps) == 0
+
+    def test_default_min_value_zero_reports_everything(self):
+        """Default min_value=0 preserves current behavior (report all)."""
+        fork = Fork("e5", "N", ["c6", "g6"], ["r", "q"],
+                    value=TacticValue(material_delta=10, is_sound=True))
+        tactics = TacticalMotifs(forks=[fork])
+        ctx = _ctx(True)
+        opps, thrs, obs, _ = render_motifs(tactics, {"fork"}, ctx)
+        assert len(opps) == 1
+
+    def test_unvalued_motifs_pass_through(self):
+        """Tactics with value=None are not filtered by min_value."""
+        fork = Fork("e5", "N", ["c6", "g6"], ["r", "q"])  # no value
+        tactics = TacticalMotifs(forks=[fork])
+        ctx = _ctx(True)
+        opps, thrs, obs, _ = render_motifs(tactics, {"fork"}, ctx, min_value=500)
+        assert len(opps) == 1  # passes through — no value to filter on
