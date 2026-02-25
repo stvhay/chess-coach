@@ -9,7 +9,7 @@ with played line context, player move, and engine alternatives.
 from __future__ import annotations
 
 import bisect
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field, field as dc_field, replace
 
 import chess
 
@@ -26,7 +26,41 @@ from server.engine import EngineAnalysis, Evaluation
 from server.motifs import (
     HIGH_VALUE_KEYS,
     MODERATE_VALUE_KEYS,
+    MOTIF_REGISTRY,
     motif_labels as _motif_labels,
+)
+
+
+@dataclass
+class TeachabilityWeights:
+    """Configuration for pedagogical interest scoring."""
+    motif_base: dict[str, float] = dc_field(default_factory=dict)
+    value_bonus_per_100cp: float = 1.0
+    mate_bonus: float = 5.0
+    checkmate_bonus: float = 100.0
+    sacrifice_bonus: float = 4.0
+    positional_bonus: float = 1.0
+    deep_only_penalty: float = -2.0
+    eval_loss_penalty: float = -3.0
+    unsound_penalty: float = 0.0
+
+
+DEFAULT_WEIGHTS = TeachabilityWeights(
+    motif_base={
+        "pin": 3.0,
+        "fork": 3.0,
+        "skewer": 3.0,
+        "hanging": 3.0,
+        "discovered": 3.0,
+        "double_check": 3.0,
+        "trapped": 3.0,
+        "mate_threat": 3.0,
+        "back_rank": 2.0,
+        "xray": 2.0,
+        "exposed_king": 2.0,
+        "overloaded": 2.0,
+        "capturable_defender": 2.0,
+    },
 )
 
 
@@ -423,15 +457,21 @@ def _rank_nodes_by_teachability(
     nodes: list[GameNode],
     max_concept_depth: int = 4,
     student_is_white: bool = True,
+    weights: TeachabilityWeights | None = None,
 ) -> None:
     """Score nodes by pedagogical interest. Sets _interest_score on each.
 
     Adapted from screener.rank_by_teachability to work with GameNode.
     Same heuristic, different data access pattern — walks node.tactics
     and child node trees instead of AnnotatedLine annotations.
+
+    Uses TeachabilityWeights for configurable per-motif-type weights and
+    value-based bonuses from TacticValue.material_delta.
     """
     if not nodes:
         return
+
+    w = weights if weights is not None else DEFAULT_WEIGHTS
 
     # Find the best score for relative comparison
     best_cp = None
@@ -474,25 +514,39 @@ def _rank_nodes_by_teachability(
                     (not student_is_white and node.score_mate < 0)
                 )
                 if student_mates:
-                    score += 100.0
+                    score += w.checkmate_bonus
                 else:
                     score -= 50.0
             else:
-                score += 100.0
+                score += w.checkmate_bonus
 
-        # High-value motifs
+        # Per-motif scoring using weights
         MATE_PREFIX = "mate_"
 
         for motif in early_motifs:
             if motif.startswith(MATE_PREFIX):
-                score += 5.0
+                score += w.mate_bonus
             elif motif in HIGH_VALUE_KEYS:
-                score += 3.0
+                score += w.motif_base.get(motif, 3.0)
             elif motif in MODERATE_VALUE_KEYS:
-                score += 2.0
+                score += w.motif_base.get(motif, 2.0)
 
-        # All tactics in reachable depth
-        score += 3.0 * len(early_motifs)
+        # All tactics in reachable depth — per-motif base weight
+        for motif in early_motifs:
+            score += w.motif_base.get(motif, 1.0)
+
+        # Value-based bonus: scan tactic items for TacticValue
+        for chain_node in chain[:max_concept_depth]:
+            tactics = chain_node.tactics
+            for spec_key, spec in MOTIF_REGISTRY.items():
+                for item in getattr(tactics, spec.field, []):
+                    value = getattr(item, "value", None)
+                    if value is None:
+                        continue
+                    if value.is_sound and value.material_delta >= 100:
+                        score += (value.material_delta / 100) * w.value_bonus_per_100cp
+                    elif not value.is_sound:
+                        score += w.unsound_penalty
 
         # Positional themes (inline structural checks — no summarize_position)
         for chain_node in chain[:max_concept_depth]:
@@ -502,22 +556,22 @@ def _rank_nodes_by_teachability(
                     any(p.is_isolated for p in ps.white + ps.black) or
                     report.king_safety_white.open_files_near_king or
                     report.king_safety_black.open_files_near_king):
-                score += 1.0
+                score += w.positional_bonus
                 break
 
         # Penalty: deep-only motifs
         only_deep = late_motifs - early_motifs
-        score -= 2.0 * len(only_deep)
+        score += w.deep_only_penalty * len(only_deep)
 
         # Sacrifice detection
         if _detect_sacrifice(chain, node.score_mate):
-            score += 4.0
+            score += w.sacrifice_bonus
 
         # Penalty: large eval loss vs best
         if best_cp is not None and node.score_cp is not None:
             loss = best_cp - node.score_cp
             if loss > 150:
-                score -= 3.0
+                score += w.eval_loss_penalty
 
         node._interest_score = score
 

@@ -14,6 +14,8 @@ from server.game_tree import (
     build_coaching_tree,
     _motif_labels,
     _sort_key,
+    _rank_nodes_by_teachability,
+    _get_continuation_chain,
 )
 
 
@@ -307,3 +309,121 @@ def test_motif_labels_checkmate():
     board = chess.Board("rnb1kbnr/pppp1ppp/4p3/8/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3")
     assert board.is_checkmate()
     assert "checkmate" in _motif_labels(TacticalMotifs(), board)
+
+
+# --- Teachability ranking tests ---
+
+from server.analysis import Fork, Pin, TacticValue
+
+
+class TestTeachabilityRanking:
+    def _make_node_with_tactics(self, fen, tactics):
+        """Helper: create GameNode with pre-set tactics."""
+        node = GameNode(board=chess.Board(fen), source="engine")
+        node._tactics = tactics
+        return node
+
+    def test_baseline_more_tactics_higher_score(self):
+        """Node with more tactics should score higher than node with fewer."""
+        fork = Fork("e5", "N", ["c6", "g6"], ["r", "q"])
+        pin = Pin("c6", "n", "b5", "B", "e8", "k", True)
+
+        node_one = self._make_node_with_tactics(
+            "4k3/8/2n3r1/4N3/8/8/8/4K3 w - - 0 1",
+            TacticalMotifs(forks=[fork]),
+        )
+        node_two = self._make_node_with_tactics(
+            "4k3/8/2n3r1/4N3/1B6/8/8/4K3 w - - 0 1",
+            TacticalMotifs(forks=[fork], pins=[pin]),
+        )
+        node_one.score_cp = 100
+        node_two.score_cp = 100
+
+        _rank_nodes_by_teachability([node_one, node_two])
+        assert node_two._interest_score > node_one._interest_score
+
+    def test_baseline_empty_tactics_low_score(self):
+        """Node with no tactics should score low."""
+        node = self._make_node_with_tactics(
+            chess.STARTING_FEN, TacticalMotifs(),
+        )
+        node.score_cp = 0
+        _rank_nodes_by_teachability([node])
+        assert node._interest_score <= 0 or node._interest_score < 5
+
+    def test_custom_weights_fork_emphasis(self):
+        """Custom weights that boost forks should increase fork node score."""
+        from server.game_tree import TeachabilityWeights, DEFAULT_WEIGHTS
+
+        fork = Fork("e5", "N", ["c6", "g6"], ["r", "q"],
+                     value=TacticValue(material_delta=500, is_sound=True))
+        pin = Pin("c6", "n", "b5", "B", "e8", "k", True,
+                  value=TacticValue(material_delta=300, is_sound=True))
+
+        node_fork = self._make_node_with_tactics(
+            "4k3/8/2n3r1/4N3/8/8/8/4K3 w - - 0 1",
+            TacticalMotifs(forks=[fork]),
+        )
+        node_pin = self._make_node_with_tactics(
+            "4k3/8/2n3r1/4N3/1B6/8/8/4K3 w - - 0 1",
+            TacticalMotifs(pins=[pin]),
+        )
+        node_fork.score_cp = 100
+        node_pin.score_cp = 100
+
+        fork_weights = TeachabilityWeights(
+            motif_base={**DEFAULT_WEIGHTS.motif_base, "fork": 10.0},
+        )
+
+        _rank_nodes_by_teachability([node_fork, node_pin], weights=fork_weights)
+        assert node_fork._interest_score > node_pin._interest_score
+
+    def test_value_bonus_scales_with_material(self):
+        """Higher material_delta should produce higher score."""
+        fork_big = Fork("e5", "N", ["c6", "g6"], ["r", "q"],
+                        value=TacticValue(material_delta=500, is_sound=True))
+        fork_small = Fork("e5", "N", ["c6", "g6"], ["p", "p"],
+                          value=TacticValue(material_delta=100, is_sound=True))
+
+        node_big = self._make_node_with_tactics(
+            "4k3/8/2n3r1/4N3/8/8/8/4K3 w - - 0 1",
+            TacticalMotifs(forks=[fork_big]),
+        )
+        node_small = self._make_node_with_tactics(
+            "4k3/8/2n3r1/4N3/8/8/8/4K3 w - - 0 1",
+            TacticalMotifs(forks=[fork_small]),
+        )
+        node_big.score_cp = 100
+        node_small.score_cp = 100
+
+        _rank_nodes_by_teachability([node_big, node_small])
+        assert node_big._interest_score > node_small._interest_score
+
+    def test_unsound_tactics_penalized(self):
+        """Unsound tactics should score lower than sound ones."""
+        fork_sound = Fork("e5", "N", ["c6", "g6"], ["r", "q"],
+                          value=TacticValue(material_delta=500, is_sound=True))
+        fork_unsound = Fork("e5", "N", ["c6", "g6"], ["r", "q"],
+                            value=TacticValue(material_delta=-200, is_sound=False))
+
+        node_sound = self._make_node_with_tactics(
+            "4k3/8/2n3r1/4N3/8/8/8/4K3 w - - 0 1",
+            TacticalMotifs(forks=[fork_sound]),
+        )
+        node_unsound = self._make_node_with_tactics(
+            "4k3/8/2n3r1/4N3/8/8/8/4K3 w - - 0 1",
+            TacticalMotifs(forks=[fork_unsound]),
+        )
+        node_sound.score_cp = 100
+        node_unsound.score_cp = 100
+
+        _rank_nodes_by_teachability([node_sound, node_unsound])
+        assert node_sound._interest_score > node_unsound._interest_score
+
+    def test_default_weights_exist(self):
+        """DEFAULT_WEIGHTS should be importable and have expected structure."""
+        from server.game_tree import DEFAULT_WEIGHTS, TeachabilityWeights
+        assert isinstance(DEFAULT_WEIGHTS, TeachabilityWeights)
+        assert "fork" in DEFAULT_WEIGHTS.motif_base
+        assert "pin" in DEFAULT_WEIGHTS.motif_base
+        assert DEFAULT_WEIGHTS.mate_bonus > 0
