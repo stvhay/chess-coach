@@ -16,6 +16,8 @@ from dataclasses import dataclass, field
 
 import chess
 
+import re
+
 from server.analysis import PositionReport, TacticalMotifs
 from server.game_tree import GameNode, GameTree, _get_continuation_chain
 from server.motifs import (
@@ -25,6 +27,62 @@ from server.motifs import (
     all_tactic_keys,
     render_motifs,
 )
+
+
+# ---------------------------------------------------------------------------
+# Tense conversion — present to past
+# ---------------------------------------------------------------------------
+
+# Ordered list of (pattern, replacement). Applied in order; first match wins
+# for each region of text. Patterns use word boundaries to avoid partial matches.
+_PRESENT_TO_PAST: list[tuple[re.Pattern, str]] = [
+    # --- Be-verbs (most common in motif output) ---
+    (re.compile(r"\bare connected\b"), "were connected"),
+    (re.compile(r"\bis left hanging\b"), "was left hanging"),
+    (re.compile(r"\bis actively placed\b"), "was actively placed"),
+    (re.compile(r"\bis in check\b"), "was in check"),
+    (re.compile(r"\bis up approximately\b"), "was up approximately"),
+    (re.compile(r"\bis undefended\b"), "was undefended"),
+    (re.compile(r"\bis hanging\b"), "was hanging"),
+    (re.compile(r"\bis trapped\b"), "was trapped"),
+    (re.compile(r"\bis weak\b"), "was weak"),
+    (re.compile(r"\bis exposed\b"), "was exposed"),
+    (re.compile(r"\bis overloaded\b"), "was overloaded"),
+
+    # --- Action verbs (motif renderers) ---
+    (re.compile(r"\bpins and also attacks\b"), "pinned and also attacked"),
+    (re.compile(r"\bforks\b"), "forked"),
+    (re.compile(r"\bpins\b"), "pinned"),
+    (re.compile(r"\bskewers\b"), "skewered"),
+    (re.compile(r"\bx-rays\b"), "x-rayed"),
+    (re.compile(r"\breveals\b"), "revealed"),
+    (re.compile(r"\bthreaten\b"), "threatened"),
+    (re.compile(r"\bdefends\b"), "defended"),
+    (re.compile(r"\bcontrols\b"), "controlled"),
+    (re.compile(r"\boccupies\b"), "occupied"),
+
+    # --- Positional observations ---
+    (re.compile(r"\bhas not fully developed\b"), "had not fully developed"),
+    (re.compile(r"\bhas a weak\b"), "had a weak"),
+    (re.compile(r"\bhas isolated\b"), "had isolated"),
+    (re.compile(r"\bhas passed\b"), "had passed"),
+    (re.compile(r"\bhas open files\b"), "had open files"),
+]
+
+
+def _to_past_tense(text: str) -> str:
+    """Convert known present-tense verb forms to past tense.
+
+    Uses an ordered list of regex substitutions. Each pattern matches at most
+    once per sentence (re.sub replaces all occurrences, but our patterns are
+    specific enough that double-matching is not a concern).
+
+    Unrecognized verb forms pass through unchanged — this is intentional.
+    New motif renderers should add their verb pattern here.
+    """
+    for pattern, replacement in _PRESENT_TO_PAST:
+        text = pattern.sub(replacement, text)
+    return text
 
 
 # ---------------------------------------------------------------------------
@@ -229,6 +287,8 @@ def _add_positional_observations(report: PositionReport) -> list[str]:
 def describe_position_from_report(
     report: PositionReport,
     student_is_white: bool,
+    *,
+    tense: str = "present",
 ) -> PositionDescription:
     """Position description from a raw report — no GameTree needed."""
     player_color = "White" if student_is_white else "Black"
@@ -253,6 +313,13 @@ def describe_position_from_report(
     obs_text = [o.text for o in obs_rm]
     obs_text.extend(_add_positional_observations(report))
 
+    if tense == "past":
+        convert = _to_past_tense
+        return PositionDescription(
+            threats=[convert(t.text) for t in thrs_rm],
+            opportunities=[convert(o.text) for o in opps_rm],
+            observations=[convert(t) for t in obs_text],
+        )
     return PositionDescription(
         threats=[t.text for t in thrs_rm],
         opportunities=[o.text for o in opps_rm],
@@ -260,14 +327,20 @@ def describe_position_from_report(
     )
 
 
-def describe_position(tree: GameTree, node: GameNode) -> PositionDescription:
+def describe_position(
+    tree: GameTree, node: GameNode, *, tense: str = "present",
+) -> PositionDescription:
     """Describe what this position looks like -- used for the Position section.
 
     Renders ALL active motifs via the registry and categorizes into three
     buckets. Adds non-tactic observations to the observations list.
+
+    Args:
+        tense: "present" (default) or "past". When "past", all descriptions
+               are converted to past tense for the Position Before section.
     """
     student_is_white = tree.player_color == chess.WHITE
-    return describe_position_from_report(node.report, student_is_white)
+    return describe_position_from_report(node.report, student_is_white, tense=tense)
 
 
 # ---------------------------------------------------------------------------

@@ -13,6 +13,7 @@ from server.analysis import analyze
 from server.descriptions import (
     PositionDescription,
     _blocker_is_move_dest,
+    _to_past_tense,
     diff_tactics,
     describe_changes,
     describe_position,
@@ -171,6 +172,184 @@ def test_as_text_max_items():
     assert "t0" in text
     assert "t2" in text
     assert "t3" not in text
+
+
+# --- Past tense conversion tests ---
+
+
+class TestToPastTense:
+    """Test the present-to-past tense conversion function."""
+
+    # --- Motif verb forms ---
+
+    def test_forks(self):
+        assert _to_past_tense("Your knight on e5 forks their rook.") == \
+            "Your knight on e5 forked their rook."
+
+    def test_pins(self):
+        assert _to_past_tense("Your bishop on b5 pins their knight on c6 to their king.") == \
+            "Your bishop on b5 pinned their knight on c6 to their king."
+
+    def test_pins_and_also_attacks(self):
+        assert _to_past_tense("Your rook pins and also attacks their queen.") == \
+            "Your rook pinned and also attacked their queen."
+
+    def test_skewers(self):
+        assert _to_past_tense("Your bishop on a4 skewers their queen.") == \
+            "Your bishop on a4 skewered their queen."
+
+    def test_is_undefended(self):
+        assert _to_past_tense("Their pawn on e4 is undefended.") == \
+            "Their pawn on e4 was undefended."
+
+    def test_is_hanging(self):
+        assert _to_past_tense("Their knight on f6 is hanging.") == \
+            "Their knight on f6 was hanging."
+
+    def test_is_trapped(self):
+        assert _to_past_tense("Their bishop on h7 is trapped.") == \
+            "Their bishop on h7 was trapped."
+
+    def test_is_weak(self):
+        assert _to_past_tense("Their back rank is weak (king on g8).") == \
+            "Their back rank was weak (king on g8)."
+
+    def test_is_exposed(self):
+        assert _to_past_tense("Their king on e5 is exposed (advanced, no pawn shield).") == \
+            "Their king on e5 was exposed (advanced, no pawn shield)."
+
+    def test_is_overloaded(self):
+        assert _to_past_tense("Their knight on c3 is overloaded, sole defender of e4, d5.") == \
+            "Their knight on c3 was overloaded, sole defender of e4, d5."
+
+    def test_threatens_checkmate(self):
+        assert _to_past_tense("You threaten checkmate on h7.") == \
+            "You threatened checkmate on h7."
+        assert _to_past_tense("They threaten checkmate on h2.") == \
+            "They threatened checkmate on h2."
+
+    def test_defends(self):
+        assert _to_past_tense("Their rook on d1 defends their pawn on d5") == \
+            "Their rook on d1 defended their pawn on d5"
+
+    def test_is_left_hanging(self):
+        assert _to_past_tense("if captured, their pawn on d5 is left hanging.") == \
+            "if captured, their pawn on d5 was left hanging."
+
+    def test_double_check(self):
+        """Double check from X — noun phrase, no verb to convert."""
+        text = "Double check from e5 and c3."
+        assert _to_past_tense(text) == text
+
+    def test_xrays_through(self):
+        assert _to_past_tense("Your rook on a1 x-rays through their knight.") == \
+            "Your rook on a1 x-rayed through their knight."
+
+    def test_discovered_xray_alignment(self):
+        """X-ray alignment (position mode) — noun phrase, no verb."""
+        text = "X-ray alignment: your bishop on c4 behind their pawn on d5 toward their king on e8."
+        assert _to_past_tense(text) == text
+
+    def test_discovered_attack_reveals(self):
+        assert _to_past_tense("Discovered attack: your knight on f3 reveals your bishop on c4 targeting their queen.") == \
+            "Discovered attack: your knight on f3 revealed your bishop on c4 targeting their queen."
+
+    def test_controls_diagonal(self):
+        assert _to_past_tense("White's bishop on g2 controls the a8-h1 diagonal.") == \
+            "White's bishop on g2 controlled the a8-h1 diagonal."
+
+    # --- Positional observation verb forms ---
+
+    def test_is_in_check(self):
+        assert _to_past_tense("Black is in check.") == "Black was in check."
+
+    def test_is_up_material(self):
+        assert _to_past_tense("White is up approximately 3 points of material.") == \
+            "White was up approximately 3 points of material."
+
+    def test_has_isolated_pawns(self):
+        assert _to_past_tense("White has isolated pawns on c3, e4.") == \
+            "White had isolated pawns on c3, e4."
+
+    def test_has_passed_pawns(self):
+        assert _to_past_tense("Black has passed pawns on d4.") == \
+            "Black had passed pawns on d4."
+
+    def test_king_has_open_files(self):
+        assert _to_past_tense("White's king has open files nearby.") == \
+            "White's king had open files nearby."
+
+    def test_king_is_actively_placed(self):
+        assert _to_past_tense("Black's king is actively placed on d4.") == \
+            "Black's king was actively placed on d4."
+
+    def test_has_not_fully_developed(self):
+        assert _to_past_tense("White has not fully developed minor pieces.") == \
+            "White had not fully developed minor pieces."
+
+    def test_occupies_seventh(self):
+        assert _to_past_tense("Rook on d7 occupies the 7th rank.") == \
+            "Rook on d7 occupied the 7th rank."
+
+    def test_rooks_are_connected(self):
+        assert _to_past_tense("White's rooks are connected on d1, e1.") == \
+            "White's rooks were connected on d1, e1."
+
+    def test_has_a_weak_square_complex(self):
+        assert _to_past_tense("White has a weak dark-square complex (no dark-squared bishop, pawns on light squares).") == \
+            "White had a weak dark-square complex (no dark-squared bishop, pawns on light squares)."
+
+    # --- Passthrough / no-op ---
+
+    def test_empty_string(self):
+        assert _to_past_tense("") == ""
+
+    def test_no_match_passes_through(self):
+        text = "Checkmate."
+        assert _to_past_tense(text) == text
+
+    def test_cannot_move_unchanged(self):
+        """The '— it cannot move' suffix should stay unchanged (modal verb)."""
+        text = "Your bishop pins their knight on c6 to their king — it cannot move."
+        result = _to_past_tense(text)
+        assert "pinned" in result
+        assert "cannot move" in result
+
+
+class TestDescribePositionTense:
+    """Test that describe_position respects the tense parameter."""
+
+    def test_default_tense_is_present(self):
+        """Default (no tense arg) returns present tense — backward compatible."""
+        root = GameNode(board=chess.Board(), source="played")
+        tree = GameTree(root=root, decision_point=root, player_color=chess.WHITE)
+        desc = describe_position(tree, root)
+        all_text = " ".join(desc.threats + desc.opportunities + desc.observations)
+        # Should NOT contain past-tense markers
+        assert "was " not in all_text or "was" not in all_text.split()
+
+    def test_past_tense_converts_observations(self):
+        """tense='past' should convert positional observations to past tense."""
+        # Use a position with material imbalance to guarantee an observation
+        # White up a queen: White Ke1, Qd1; Black Ke8
+        board = chess.Board("4k3/8/8/8/8/8/8/3QK3 w - - 0 1")
+        root = GameNode(board=board, source="played")
+        tree = GameTree(root=root, decision_point=root, player_color=chess.WHITE)
+        desc = describe_position(tree, root, tense="past")
+        all_obs = " ".join(desc.observations)
+        # Material observation should use past tense
+        assert "was up approximately" in all_obs or "had" in all_obs
+
+    def test_present_tense_explicit(self):
+        """tense='present' returns present tense (same as default)."""
+        board = chess.Board("4k3/8/8/8/8/8/8/3QK3 w - - 0 1")
+        root = GameNode(board=board, source="played")
+        tree = GameTree(root=root, decision_point=root, player_color=chess.WHITE)
+        desc_default = describe_position(tree, root)
+        desc_present = describe_position(tree, root, tense="present")
+        assert desc_default.threats == desc_present.threats
+        assert desc_default.opportunities == desc_present.opportunities
+        assert desc_default.observations == desc_present.observations
 
 
 # --- key-level filtering regression tests ---
