@@ -44,3 +44,8 @@ markers = [
     "live: marks tests that call a real LLM (run with '-m live')",
     "full_llm: marks extended LLM test suite (run with '-m full_llm')",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest-cov>=7.0.0",
+]

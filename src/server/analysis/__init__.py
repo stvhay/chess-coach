@@ -25,7 +25,7 @@ from server.analysis.material import MaterialInfo, analyze_material
 from server.analysis.pawns import PawnStructure, analyze_pawn_structure
 from server.analysis.king_safety import KingSafety, analyze_king_safety
 from server.analysis.activity import ActivityInfo, analyze_activity
-from server.analysis.tactics import TacticalMotifs, analyze_tactics, index_by_piece
+from server.analysis.tactics import TacticValue, TacticalMotifs, analyze_tactics, index_by_piece, see
 from server.analysis.structure import (
     CenterControl,
     FilesAndDiagonals,

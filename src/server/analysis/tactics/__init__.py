@@ -16,12 +16,14 @@ from server.analysis.tactics.types import (
     Pin,
     PieceInvolvement,
     Skewer,
+    TacticValue,
     TacticalMotifs,
     TrappedPiece,
     XRayAttack,
     XRayDefense,
     index_by_piece,
 )
+from server.analysis.tactics.see import see
 from server.analysis.tactics.rays import _find_ray_motifs
 from server.analysis.tactics.finders import (
     _can_defend,
@@ -35,6 +37,15 @@ from server.analysis.tactics.finders import (
     _find_mate_threats,
     _find_overloaded_pieces,
     _find_trapped_pieces,
+)
+from server.analysis.tactics.valuation import (
+    _value_capturable_defender,
+    _value_discovered,
+    _value_fork,
+    _value_hanging,
+    _value_overloaded,
+    _value_pin,
+    _value_skewer,
 )
 
 __all__ = [
@@ -53,10 +64,12 @@ __all__ = [
     "ExposedKing",
     "OverloadedPiece",
     "CapturableDefender",
+    "TacticValue",
     "TacticalMotifs",
     "PieceInvolvement",
     "index_by_piece",
     "analyze_tactics",
+    "see",
     "_can_defend",
 ]
 
@@ -65,7 +78,7 @@ def analyze_tactics(board: chess.Board) -> TacticalMotifs:
     ray = _find_ray_motifs(board)
     mate_threats = _find_mate_threats(board)
     back_rank_weaknesses = _find_back_rank_weaknesses(board)
-    return TacticalMotifs(
+    motifs = TacticalMotifs(
         pins=ray.pins,
         forks=_find_forks(board, pins=ray.pins),
         skewers=ray.skewers,
@@ -86,3 +99,21 @@ def analyze_tactics(board: chess.Board) -> TacticalMotifs:
         ),
         capturable_defenders=_find_capturable_defenders(board),
     )
+
+    # Valuation pass: compute TacticValue for each motif
+    for h in motifs.hanging:
+        h.value = _value_hanging(h, board)
+    for p in motifs.pins:
+        p.value = _value_pin(p, board)
+    for f in motifs.forks:
+        f.value = _value_fork(f, board)
+    for s in motifs.skewers:
+        s.value = _value_skewer(s, board)
+    for da in motifs.discovered_attacks:
+        da.value = _value_discovered(da, board)
+    for cd in motifs.capturable_defenders:
+        cd.value = _value_capturable_defender(cd, board)
+    for op in motifs.overloaded_pieces:
+        op.value = _value_overloaded(op, board)
+
+    return motifs

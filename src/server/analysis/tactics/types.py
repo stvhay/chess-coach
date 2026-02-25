@@ -8,6 +8,14 @@ from server.analysis.constants import get_piece_value  # noqa: F401 — re-expor
 
 
 @dataclass
+class TacticValue:
+    """Material value of a tactic if exploited."""
+    material_delta: int    # centipawns (100 = 1 pawn), positive = beneficiary gains
+    is_sound: bool         # material_delta > 0
+    source: str = "see"    # "see" | "engine" | "heuristic"
+
+
+@dataclass
 class Pin:
     pinned_square: str
     pinned_piece: str
@@ -17,6 +25,7 @@ class Pin:
     pinned_to_piece: str = ""  # piece symbol on pinned_to square (e.g. "K", "q")
     is_absolute: bool = False  # pinned to king (piece cannot legally move)
     color: str = ""  # "white" or "black" — color of the pinner
+    value: TacticValue | None = None
 
 
 @dataclass
@@ -29,6 +38,7 @@ class Fork:
     is_check_fork: bool = False   # one target is the king
     is_royal_fork: bool = False   # targets include both king and queen
     is_pin_fork: bool = False     # forker also pins one of the targets
+    value: TacticValue | None = None
 
 
 @dataclass
@@ -41,6 +51,7 @@ class Skewer:
     behind_piece: str
     color: str = ""  # "white" or "black" — color of the attacker
     is_absolute: bool = False  # True when front piece is the king
+    value: TacticValue | None = None
 
 
 @dataclass
@@ -50,6 +61,7 @@ class HangingPiece:
     attacker_squares: list[str]
     color: str = ""  # "white" or "black" — whose piece is hanging
     can_retreat: bool = True  # piece owner moves next and can save it
+    value: TacticValue | None = None
 
 
 @dataclass
@@ -62,6 +74,7 @@ class DiscoveredAttack:
     target_piece: str
     significance: str = "normal"  # "low" for pawn-reveals-rook x-rays, "normal" otherwise
     color: str = ""  # "white" or "black" — color of the attacking side (slider owner)
+    value: TacticValue | None = None
 
 
 @dataclass
@@ -130,6 +143,7 @@ class OverloadedPiece:
     piece: str
     defended_squares: list[str]  # attacked targets this piece sole-defends
     color: str = ""  # "white" or "black" — color of the overloaded piece
+    value: TacticValue | None = None
 
 
 @dataclass
@@ -140,6 +154,7 @@ class CapturableDefender:
     charge_piece: str
     attacker_square: str  # who can capture the defender
     color: str = ""  # "white" or "black" — color of the defender
+    value: TacticValue | None = None
 
 
 @dataclass
