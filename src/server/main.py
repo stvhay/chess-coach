@@ -13,7 +13,7 @@ from pydantic import PydanticDeprecatedSince20
 warnings.filterwarnings("ignore", category=PydanticDeprecatedSince20, module=r"chromadb\.")
 
 import chess
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -23,6 +23,7 @@ from starlette.responses import RedirectResponse, Response
 from server.analysis import analyze
 from server.config import Settings
 from server.engine import EngineAnalysis, EngineProtocol
+from server.ws_engine import WebSocketEngine
 from server.game import GameManager
 from server.import_puzzles import (
     LICHESS_PUZZLE_URL,
@@ -59,9 +60,14 @@ def _all_done() -> bool:
 
 # --- Service instances ---
 
-engine = EngineAnalysis(
-    stockfish_path=settings.stockfish_path, hash_mb=settings.stockfish_hash_mb
-)
+if settings.stockfish_mode == "browser":
+    _ws_engine = WebSocketEngine()
+    engine: EngineProtocol = _ws_engine
+else:
+    _ws_engine = None
+    engine: EngineProtocol = EngineAnalysis(
+        stockfish_path=settings.stockfish_path, hash_mb=settings.stockfish_hash_mb
+    )
 teacher = ChessTeacher(
     base_url=settings.llm_base_url,
     model=settings.llm_model,
@@ -81,6 +87,9 @@ games = GameManager(engine, teacher=teacher, rag=rag, rag_top_k=settings.rag_top
 # --- Background initialization tasks ---
 
 async def _init_stockfish() -> None:
+    if settings.stockfish_mode == "browser":
+        _set_status("stockfish", "done", "Browser mode — waiting for WebSocket connection")
+        return
     _set_status("stockfish", "running", "Starting Stockfish engine...")
     try:
         await engine.start()
@@ -176,7 +185,8 @@ async def lifespan(app: FastAPI):
     # Wait for all tasks to complete cancellation
     await asyncio.gather(*tasks, return_exceptions=True)
     await puzzle_db.close()
-    await engine.stop()
+    if settings.stockfish_mode != "browser":
+        await engine.stop()
 
 
 app = FastAPI(title="Chess Teacher", lifespan=lifespan)
@@ -352,6 +362,24 @@ async def generate_theme(req: ThemeGenerateRequest):
     if result is None:
         raise HTTPException(status_code=502, detail="Theme generation failed")
     return result
+
+
+@app.websocket("/ws/engine")
+async def ws_engine_endpoint(ws: WebSocket):
+    if _ws_engine is None:
+        await ws.close(code=1008, reason="Server not in browser engine mode")
+        return
+    await ws.accept()
+    logger.info("Browser engine connected")
+    _ws_engine.attach(ws)
+    try:
+        # Keep connection alive — read_loop handles message dispatch
+        while True:
+            await asyncio.sleep(1)
+    except WebSocketDisconnect:
+        logger.info("Browser engine disconnected")
+    finally:
+        _ws_engine.detach()
 
 
 # Mount static files last — catches all non-API routes
