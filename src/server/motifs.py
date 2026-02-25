@@ -146,7 +146,7 @@ def _render_chain_merged(pin, hanging, ctx: RenderContext) -> tuple[str, bool]:
     # Strip trailing period and any value suffix, add chain clause
     base = pin_text.rstrip(".")
     chain_clause = f", leaving {h_desc} on {hanging.square} undefended"
-    suffix = _value_suffix(hanging, ctx)
+    suffix = _value_suffix(hanging, ctx, is_opportunity=pin_is_opp)
     if suffix:
         chain_clause += suffix
     return base + chain_clause + ".", pin_is_opp
@@ -168,7 +168,7 @@ def _render_overload_chain_merged(
     desc = (f"{piece_desc.capitalize()} on {op.square} is overloaded, "
             f"sole defender of {charges} — {consequence}.")
 
-    suffix = _value_suffix(op, ctx)
+    suffix = _value_suffix(op, ctx, is_opportunity=is_opponents)
     if suffix and desc.endswith("."):
         desc = desc[:-1] + suffix + "."
     return desc, is_opponents
@@ -211,8 +211,15 @@ class RenderContext:
         return self.mode == RenderMode.POSITION
 
 
-def _value_suffix(item, ctx: RenderContext) -> str:
-    """Generate value text suffix for a tactic, or empty string."""
+def _value_suffix(item, ctx: RenderContext, *, is_opportunity: bool = True) -> str:
+    """Generate value text suffix for a tactic, or empty string.
+
+    Only produces text for student opportunities. Threats (opponent tactics)
+    are self-describing — the piece type conveys magnitude, and appending
+    "wins ~Xcp" from the attacker's perspective would confuse the reader.
+    """
+    if not is_opportunity:
+        return ""
     config = ctx.render_config
     if config is None:
         return ""
@@ -280,7 +287,7 @@ def render_fork(fork, ctx: RenderContext) -> tuple[str, bool]:
         if other:
             desc = desc[:-1] + f" — wins {other[0]}."
     # Append value suffix before final period
-    suffix = _value_suffix(fork, ctx)
+    suffix = _value_suffix(fork, ctx, is_opportunity=is_student)
     if suffix and desc.endswith("."):
         desc = desc[:-1] + suffix + "."
     return desc, is_student
@@ -299,7 +306,7 @@ def render_pin(pin, ctx: RenderContext) -> tuple[str, bool]:
     desc = (f"{pinner.capitalize()} on {pin.pinner_square} pins "
             f"{pinned} on {pin.pinned_square} to {to_desc}{abs_label}.")
     # Append value suffix before final period
-    suffix = _value_suffix(pin, ctx)
+    suffix = _value_suffix(pin, ctx, is_opportunity=is_student)
     if suffix and desc.endswith("."):
         desc = desc[:-1] + suffix + "."
     return desc, is_student
@@ -315,7 +322,7 @@ def render_skewer(skewer, ctx: RenderContext) -> tuple[str, bool]:
             f"{front} on {skewer.front_square} behind "
             f"{behind} on {skewer.behind_square}.")
     # Append value suffix before final period
-    suffix = _value_suffix(skewer, ctx)
+    suffix = _value_suffix(skewer, ctx, is_opportunity=is_student)
     if suffix and desc.endswith("."):
         desc = desc[:-1] + suffix + "."
     return desc, is_student
@@ -336,7 +343,7 @@ def render_hanging(hp, ctx: RenderContext) -> tuple[str, bool]:
     else:
         desc = f"{piece_desc.capitalize()} on {hp.square} is undefended."
     # Append value suffix before final period
-    suffix = _value_suffix(hp, ctx)
+    suffix = _value_suffix(hp, ctx, is_opportunity=is_opponents)
     if suffix and desc.endswith("."):
         desc = desc[:-1] + suffix + "."
     return desc, is_opponents
@@ -346,7 +353,8 @@ def render_discovered_attack(da, ctx: RenderContext) -> tuple[str, bool]:
     """Render a discovered attack.
 
     In position context uses "x-ray alignment" since nothing has been
-    "discovered" yet. In change context uses "discovered attack".
+    "discovered" yet. In change context uses conditional tense — the
+    blocker hasn't moved, so the attack is latent/potential.
     """
     is_student = _piece_is_students(da.slider_piece, ctx.student_is_white)
     slider = _own_their(da.slider_piece, is_student)
@@ -357,11 +365,11 @@ def render_discovered_attack(da, ctx: RenderContext) -> tuple[str, bool]:
                 f"behind {blocker} on {da.blocker_square} toward "
                 f"{target} on {da.target_square}.")
     else:
-        desc = (f"Discovered attack: {blocker} on {da.blocker_square} "
-                f"reveals {slider} on {da.slider_square} targeting "
+        desc = (f"If {blocker} on {da.blocker_square} moves, "
+                f"{slider} on {da.slider_square} will target "
                 f"{target} on {da.target_square}.")
     # Append value suffix before final period
-    suffix = _value_suffix(da, ctx)
+    suffix = _value_suffix(da, ctx, is_opportunity=is_student)
     if suffix and desc.endswith("."):
         desc = desc[:-1] + suffix + "."
     return desc, is_student
@@ -451,7 +459,7 @@ def render_overloaded_piece(op, ctx: RenderContext) -> tuple[str, bool]:
     desc = (f"{piece_desc.capitalize()} on {op.square} is overloaded, "
             f"sole defender of {charges}.")
     # Append value suffix before final period
-    suffix = _value_suffix(op, ctx)
+    suffix = _value_suffix(op, ctx, is_opportunity=is_opponents)
     if suffix and desc.endswith("."):
         desc = desc[:-1] + suffix + "."
     return desc, is_opponents
@@ -468,7 +476,7 @@ def render_capturable_defender(cd, ctx: RenderContext) -> tuple[str, bool]:
         desc += f" — if captured, {charge} on {cd.charge_square} is left hanging"
     desc += "."
     # Append value suffix before final period
-    suffix = _value_suffix(cd, ctx)
+    suffix = _value_suffix(cd, ctx, is_opportunity=is_opponents)
     if suffix and desc.endswith("."):
         desc = desc[:-1] + suffix + "."
     return desc, is_opponents

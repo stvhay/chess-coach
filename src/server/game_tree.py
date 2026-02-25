@@ -162,6 +162,17 @@ def _sort_key(node: GameNode) -> tuple[int, int]:
 
 
 @dataclass
+class OpponentResponse:
+    """A candidate response move by the opponent after the student's move."""
+    san: str
+    uci: str
+    score_cp: int | None
+    score_mate: int | None
+    description: str      # "captures your knight on c6", "develops bishop to g7"
+    is_best: bool         # matches the PV's first move
+
+
+@dataclass
 class GameTree:
     """The coaching game tree rooted at the starting position.
 
@@ -172,6 +183,7 @@ class GameTree:
     root: GameNode
     decision_point: GameNode
     player_color: chess.Color
+    opponent_responses: list[OpponentResponse] = field(default_factory=list)
 
     def played_line(self) -> list[GameNode]:
         """Return the path from root to decision_point (inclusive)."""
@@ -258,6 +270,175 @@ def _add_continuation_children(
         nodes.append(child)
         current = child
     return nodes
+
+
+_PIECE_NAMES = {
+    chess.PAWN: "pawn", chess.KNIGHT: "knight", chess.BISHOP: "bishop",
+    chess.ROOK: "rook", chess.QUEEN: "queen", chess.KING: "king",
+}
+
+# Piece values for insight targeting (king=0 ensures check is not reported as targeting)
+_PIECE_VALUES = {
+    chess.QUEEN: 9, chess.ROOK: 5, chess.BISHOP: 3,
+    chess.KNIGHT: 3, chess.PAWN: 1, chess.KING: 0,
+}
+
+
+def _describe_opponent_move(board: chess.Board, move: chess.Move, student_is_white: bool) -> str:
+    """Generate a short natural-language description of an opponent's move.
+
+    board is the position BEFORE the move is played.
+    Includes one notable insight about what the move accomplishes beyond
+    the basic action (e.g., what it targets or defends).
+    """
+    piece_type = board.piece_type_at(move.from_square)
+    piece_name = _PIECE_NAMES.get(piece_type, "piece") if piece_type else "piece"
+    dest = chess.square_name(move.to_square)
+
+    # Castling
+    if board.is_castling(move):
+        if chess.square_file(move.to_square) == 6:  # g-file = kingside
+            desc = "castles kingside"
+        else:
+            desc = "castles queenside"
+    elif board.is_capture(move):
+        captured_sq = move.to_square
+        # En passant: captured piece is not on to_square
+        if board.is_en_passant(move):
+            captured_name = "pawn"
+        else:
+            captured_type = board.piece_type_at(captured_sq)
+            captured_name = _PIECE_NAMES.get(captured_type, "piece") if captured_type else "piece"
+        desc = f"captures your {captured_name} on {dest}"
+        if move.promotion:
+            promo_name = _PIECE_NAMES.get(move.promotion, "piece")
+            desc += f", promoting to {promo_name}"
+    elif move.promotion:
+        promo_name = _PIECE_NAMES.get(move.promotion, "piece")
+        desc = f"promotes pawn to {promo_name} on {dest}"
+    else:
+        # Non-capture, non-special: describe the move
+        if piece_type == chess.PAWN:
+            desc = f"pushes pawn to {dest}"
+        elif piece_type in (chess.KNIGHT, chess.BISHOP) and chess.square_rank(move.from_square) == (0 if not student_is_white else 7):
+            desc = f"develops {piece_name} to {dest}"
+        else:
+            desc = f"moves {piece_name} to {dest}"
+
+    # Check for check
+    board_copy = board.copy()
+    board_copy.push(move)
+    if board_copy.is_check():
+        desc += " with check"
+    elif not board.is_capture(move):
+        # Add insight for non-captures (captures are self-describing)
+        insight = _move_insight(board_copy, move, student_is_white)
+        if insight:
+            desc += f", {insight}"
+
+    return desc
+
+
+def _move_insight(after_board: chess.Board, move: chess.Move, student_is_white: bool) -> str:
+    """Find one notable positional fact about a move.
+
+    after_board is the position AFTER the move is played.
+    Returns a short phrase like "targeting your rook on a1" or
+    "challenging the center", or empty string if nothing notable.
+    """
+    to_sq = move.to_square
+    # The side that just moved is the opponent of the student
+    opponent_color = chess.WHITE if not student_is_white else chess.BLACK
+
+    # 1. Does the piece attack a student's high-value piece?
+    attacked = after_board.attacks(to_sq)
+    best_target: tuple[int, str] | None = None  # (value, description)
+    student_color = chess.WHITE if student_is_white else chess.BLACK
+    for sq in attacked:
+        piece = after_board.piece_at(sq)
+        if piece is None or piece.color != student_color:
+            continue
+        val = _PIECE_VALUES.get(piece.piece_type, 0)
+        if val >= 3:  # only mention bishop+ targets
+            name = _PIECE_NAMES.get(piece.piece_type, "piece")
+            sq_name = chess.square_name(sq)
+            candidate = (val, f"targeting your {name} on {sq_name}")
+            if best_target is None or val > best_target[0]:
+                best_target = candidate
+    if best_target is not None:
+        return best_target[1]
+
+    # 2. Does a pawn move challenge the center?
+    piece_type = after_board.piece_type_at(to_sq)
+    center = {chess.E4, chess.D4, chess.E5, chess.D5}
+    if piece_type == chess.PAWN and to_sq in center:
+        return "challenging the center"
+
+    # 3. Does the piece defend an attacked friendly piece?
+    for sq in attacked:
+        piece = after_board.piece_at(sq)
+        if piece is None or piece.color != opponent_color:
+            continue
+        if after_board.is_attacked_by(student_color, sq):
+            name = _PIECE_NAMES.get(piece.piece_type, "piece")
+            sq_name = chess.square_name(sq)
+            return f"defending their {name} on {sq_name}"
+
+    return ""
+
+
+async def _generate_opponent_responses(
+    player_node: GameNode,
+    engine: EngineProtocol,
+    profile: EloProfile,
+    student_is_white: bool,
+) -> list[OpponentResponse]:
+    """Generate candidate opponent responses after the student's move.
+
+    Runs a screen-pass analysis on the position after the student's move
+    and returns the top candidate responses with descriptions.
+    """
+    board = player_node.board
+    fen = board.fen()
+
+    lines = await engine.analyze_lines(
+        fen, n=profile.screen_breadth, depth=profile.screen_depth,
+    )
+    if not lines:
+        return []
+
+    # Engine's top line is the best response
+    best_uci = lines[0].uci
+    best_cp = lines[0].score_cp
+
+    responses: list[OpponentResponse] = []
+    for line in lines[:profile.validate_breadth]:
+        # Filter out responses significantly worse than the best
+        if best_cp is not None and line.score_cp is not None:
+            if best_cp - line.score_cp > profile.cp_threshold:
+                continue
+
+        try:
+            move = chess.Move.from_uci(line.uci)
+            if move not in board.legal_moves:
+                continue
+        except (ValueError, chess.InvalidMoveError):
+            continue
+
+        san = board.san(move)
+        description = _describe_opponent_move(board, move, student_is_white)
+        is_best = (line.uci == best_uci)
+
+        responses.append(OpponentResponse(
+            san=san,
+            uci=line.uci,
+            score_cp=line.score_cp,
+            score_mate=line.score_mate,
+            description=description,
+            is_best=is_best,
+        ))
+
+    return responses
 
 
 async def build_coaching_tree(
@@ -366,6 +547,13 @@ async def build_coaching_tree(
     player_node = tree.player_move_node()
     if player_node is not None:
         await enrich_node_mate_threats(player_node, engine)
+
+    # 7. Generate opponent candidate responses after the player's move
+    if player_node is not None:
+        tree.opponent_responses = await _generate_opponent_responses(
+            player_node, engine, profile,
+            student_is_white=player_color == chess.WHITE,
+        )
 
     return tree
 

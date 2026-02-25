@@ -593,6 +593,55 @@ class TestValueAwareRendering:
         desc, is_opp = render_pin(pin, ctx)
         assert "300" in desc or "wins" in desc.lower()
 
+    def test_threat_suppresses_value_suffix(self):
+        """Threats (opponent tactics) should not have 'wins' or 'loses' suffixes."""
+        from server.motifs import RenderConfig
+        # Student's hanging piece — this is a THREAT (opponent captures it)
+        hp = HangingPiece("g5", "N", ["d8"], color="White",
+                          value=TacticValue(material_delta=300, is_sound=True))
+        config = RenderConfig(min_notable_value=300)
+        ctx = RenderContext(
+            student_is_white=True, player_color="White",
+            render_config=config,
+        )
+        desc, is_opp = render_hanging(hp, ctx)
+        # is_opp=False (student's piece is hanging, it's a threat to student)
+        assert is_opp is False
+        assert "wins" not in desc.lower()
+        assert "loses" not in desc.lower()
+        assert "undefended" in desc
+
+    def test_opportunity_shows_value_suffix(self):
+        """Opportunities (student tactics) should show value suffixes."""
+        from server.motifs import RenderConfig
+        # Opponent's hanging piece — student OPPORTUNITY
+        hp = HangingPiece("g5", "n", ["d1"], color="Black",
+                          value=TacticValue(material_delta=300, is_sound=True))
+        config = RenderConfig(min_notable_value=300)
+        ctx = RenderContext(
+            student_is_white=True, player_color="White",
+            render_config=config,
+        )
+        desc, is_opp = render_hanging(hp, ctx)
+        assert is_opp is True
+        assert "wins" in desc.lower() or "300" in desc
+
+    def test_unsound_fork_threat_no_value_suffix(self):
+        """Unsound opponent fork (threat) should not say 'but loses'."""
+        from server.motifs import RenderConfig
+        # Opponent's fork — it's a threat to the student
+        fork = Fork("e5", "n", ["C6", "G6"], ["R", "Q"],
+                     value=TacticValue(material_delta=-200, is_sound=False))
+        config = RenderConfig(always_qualify_unsound=True)
+        ctx = RenderContext(
+            student_is_white=True, player_color="White",
+            render_config=config,
+        )
+        desc, is_opp = render_fork(fork, ctx)
+        # Opponent's piece → is_opp is False (threat to student)
+        assert is_opp is False
+        assert "loses" not in desc.lower()
+
 
 # --- Threshold filtering tests ---
 

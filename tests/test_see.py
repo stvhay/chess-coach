@@ -491,8 +491,32 @@ def test_value_fork_non_check_forker_capturable():
     assert val is not None
     # second target is bishop (300), but forker can be captured by c5 pawn
     # forker_loss = see(board, d4, BLACK) which should be positive (pawn takes knight)
-    # delta = max(0, 300 - forker_loss)
+    # delta = 300 - forker_loss; here 300 - 300 = 0
     assert val.material_delta >= 0
+
+
+def test_value_fork_negative_delta():
+    """Non-check fork where forker loss exceeds capture gain → negative delta.
+
+    White Nc6 forks black pawns on a7 and e7, but black can capture with bxc6.
+    Second target pawn = 100cp, forker_loss (knight captured) = 300cp.
+    delta = 100 - 300 = -200.
+    """
+    # Black b7-pawn can capture Nc6. Pawns on a7 and e7 are fork targets.
+    board = chess.Board("3qk3/pp2p3/2N5/8/8/8/8/4K3 w - - 0 1")
+    fork = Fork(
+        forking_square="c6",
+        forking_piece="N",
+        targets=["a7", "e7"],
+        target_pieces=["p", "p"],
+        color="white",
+        is_check_fork=False,
+    )
+    val = _value_fork(fork, board)
+    assert val is not None
+    # Knight forks two pawns but is capturable: 100 - 300 = -200
+    assert val.material_delta < 0
+    assert val.is_sound is False
 
 
 def test_value_skewer_non_absolute():

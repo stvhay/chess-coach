@@ -166,6 +166,7 @@ async def test_build_coaching_tree_uses_profile_depths(mock_engine):
         mock_engine, board, "e2e4", eval_before, profile
     )
 
-    mock_engine.analyze_lines.assert_called_once_with(
-        board.fen(), n=profile.screen_breadth, depth=profile.screen_depth
-    )
+    # First call: screen pass at decision point; second call: opponent responses
+    calls = mock_engine.analyze_lines.call_args_list
+    assert len(calls) >= 1
+    assert calls[0] == ((board.fen(),), {"n": profile.screen_breadth, "depth": profile.screen_depth})

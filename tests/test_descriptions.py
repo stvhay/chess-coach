@@ -250,9 +250,10 @@ class TestToPastTense:
         text = "X-ray alignment: your bishop on c4 behind their pawn on d5 toward their king on e8."
         assert _to_past_tense(text) == text
 
-    def test_discovered_attack_reveals(self):
-        assert _to_past_tense("Discovered attack: your knight on f3 reveals your bishop on c4 targeting their queen.") == \
-            "Discovered attack: your knight on f3 revealed your bishop on c4 targeting their queen."
+    def test_discovered_attack_conditional(self):
+        """Discovered attack uses conditional tense — no conversion needed."""
+        text = "If your knight on f3 moves, your bishop on c4 will target their queen on d5."
+        assert _to_past_tense(text) == text
 
     def test_controls_diagonal(self):
         assert _to_past_tense("White's bishop on g2 controls the a8-h1 diagonal.") == \

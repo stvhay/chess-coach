@@ -22,6 +22,7 @@ from server.analysis import PositionReport, TacticalMotifs
 from server.game_tree import GameNode, GameTree, _get_continuation_chain
 from server.motifs import (
     MOTIF_REGISTRY,
+    RenderConfig,
     RenderContext,
     RenderMode,
     all_tactic_keys,
@@ -301,6 +302,7 @@ def describe_position_from_report(
         student_is_white=student_is_white,
         player_color=player_color,
         mode=RenderMode.POSITION,
+        render_config=RenderConfig(),
     )
     opps_rm, thrs_rm, obs_rm, _ = render_motifs(tactics, all_types, ctx)
 
@@ -427,6 +429,7 @@ def describe_changes(
             student_is_white=student_is_white,
             player_color=player_color,
             mode=RenderMode.THREAT if is_future else RenderMode.OPPORTUNITY,
+            render_config=RenderConfig(),
         )
         opps_rm, thrs_rm, obs_rm, rendered_keys = render_motifs(
             current_tactics, new_types, ctx, new_keys=filtered_new_keys,

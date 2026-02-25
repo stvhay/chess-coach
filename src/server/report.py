@@ -12,7 +12,11 @@ import chess
 
 from server.analysis import MaterialCount, analyze_material
 from server.descriptions import describe_changes, describe_position
-from server.game_tree import GameNode, GameTree, _material_cp, _detect_sacrifice, _get_continuation_chain
+from server.game_tree import (
+    GameNode, GameTree, _material_cp, _detect_sacrifice,
+    _get_continuation_chain, _PIECE_NAMES as _GAMETREE_PIECE_NAMES,
+    _PIECE_VALUES,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -98,21 +102,35 @@ def _append_continuation_analysis(
     student_is_white: bool | None,
     is_player_move: bool,
 ) -> None:
-    """Append continuation, material result, sacrifice, and checkmate annotations.
+    """Append per-ply continuation narrative, material result, sacrifice, and checkmate.
 
     Shared between player move and alternative sections.
     """
-    # Continuation with move numbers
-    continuation = _continuation_san(node)
-    if continuation:
-        numbered = _format_pv_with_numbers(
-            continuation, move_number,
-            student_is_white if student_is_white is not None else True,
-        )
-        lines.append(f"\nContinuation: {numbered}")
+    chain = _get_continuation_chain(node)
+    eff_student_white = student_is_white if student_is_white is not None else True
+
+    # Per-ply continuation narrative
+    if len(chain) > 1:  # chain[0] is the node itself; children follow
+        lines.append("\nContinuation:")
+        for c_node in chain[1:]:
+            san = c_node.san
+            if not san:
+                continue
+            # Determine move number from parent's board state
+            parent_fullmove = c_node.parent.board.fullmove_number if c_node.parent else 1
+            mover_is_white = not c_node.board.turn  # who just moved
+            if mover_is_white:
+                numbered = f"{parent_fullmove}.{san}"
+            else:
+                numbered = f"{parent_fullmove}...{san}"
+
+            desc = _describe_continuation_move(c_node, eff_student_white)
+            if desc:
+                lines.append(f"  - {numbered}: {desc}")
+            else:
+                lines.append(f"  - {numbered}")
 
     # Material result (piece-level)
-    chain = _get_continuation_chain(node)
     result = _describe_result(chain, student_is_white)
     if result:
         lines.append(f"\n{result}")
@@ -172,6 +190,111 @@ def _continuation_san(node: GameNode, max_ply: int = 10) -> list[str]:
         if san:
             sans.append(san)
     return sans
+
+
+def _describe_continuation_move(node: GameNode, student_is_white: bool) -> str:
+    """Describe what a single continuation move accomplishes.
+
+    Returns a short phrase like "captures knight on e5" or
+    "develops bishop to c5, targeting rook on a1".
+    Uses neutral language (no "your"/"their") since both sides move.
+    """
+    if node.move is None or node.parent is None:
+        return ""
+    board = node.parent.board
+    move = node.move
+    piece_type = board.piece_type_at(move.from_square)
+    piece_name = _GAMETREE_PIECE_NAMES.get(piece_type, "piece") if piece_type else "piece"
+    dest = chess.square_name(move.to_square)
+
+    # Who is moving?
+    mover_is_white = not node.board.turn  # side that just moved
+
+    # Castling
+    if board.is_castling(move):
+        return "castles kingside" if chess.square_file(move.to_square) == 6 else "castles queenside"
+
+    is_capture = board.is_capture(move)
+    if is_capture:
+        if board.is_en_passant(move):
+            captured_name = "pawn"
+        else:
+            captured_type = board.piece_type_at(move.to_square)
+            captured_name = _GAMETREE_PIECE_NAMES.get(captured_type, "piece") if captured_type else "piece"
+        desc = f"captures {captured_name} on {dest}"
+        if move.promotion:
+            promo_name = _GAMETREE_PIECE_NAMES.get(move.promotion, "piece")
+            desc += f", promoting to {promo_name}"
+    elif move.promotion:
+        promo_name = _GAMETREE_PIECE_NAMES.get(move.promotion, "piece")
+        desc = f"promotes to {promo_name}"
+    elif piece_type == chess.PAWN:
+        desc = f"pushes pawn to {dest}"
+    elif piece_type in (chess.KNIGHT, chess.BISHOP):
+        back_rank = 0 if mover_is_white else 7
+        if chess.square_rank(move.from_square) == back_rank:
+            desc = f"develops {piece_name} to {dest}"
+        else:
+            desc = f"moves {piece_name} to {dest}"
+    else:
+        desc = f"moves {piece_name} to {dest}"
+
+    # Check
+    if node.board.is_check():
+        desc += " with check"
+    elif not is_capture:
+        # Add insight for non-captures (captures are self-describing)
+        insight = _continuation_insight(node.board, move, mover_is_white)
+        if insight:
+            desc += f", {insight}"
+
+    return desc
+
+
+def _continuation_insight(after_board: chess.Board, move: chess.Move, mover_is_white: bool) -> str:
+    """Find one notable fact about a continuation move, using neutral language.
+
+    Unlike _move_insight (which uses "your"/"their"), this returns neutral
+    descriptions suitable for continuation narration.
+    """
+    to_sq = move.to_square
+    attacked = after_board.attacks(to_sq)
+    enemy_color = chess.BLACK if mover_is_white else chess.WHITE
+    mover_color = chess.WHITE if mover_is_white else chess.BLACK
+
+    # 1. Attacks enemy high-value piece?
+    best_target: tuple[int, str] | None = None
+    for sq in attacked:
+        piece = after_board.piece_at(sq)
+        if piece is None or piece.color != enemy_color:
+            continue
+        val = _PIECE_VALUES.get(piece.piece_type, 0)
+        if val >= 3:
+            name = _GAMETREE_PIECE_NAMES.get(piece.piece_type, "piece")
+            sq_name = chess.square_name(sq)
+            candidate = (val, f"attacking {name} on {sq_name}")
+            if best_target is None or val > best_target[0]:
+                best_target = candidate
+    if best_target is not None:
+        return best_target[1]
+
+    # 2. Pawn challenges center?
+    piece_type = after_board.piece_type_at(to_sq)
+    center = {chess.E4, chess.D4, chess.E5, chess.D5}
+    if piece_type == chess.PAWN and to_sq in center:
+        return "challenging the center"
+
+    # 3. Defends attacked friendly piece?
+    for sq in attacked:
+        piece = after_board.piece_at(sq)
+        if piece is None or piece.color != mover_color:
+            continue
+        if after_board.is_attacked_by(enemy_color, sq):
+            name = _GAMETREE_PIECE_NAMES.get(piece.piece_type, "piece")
+            sq_name = chess.square_name(sq)
+            return f"defending {name} on {sq_name}"
+
+    return ""
 
 
 # ---------------------------------------------------------------------------
@@ -345,6 +468,13 @@ def serialize_report(
         _append_categorized(lines, "New Threats", thrs)
         _append_categorized(lines, "New Opportunities", opps)
         _append_categorized(lines, "New Observations", obs)
+
+        # Opponent candidate responses
+        if tree.opponent_responses:
+            lines.append("\nOpponent's candidate responses:")
+            for resp in tree.opponent_responses:
+                best_marker = " (engine's top choice)" if resp.is_best else ""
+                lines.append(f"  - {resp.san}: {resp.description}{best_marker}")
 
         _append_continuation_analysis(
             lines, player_node, move_number, student_is_white, is_player_move=True,

@@ -11,7 +11,11 @@ from server.engine import Evaluation, LineInfo
 from server.game_tree import (
     GameNode,
     GameTree,
+    OpponentResponse,
     build_coaching_tree,
+    _describe_opponent_move,
+    _generate_opponent_responses,
+    _move_insight,
     _motif_labels,
     _sort_key,
     _rank_nodes_by_teachability,
@@ -427,3 +431,222 @@ class TestTeachabilityRanking:
         assert "fork" in DEFAULT_WEIGHTS.motif_base
         assert "pin" in DEFAULT_WEIGHTS.motif_base
         assert DEFAULT_WEIGHTS.mate_bonus > 0
+
+
+# --- OpponentResponse tests ---
+
+class TestDescribeOpponentMove:
+    def test_capture_description(self):
+        """Capture moves should describe the captured piece."""
+        # After Nxc6, black can play bxc6
+        board = chess.Board("r1bqkbnr/pp1ppppp/2N5/8/4P3/8/PPPP1PPP/RNBQKB1R b KQkq - 0 3")
+        move = chess.Move.from_uci("b7c6")
+        desc = _describe_opponent_move(board, move, student_is_white=True)
+        assert "captures" in desc
+        assert "knight" in desc
+        assert "c6" in desc
+
+    def test_non_capture_move(self):
+        """Non-capture moves describe piece movement."""
+        board = chess.Board("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1")
+        move = chess.Move.from_uci("g8f6")
+        desc = _describe_opponent_move(board, move, student_is_white=True)
+        assert "knight" in desc
+        assert "f6" in desc
+
+    def test_check_annotation(self):
+        """Moves that give check should note it."""
+        # Black queen on d2, White king on d1. Qe2 gives check via diagonal.
+        board = chess.Board("4k3/8/8/8/8/8/3q4/3K4 b - - 0 1")
+        move = chess.Move.from_uci("d2e2")
+        assert move in board.legal_moves
+        desc = _describe_opponent_move(board, move, student_is_white=True)
+        assert "check" in desc
+
+    def test_pawn_push(self):
+        """Pawn advances should say 'pushes pawn'."""
+        board = chess.Board("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1")
+        move = chess.Move.from_uci("d7d5")
+        desc = _describe_opponent_move(board, move, student_is_white=True)
+        assert "pawn" in desc
+        assert "d5" in desc
+
+    def test_insight_targeting(self):
+        """Non-capture moves should include insight about what they target."""
+        # After 1.e4 e5 2.Nf3 Nc6 3.Bc4 — Black plays Bc5, targeting f2
+        board = chess.Board("r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3")
+        move = chess.Move.from_uci("f8c5")
+        desc = _describe_opponent_move(board, move, student_is_white=True)
+        assert "develops bishop to c5" in desc
+        # Bc5 targets f2 pawn — but pawn is only 1cp, below threshold
+        # It may or may not include targeting (depends on threshold in _move_insight)
+
+    def test_insight_pawn_center(self):
+        """Pawn pushes to center squares should mention challenging the center."""
+        board = chess.Board("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1")
+        move = chess.Move.from_uci("d7d5")
+        desc = _describe_opponent_move(board, move, student_is_white=True)
+        assert "challenging the center" in desc
+
+
+class TestMoveInsight:
+    """Tests for _move_insight — one notable fact about a move."""
+
+    def test_targets_high_value_piece(self):
+        """Move attacking a student's bishop+ should mention targeting."""
+        # White Nd4, Black Re7+Ke8. Nc6 attacks e7 (rook).
+        board = chess.Board("4k3/4r3/8/8/3N4/8/8/4K3 w - - 0 1")
+        move = chess.Move.from_uci("d4c6")
+        after = board.copy()
+        after.push(move)
+        insight = _move_insight(after, move, student_is_white=False)
+        # Student is Black, Nc6 attacks Black's rook on e7
+        assert "targeting" in insight
+        assert "rook" in insight
+
+    def test_pawn_challenges_center(self):
+        """Pawn moving to central square should mention center challenge."""
+        board = chess.Board("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1")
+        move = chess.Move.from_uci("d7d5")
+        after = board.copy()
+        after.push(move)
+        insight = _move_insight(after, move, student_is_white=True)
+        assert "center" in insight
+
+    def test_no_insight_for_quiet_move(self):
+        """Quiet moves with no notable target return empty string."""
+        # Starting position, knight to h6 — doesn't attack anything notable
+        board = chess.Board("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1")
+        move = chess.Move.from_uci("g8h6")
+        after = board.copy()
+        after.push(move)
+        insight = _move_insight(after, move, student_is_white=True)
+        # Nh6 doesn't attack any white piece worth mentioning
+        assert insight == "" or "defending" in insight or "targeting" in insight
+
+
+class TestGenerateOpponentResponses:
+    @pytest.fixture
+    def opponent_engine(self):
+        engine = AsyncMock()
+        engine.analyze_lines = AsyncMock(return_value=[
+            LineInfo(uci="b7c6", san="bxc6", score_cp=-50, score_mate=None,
+                     pv=["b7c6", "f1c4"], depth=6),
+            LineInfo(uci="d7c6", san="dxc6", score_cp=-80, score_mate=None,
+                     pv=["d7c6", "d1d8"], depth=6),
+            LineInfo(uci="g8f6", san="Nf6", score_cp=-120, score_mate=None,
+                     pv=["g8f6", "c6a7"], depth=6),
+        ])
+        return engine
+
+    async def test_generates_responses(self, opponent_engine):
+        """_generate_opponent_responses returns correct count and types."""
+        # After Nxc6 position
+        board = chess.Board("r1bqkbnr/pp1ppppp/2N5/8/4P3/8/PPPP1PPP/RNBQKB1R b KQkq - 0 3")
+        player_node = GameNode(board=board, source="played")
+
+        profile = get_profile("competitive")
+        responses = await _generate_opponent_responses(
+            player_node, opponent_engine, profile, student_is_white=True,
+        )
+
+        assert len(responses) > 0
+        assert all(isinstance(r, OpponentResponse) for r in responses)
+        # First response should be bxc6
+        assert responses[0].san == "bxc6"
+        assert "captures" in responses[0].description
+
+    async def test_is_best_flag(self, opponent_engine):
+        """is_best should be True for the engine's top-ranked move."""
+        board = chess.Board("r1bqkbnr/pp1ppppp/2N5/8/4P3/8/PPPP1PPP/RNBQKB1R b KQkq - 0 3")
+        player_node = GameNode(board=board, source="played")
+
+        profile = get_profile("competitive")
+        responses = await _generate_opponent_responses(
+            player_node, opponent_engine, profile, student_is_white=True,
+        )
+
+        best_responses = [r for r in responses if r.is_best]
+        assert len(best_responses) == 1
+        assert best_responses[0].uci == "b7c6"
+
+    async def test_filters_weak_responses(self):
+        """Responses much worse than the best are filtered out by cp_threshold."""
+        engine = AsyncMock()
+        # Best: Qxg5 at +300 (wins knight). Others: Be7 at -50 (450cp worse)
+        engine.analyze_lines = AsyncMock(return_value=[
+            LineInfo(uci="d8g5", san="Qxg5", score_cp=300, score_mate=None,
+                     pv=["d8g5"], depth=6),
+            LineInfo(uci="f8e7", san="Be7", score_cp=-50, score_mate=None,
+                     pv=["f8e7"], depth=6),
+            LineInfo(uci="f8c5", san="Bc5", score_cp=-60, score_mate=None,
+                     pv=["f8c5"], depth=6),
+        ])
+        # After 1.e4 Nc6 2.Nf3 e5 3.Ng5 — Black to move, Qxg5 is legal
+        board = chess.Board("r1bqkbnr/pppp1ppp/2n5/4p1N1/4P3/8/PPPP1PPP/RNBQKB1R b KQkq - 1 3")
+        player_node = GameNode(board=board, source="played")
+
+        profile = get_profile("competitive")  # cp_threshold=100
+        responses = await _generate_opponent_responses(
+            player_node, engine, profile, student_is_white=True,
+        )
+
+        # Best (Qxg5) should be included; Be7/Bc5 are 350cp+ worse → filtered
+        assert len(responses) == 1
+        assert responses[0].san == "Qxg5"
+
+    async def test_empty_engine_lines(self):
+        """Empty engine response produces no opponent responses."""
+        engine = AsyncMock()
+        engine.analyze_lines = AsyncMock(return_value=[])
+
+        board = chess.Board()
+        player_node = GameNode(board=board, source="played")
+        profile = get_profile("intermediate")
+
+        responses = await _generate_opponent_responses(
+            player_node, engine, profile, student_is_white=True,
+        )
+        assert responses == []
+
+
+async def test_build_coaching_tree_populates_opponent_responses():
+    """build_coaching_tree should populate tree.opponent_responses."""
+    # Screen lines for the starting position (White to move)
+    screen_lines = [
+        LineInfo(uci="e2e4", san="e4", score_cp=30, score_mate=None,
+                 pv=["e2e4", "e7e5"], depth=10),
+        LineInfo(uci="d2d4", san="d4", score_cp=25, score_mate=None,
+                 pv=["d2d4", "d7d5"], depth=10),
+    ]
+    # Opponent response lines for the post-e4 position (Black to move)
+    opponent_lines = [
+        LineInfo(uci="e7e5", san="e5", score_cp=-30, score_mate=None,
+                 pv=["e7e5", "g1f3"], depth=6),
+        LineInfo(uci="d7d5", san="d5", score_cp=-25, score_mate=None,
+                 pv=["d7d5", "e4d5"], depth=6),
+    ]
+
+    engine = AsyncMock()
+    engine.analyze_lines = AsyncMock(side_effect=[screen_lines, opponent_lines])
+    engine.evaluate = AsyncMock(return_value=Evaluation(
+        score_cp=20, score_mate=None, depth=14, best_move="e7e5",
+        pv=["e7e5", "g1f3"],
+    ))
+
+    board = chess.Board()
+    profile = get_profile("intermediate")
+    eval_before = Evaluation(
+        score_cp=20, score_mate=None, depth=12,
+        best_move="e2e4", pv=["e2e4"],
+    )
+
+    tree = await build_coaching_tree(
+        engine, board, "e2e4", eval_before, profile
+    )
+
+    assert isinstance(tree.opponent_responses, list)
+    assert len(tree.opponent_responses) > 0
+    assert all(isinstance(r, OpponentResponse) for r in tree.opponent_responses)
+    # First response should be e5 (the top engine line)
+    assert tree.opponent_responses[0].san == "e5"

@@ -7,6 +7,7 @@ from server.analysis import MaterialCount, analyze_material
 from server.game_tree import GameNode, GameTree
 from server.report import (
     _describe_capture,
+    _describe_continuation_move,
     _describe_result,
     _format_numbered_move,
     _format_pv_with_numbers,
@@ -394,3 +395,179 @@ class TestBug6MaterialResult:
         assert "wins" not in result.lower(), (
             f"Equal bishop-for-knight trade should not say 'wins': {result}"
         )
+
+
+class TestOpponentResponsesInReport:
+    def test_opponent_responses_section_present(self):
+        """serialize_report includes opponent responses when present."""
+        from server.game_tree import OpponentResponse
+
+        tree = _simple_tree()
+        tree.opponent_responses = [
+            OpponentResponse(
+                san="bxc6", uci="b7c6", score_cp=-50, score_mate=None,
+                description="captures your knight on c6", is_best=True,
+            ),
+            OpponentResponse(
+                san="dxc6", uci="d7c6", score_cp=-80, score_mate=None,
+                description="captures your knight on c6", is_best=False,
+            ),
+        ]
+        report = serialize_report(tree, "mistake", 60)
+        assert "Opponent's candidate responses:" in report
+        assert "bxc6: captures your knight on c6 (engine's top choice)" in report
+        assert "dxc6: captures your knight on c6" in report
+        # Best marker only on the best response
+        lines = report.split("\n")
+        dxc6_lines = [l for l in lines if "dxc6" in l]
+        for l in dxc6_lines:
+            assert "(engine's top choice)" not in l
+
+    def test_no_opponent_responses_section_when_empty(self):
+        """serialize_report omits opponent responses when list is empty."""
+        tree = _simple_tree()
+        tree.opponent_responses = []
+        report = serialize_report(tree, "mistake", 60)
+        assert "Opponent's candidate responses:" not in report
+
+    def test_opponent_responses_before_continuation(self):
+        """Opponent responses appear before the Continuation line."""
+        from server.game_tree import OpponentResponse
+
+        tree = _simple_tree()
+        tree.opponent_responses = [
+            OpponentResponse(
+                san="e5", uci="e7e5", score_cp=-20, score_mate=None,
+                description="pushes pawn to e5", is_best=True,
+            ),
+        ]
+        report = serialize_report(tree, "good", 0)
+        lines = report.split("\n")
+        opp_idx = next((i for i, l in enumerate(lines) if "Opponent's candidate responses:" in l), None)
+        cont_idx = next((i for i, l in enumerate(lines) if l.strip().startswith("Continuation:")), None)
+        if opp_idx is not None and cont_idx is not None:
+            assert opp_idx < cont_idx
+
+
+# --- Per-ply continuation narrative tests ---
+
+class TestContinuationNarrative:
+    def _tree_with_continuation(self):
+        """1.e4 e5 2.Nf3 with continuation Nc6, Bc4."""
+        root = GameNode(board=chess.Board(), source="played")
+        e4 = root.add_child(chess.Move.from_uci("e2e4"), "played")
+        e5 = e4.add_child(chess.Move.from_uci("e7e5"), "played")
+        # Player move: Nf3
+        nf3 = e5.add_child(chess.Move.from_uci("g1f3"), "played", score_cp=30)
+        # Continuation: 2...Nc6 3.Bc4
+        nc6 = nf3.add_child(chess.Move.from_uci("b8c6"), "engine")
+        nc6.add_child(chess.Move.from_uci("f1c4"), "engine")
+        return GameTree(root=root, decision_point=e5, player_color=chess.WHITE)
+
+    def test_continuation_has_per_ply_lines(self):
+        """Continuation should have bulleted per-ply descriptions."""
+        tree = self._tree_with_continuation()
+        report = serialize_report(tree, "good", 0)
+        assert "Continuation:" in report
+        # Each continuation ply should be a bulleted line
+        lines = report.split("\n")
+        continuation_start = next(i for i, l in enumerate(lines) if "Continuation:" in l)
+        ply_lines = [l for l in lines[continuation_start + 1:] if l.strip().startswith("- ")]
+        assert len(ply_lines) >= 2  # at least Nc6 and Bc4
+
+    def test_continuation_plies_have_move_numbers(self):
+        """Per-ply lines should include move numbers."""
+        tree = self._tree_with_continuation()
+        report = serialize_report(tree, "good", 0)
+        # Should have 2...Nc6 and 3.Bc4
+        assert "2...Nc6" in report
+        assert "3.Bc4" in report
+
+    def test_continuation_plies_have_descriptions(self):
+        """Per-ply lines should include descriptions of what each move does."""
+        tree = self._tree_with_continuation()
+        report = serialize_report(tree, "good", 0)
+        # Nc6 develops knight
+        lines = report.split("\n")
+        nc6_lines = [l for l in lines if "Nc6" in l and l.strip().startswith("- ")]
+        assert len(nc6_lines) >= 1
+        assert "knight" in nc6_lines[0].lower() or "develops" in nc6_lines[0].lower()
+
+    def test_describe_continuation_move_capture(self):
+        """_describe_continuation_move should describe captures."""
+        board = chess.Board()
+        e4 = board.copy()
+        e4.push(chess.Move.from_uci("e2e4"))
+        e4.push(chess.Move.from_uci("e7e5"))
+        e4.push(chess.Move.from_uci("g1f3"))
+        e4.push(chess.Move.from_uci("b8c6"))
+        # Now Nf3xe5 - captures pawn
+        parent_node = GameNode(board=e4.copy(), source="engine")
+        nxe5 = parent_node.add_child(chess.Move.from_uci("f3e5"), "engine")
+        desc = _describe_continuation_move(nxe5, student_is_white=True)
+        assert "captures" in desc
+        assert "pawn" in desc
+
+    def test_describe_continuation_move_castles(self):
+        """_describe_continuation_move should describe castling."""
+        # Position where White can castle kingside
+        board = chess.Board("r1bqk2r/ppppbppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4")
+        parent_node = GameNode(board=board, source="engine")
+        castles = parent_node.add_child(chess.Move.from_uci("e1g1"), "engine")
+        desc = _describe_continuation_move(castles, student_is_white=True)
+        assert "castles kingside" in desc
+
+    def test_black_student_continuation_numbering(self):
+        """Continuation numbering should work for Black student."""
+        # 1.e4 e5 2.Nf3 — Black plays Nc6, continuation: 3.Bc4 Bc5
+        root = GameNode(board=chess.Board(), source="played")
+        e4 = root.add_child(chess.Move.from_uci("e2e4"), "played")
+        e5 = e4.add_child(chess.Move.from_uci("e7e5"), "played")
+        nf3 = e5.add_child(chess.Move.from_uci("g1f3"), "played")
+        # Black's move: Nc6
+        nc6 = nf3.add_child(chess.Move.from_uci("b8c6"), "played", score_cp=-10)
+        # Continuation: 3.Bc4 Bc5
+        bc4 = nc6.add_child(chess.Move.from_uci("f1c4"), "engine")
+        bc4.add_child(chess.Move.from_uci("f8c5"), "engine")
+        tree = GameTree(root=root, decision_point=nf3, player_color=chess.BLACK)
+        report = serialize_report(tree, "good", 0)
+        # White's reply should be "3.Bc4", Black's should be "3...Bc5"
+        assert "3.Bc4" in report
+        assert "3...Bc5" in report
+
+
+class TestContinuationInsight:
+    """Tests for _continuation_insight — neutral language move insights."""
+
+    def test_attacks_enemy_piece(self):
+        """Continuation move attacking a high-value piece should mention it."""
+        from server.report import _continuation_insight
+        # White Nd4, Black Re7+Ke8. Nc6 attacks e7 rook.
+        board = chess.Board("4k3/4r3/8/8/3N4/8/8/4K3 w - - 0 1")
+        move = chess.Move.from_uci("d4c6")
+        after = board.copy()
+        after.push(move)
+        insight = _continuation_insight(after, move, mover_is_white=True)
+        assert "attacking" in insight
+        assert "rook" in insight
+
+    def test_pawn_center_challenge(self):
+        """Pawn to center should mention center challenge."""
+        from server.report import _continuation_insight
+        board = chess.Board("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1")
+        move = chess.Move.from_uci("d7d5")
+        after = board.copy()
+        after.push(move)
+        insight = _continuation_insight(after, move, mover_is_white=False)
+        assert "center" in insight
+
+    def test_quiet_move_empty(self):
+        """Quiet move with nothing notable returns empty string."""
+        from server.report import _continuation_insight
+        board = chess.Board("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1")
+        move = chess.Move.from_uci("g8h6")
+        after = board.copy()
+        after.push(move)
+        insight = _continuation_insight(after, move, mover_is_white=False)
+        # Nh6 doesn't attack anything notable or go to center
+        assert insight == "" or "defending" in insight

@@ -127,7 +127,7 @@ def _value_fork(fork: Fork, board: chess.Board) -> TacticValue:
     forker_loss = see(board, forker_sq, opponent_color)
     if forker_loss > 0:
         # Opponent can win the forker — fork is less valuable
-        delta = max(0, delta - forker_loss)
+        delta = delta - forker_loss
 
     return TacticValue(material_delta=delta, is_sound=delta > 0)
 
