@@ -1,4 +1,5 @@
 .DS_Store
+.coverage
 MEMORY.md
 .direnv/
 .envrc
