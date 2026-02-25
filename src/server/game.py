@@ -24,6 +24,7 @@ class GameState:
     board: chess.Board = field(default_factory=chess.Board)
     depth: int = 10
     elo_profile: str = "intermediate"
+    coach_name: str = "a chess coach"
 
 
 def _game_status(board: chess.Board) -> str:
@@ -58,10 +59,14 @@ class GameManager:
         self._rag_top_k = rag_top_k
         self._sessions: dict[str, GameState] = {}
 
-    def new_game(self, depth: int = 10, elo_profile: str = "intermediate") -> tuple[str, str, str]:
+    def new_game(
+        self, depth: int = 10, elo_profile: str = "intermediate", coach_name: str = "a chess coach"
+    ) -> tuple[str, str, str]:
         """Create a new game session. Returns (session_id, fen, status)."""
         session_id = str(uuid.uuid4())
-        self._sessions[session_id] = GameState(depth=depth, elo_profile=elo_profile)
+        self._sessions[session_id] = GameState(
+            depth=depth, elo_profile=elo_profile, coach_name=coach_name
+        )
         return session_id, chess.STARTING_FEN, "playing"
 
     def get_game(self, session_id: str) -> GameState | None:
@@ -75,6 +80,7 @@ class GameManager:
         player_move_uci: str,
         eval_before,
         elo_profile: str,
+        coach_name: str,
         verbosity: str = "normal",
     ) -> None:
         """Game-tree coaching pipeline with RAG + LLM."""
@@ -102,7 +108,14 @@ class GameManager:
             cp_loss=coaching_data.severity,
             rag_context=rag_context,
         )
-        coaching_data.debug_prompt = prompt
+
+        # Build full debug prompt (system + user) if teacher is available
+        if self._teacher is not None:
+            coaching_data.debug_prompt = self._teacher.build_debug_prompt(
+                prompt, coach=coach_name, verbosity=verbosity
+            )
+        else:
+            coaching_data.debug_prompt = prompt
 
         # Update arrows from tree alternatives
         alts = tree.alternatives()
@@ -116,7 +129,9 @@ class GameManager:
 
         # LLM
         if self._teacher is not None:
-            llm_message = await self._teacher.explain_move(prompt, verbosity=verbosity)
+            llm_message = await self._teacher.explain_move(
+                prompt, coach=coach_name, verbosity=verbosity
+            )
             if llm_message is not None:
                 coaching_data.message = llm_message
 
@@ -173,6 +188,7 @@ class GameManager:
                     self._enrich_coaching(
                         coaching_data, board, board_before,
                         move_uci, eval_before, state.elo_profile,
+                        state.coach_name,
                         verbosity=verbosity,
                     ),
                     timeout=20.0,

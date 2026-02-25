@@ -1,6 +1,6 @@
 """System prompt text constants for the chess coaching LLM."""
 
-COACHING_SYSTEM_PROMPT = "You are a chess coach for a student. Provide advice for this position."
+COACHING_SYSTEM_PROMPT = "You are {{PERSONA}}. Please provide advice to a student for this position."
 
 OPPONENT_SYSTEM_PROMPT = """\
 You are a chess teacher selecting a move for the opponent (computer) side.

@@ -48,7 +48,9 @@ class ChessTeacher:
         self._timeout = timeout
         self._system_prompt = system_prompt or COACHING_SYSTEM_PROMPT
 
-    async def explain_move(self, prompt: str, verbosity: str = "normal") -> str | None:
+    async def explain_move(
+        self, prompt: str, coach: str = "a chess coach", verbosity: str = "normal"
+    ) -> str | None:
         """Ask the LLM to explain a move given a grounded prompt.
 
         The prompt should be produced by serialize_report() and
@@ -61,13 +63,33 @@ class ChessTeacher:
             "verbose": "100-250 words",
         }
         wc = word_counts.get(verbosity, word_counts["normal"])
-        system = self._system_prompt + f"\n\nIMPORTANT: Keep your response between {wc}. Be concise and focused."
+        system = self._system_prompt.replace("{{PERSONA}}", coach)
+        system = system + f"\n\nIMPORTANT: Keep your response between {wc}. Be concise and focused."
 
         messages = [
             {"role": "system", "content": system},
             {"role": "user", "content": prompt},
         ]
         return await self._chat(messages)
+
+    def build_debug_prompt(
+        self, prompt: str, coach: str = "a chess coach", verbosity: str = "normal"
+    ) -> str:
+        """Build the full prompt (system + user) for debugging.
+
+        Returns a formatted string showing both the system and user messages
+        that would be sent to the LLM.
+        """
+        word_counts = {
+            "terse": "25-75 words",
+            "normal": "50-100 words",
+            "verbose": "100-250 words",
+        }
+        wc = word_counts.get(verbosity, word_counts["normal"])
+        system = self._system_prompt.replace("{{PERSONA}}", coach)
+        system = system + f"\n\nIMPORTANT: Keep your response between {wc}. Be concise and focused."
+
+        return f"SYSTEM:\n{system}\n\nUSER:\n{prompt}"
 
     async def select_teaching_move(
         self, context: OpponentMoveContext

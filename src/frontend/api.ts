@@ -39,11 +39,12 @@ const API_BASE = "/api";
 export async function createGame(
   depth: number = 10,
   eloProfile: string = "intermediate",
+  coachName: string = "a chess coach",
 ): Promise<NewGameResponse> {
   const res = await fetch(`${API_BASE}/game/new`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ depth, elo_profile: eloProfile }),
+    body: JSON.stringify({ depth, elo_profile: eloProfile, coach_name: coachName }),
   });
   if (!res.ok) {
     throw new Error(`Failed to create game: ${res.status}`);

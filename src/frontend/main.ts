@@ -478,6 +478,34 @@ function init() {
   }
   rightPanel.appendChild(eloSelect);
 
+  // Coach
+  const coachSelectLabel = document.createElement("div");
+  coachSelectLabel.className = "section-label";
+  coachSelectLabel.textContent = "Coach";
+  rightPanel.appendChild(coachSelectLabel);
+
+  const coachSelect = document.createElement("select");
+  coachSelect.className = "elo-select-main";
+  const savedCoach = localStorage.getItem("chess-teacher-coach") || "a chess coach";
+  const coachOptions: [string, string][] = [
+    ["a chess coach", "Generic Coach"],
+    ["Judit Polgar", "Judit Polgar"],
+    ["GM Ben Finegold", "GM Ben Finegold"],
+    ["Hikaru", "Hikaru"],
+    ["Daniel Naroditsky", "Daniel Naroditsky"],
+    ["Paul Morphy", "Paul Morphy"],
+    ["Magnus Carlsen", "Magnus Carlsen"],
+    ["GothamChess", "GothamChess"],
+  ];
+  for (const [value, label] of coachOptions) {
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = label;
+    if (value === savedCoach) opt.selected = true;
+    coachSelect.appendChild(opt);
+  }
+  rightPanel.appendChild(coachSelect);
+
   // Game status
   const statusDisplay = document.createElement("div");
   statusDisplay.className = "game-status";
@@ -856,6 +884,13 @@ function init() {
   // ELO select
   eloSelect.addEventListener("change", () => {
     gc.setEloProfile(eloSelect.value);
+    resetUI();
+  });
+
+  // Coach select
+  coachSelect.addEventListener("change", () => {
+    gc.setCoachName(coachSelect.value);
+    localStorage.setItem("chess-teacher-coach", coachSelect.value);
     resetUI();
   });
 

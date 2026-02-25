@@ -72,6 +72,7 @@ export class GameController {
   private maxPly = 0;
   private coachingByPly: Map<number, CoachingData> = new Map();
   private eloProfile: string = "intermediate";
+  private coachName: string = "a chess coach";
 
   constructor(board: Api, engine: BrowserEngine | null) {
     this.game = new Chess();
@@ -118,6 +119,11 @@ export class GameController {
   /** Set ELO profile for coaching depth/style. */
   setEloProfile(profile: string): void {
     this.eloProfile = profile;
+  }
+
+  /** Set coach name for persona. */
+  setCoachName(name: string): void {
+    this.coachName = name;
   }
 
   /**
@@ -202,7 +208,7 @@ export class GameController {
     this.board.setAutoShapes([]);
 
     try {
-      const resp = await createGame(10, this.eloProfile);
+      const resp = await createGame(10, this.eloProfile, this.coachName);
       this.sessionId = resp.session_id;
     } catch (err) {
       console.warn("Failed to create server session:", err);
