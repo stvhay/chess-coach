@@ -185,7 +185,247 @@ analysis with more alternatives. See
 coaching experience.
 
 
-## 4. Motif Registry
+## 4. The Four-Layer Report Pipeline
+
+After building the game tree, the system transforms it into natural-language text for the LLM through **four layers**, each with a single responsibility:
+
+```
+┌───────────────────────────────────────┐
+│  Layer 4: Game Tree (game_tree.py)   │  Structure: nodes, links, evals
+│  Data structure layer                 │
+└───────────────┬───────────────────────┘
+                ▼
+┌───────────────────────────────────────┐
+│  Layer 3: Motif Registry (motifs.py) │  Tactical rendering + chain detection
+│  Declarative rendering layer          │
+└───────────────┬───────────────────────┘
+                ▼
+┌───────────────────────────────────────┐
+│  Layer 2: Descriptions (descriptions)│  Tactic diffs, position summaries
+│  Change detection layer                │
+└───────────────┬───────────────────────┘
+                ▼
+┌───────────────────────────────────────┐
+│  Layer 1: Report (report.py)         │  DFS walk, sectioned text output
+│  Orchestration layer                  │
+└───────────────────────────────────────┘
+                ▼
+           Text prompt (LLM user message)
+```
+
+Each layer knows nothing about the layers above it. Layer 1 calls Layer 2, Layer 2 calls Layer 3, Layer 3 reads Layer 4. This separation allows independent testing and modification.
+
+### Layer 4: Game Tree (game_tree.py)
+
+**Responsibility:** Data structure holding the analyzed position tree.
+
+The `GameTree` contains:
+- **Root node** (`decision_point`): Position where the student chose a move
+- **Played line** (`played`): The student's actual move with deep continuation
+- **Engine alternatives** (`children` with `source="engine"`): Alternative moves with deep continuations
+- **Lazy analysis caches**: Each `GameNode` computes `tactics` and full `PositionReport` on first access
+
+**Key functions:**
+- `build_coaching_tree()`: Two-pass construction (screen wide, validate deep)
+- `rank_by_teachability()`: Score alternatives by pedagogical value using `TeachabilityWeights`
+- `enrich_node_mate_threats()`: Add detected mate-in-N threats to nodes
+
+Layer 4 is **chess-aware** but **language-agnostic**. It knows what a pin is (dataclass), but not how to describe one (text).
+
+### Layer 3: Motif Registry (motifs.py)
+
+**Responsibility:** Declarative motif rendering and tactical chain detection.
+
+The `MOTIF_REGISTRY` is a dict mapping motif type strings (`"pin"`, `"fork"`, `"hanging"`, etc.) to `MotifSpec` entries. Each entry contains:
+- **key_fn**: Function to create a unique key identifying this motif instance (for deduplication)
+- **render_fn**: Function to produce human-readable text from the motif dataclass
+- **diff_key**: Field name in `TacticalMotifs` (e.g., `"pins"`)
+- **priority**: Rendering order (higher priority rendered first)
+- **ray_dedup_key**: Optional function to deduplicate ray-based motifs (pins, skewers, x-rays)
+
+**Rendering with chain integration:**
+```python
+def _render_pin(pin, student_is_white, is_tactic_after, chain_info):
+    """Render a pin motif, optionally with inline chain consequence."""
+    text = f"{your_their} {piece_name} on {pinned_sq} is pinned..."
+
+    # Check for pin→hanging chain
+    pin_key = ("pin", pin.pinner_square, pin.pinned_square, pin.pinned_to, pin.is_absolute)
+    if pin_key in chain_info.get("pin_hanging", {}):
+        hanging_key = chain_info["pin_hanging"][pin_key]
+        text += f" (This pin leaves {describe_hanging(hanging_key)}.)"
+
+    return text
+```
+
+**Tactical chain detection:**
+- `_detect_pin_hanging_chains()`: Match pins against hanging pieces via `defense_notes`
+- `_detect_overload_hanging_chains()`: Match overloaded pieces against hanging pieces
+- `_detect_capturable_defender_chains()`: Match capturable defenders against hanging pieces
+
+Layer 3 is **text-generating** but **structure-agnostic**. It renders one motif at a time, doesn't know about nodes or trees.
+
+### Layer 2: Descriptions (descriptions.py)
+
+**Responsibility:** Tactic diffing and position change detection.
+
+`describe_changes()` compares two `TacticalMotifs` objects (before and after a move) and produces three lists:
+- **New tactics**: Motifs present after the move but not before
+- **Resolved tactics**: Motifs present before but not after
+- **Persistent tactics**: Motifs present both before and after (unchanged)
+
+**Key insight:** The system deduplicates motifs by **keying**, not by object identity. Two `Pin` objects with the same `(pinner_square, pinned_square, pinned_to, is_absolute)` tuple are considered identical, even if they come from different positions.
+
+`describe_position()` produces a textual summary of a position:
+- Material imbalance
+- Pawn structure weaknesses (isolated, doubled, passed, backward)
+- King safety (pawn shield, open files, danger score)
+- Piece activity (centralized pieces, mobile pieces)
+- Tactical motifs (sorted by priority and rendered via Layer 3)
+
+**Tense control:**
+`describe_position()` accepts a `tense` parameter (`"present"` or `"past"`). Past tense is used for "Position Before" sections (the decision point), present tense for "Position After" sections (after the student's move).
+
+Layer 2 is **change-aware** but **section-agnostic**. It describes single positions and position pairs, doesn't know about DFS walks or coaching reports.
+
+### Layer 1: Report (report.py)
+
+**Responsibility:** DFS walk over the game tree and sectioned text output.
+
+`serialize_report()` is the top-level orchestrator. It walks the `GameTree` and produces the coaching prompt as a structured text document:
+
+**Sections:**
+1. **Played Line Context**: Game history leading to the decision point
+2. **Decision Point**: Position before the student's move (with tactics in past tense)
+3. **Your Move**: The student's move with eval delta and positional changes
+4. **Position After Your Move**: Tactical and positional situation after the move
+5. **Alternative Moves**: Top N engine-suggested alternatives with continuations
+6. **Positional Factors**: Material, king safety, pawn structure, piece activity
+
+**Key functions:**
+- `_append_continuation_analysis()`: Describe a single continuation line (move + tactics + eval)
+- `_describe_capture()`: Annotate capture moves to prevent notation confusion ("bishop captures on f7 (Bxf7+)")
+- `_format_pv_with_numbers()`: Add move numbers to continuation lines ("3. Nf3 Nc6 4. d4")
+- `_append_categorized()`: Helper for bulleted lists ("New tactics:\n  - Pin: ...\n  - Fork: ...")
+
+**Data flow:**
+```python
+def serialize_report(tree: GameTree, quality: str, cp_loss: int, rag_context: str = "") -> str:
+    lines = []
+
+    # Position Before Move (Layer 2 → Layer 3)
+    pos_desc = describe_position(tree, decision, tense="past")
+    _append_categorized(lines, "Threats", pos_desc.threats)
+    _append_categorized(lines, "Opportunities", pos_desc.opportunities)
+
+    # Student Move (Layer 2 diff)
+    describe_changes(tree, player_node)  # diffs tactics at each ply
+    _append_continuation_analysis(lines, player_node, ...)
+
+    # Alternatives (recurse on children)
+    for alt in top_alternatives:
+        _append_continuation_analysis(lines, alt, ...)
+
+    return "\n".join(lines)
+```
+
+Layer 1 is **structure-aware** but **LLM-agnostic**. It doesn't know about system prompts, personas, or RAG context — just produces a text report.
+
+---
+
+## Why Four Layers?
+
+**Separation of concerns:** Each layer has a single job. Layer 1 doesn't render motifs, Layer 3 doesn't diff tactics, Layer 2 doesn't walk trees.
+
+**Independent testing:** Each layer is testable in isolation:
+- Layer 4: `test_game_tree.py` (teachability scoring, tree construction)
+- Layer 3: `test_motifs.py` (rendering, chain detection, deduplication)
+- Layer 2: `test_descriptions.py` (diffing, position summaries)
+- Layer 1: `test_report.py` (section structure, DFS walk)
+
+**Modular replacement:** Want to change how pins are rendered? Modify Layer 3. Want to add a new report section? Modify Layer 1. The layers don't cascade.
+
+**No chess logic in orchestration:** Layer 1 contains zero chess-specific logic. It calls `describe_position()` and formats the result. All chess knowledge lives in Layers 2-4.
+
+---
+
+## Example: Pin→Hanging Chain Rendering
+
+Let's trace a single tactical chain through all four layers:
+
+**Position:** White knight on d4 defends pawn on f5. Black bishop on a1 pins knight to White king on h8.
+
+### Layer 4: Game Tree
+```python
+node = tree.played
+tactics = node.tactics  # Lazy-computed via analyze_tactics()
+# tactics.pins = [Pin(pinner_square="a1", pinned_square="d4", pinned_to="h8", is_absolute=True)]
+# tactics.hanging = [HangingPiece(square="f5", piece="P", color="white", value=TacticValue(...))]
+```
+
+### Layer 3: Motif Registry
+```python
+chains = _detect_pin_hanging_chains(tactics)
+# chains = {("pin", "a1", "d4", "h8", True): ("hanging", "f5", "P", "white")}
+
+# Render pin with chain
+pin_key = ("pin", "a1", "d4", "h8", True)
+text = _render_pin(pin, student_is_white=True, is_tactic_after=False, chain_info={"pin_hanging": chains})
+# text = "Your knight on d4 is pinned to your king on h8 by their bishop on a1.
+#         (This pin leaves your pawn on f5 hanging — worth ~1.0 pawns.)"
+```
+
+### Layer 2: Descriptions
+```python
+# describe_changes() calls Layer 3 to render new tactics
+new_tactics = render_motifs(after_tactics, student_is_white, is_tactic_after=True, chains)
+# new_tactics = ["Your knight on d4 is pinned... (This pin leaves your pawn on f5 hanging...)"]
+```
+
+### Layer 1: Report
+```python
+# serialize_report() assembles sections
+lines.append("## Position After Your Move")
+lines.append("New tactics:")
+for tactic in new_tactics:
+    lines.append(f"  - {tactic}")
+# Output:
+# ## Position After Your Move
+# New tactics:
+#   - Your knight on d4 is pinned to your king on h8 by their bishop on a1.
+#     (This pin leaves your pawn on f5 hanging — worth ~1.0 pawns.)
+```
+
+The chain is **detected** in Layer 3, **rendered** in Layer 3, **categorized** in Layer 2, and **sectioned** in Layer 1.
+
+---
+
+## Extending the Pipeline
+
+### Adding a New Motif Type
+
+1. **Layer 4:** Add detection logic to `analysis.py` (e.g., `_detect_trapped_pieces()`)
+2. **Layer 3:** Add `MotifSpec` entry to `MOTIF_REGISTRY` with render function
+3. **Layer 2:** No changes (generic diffing handles all motif types)
+4. **Layer 1:** No changes (DFS walk handles all motif types)
+
+### Adding a New Report Section
+
+1. **Layer 4:** No changes (data structure is generic)
+2. **Layer 3:** No changes (renders individual motifs)
+3. **Layer 2:** Possibly add new description function (e.g., `describe_endgame_factors()`)
+4. **Layer 1:** Add new section logic to `serialize_report()`
+
+### Adding a New Chain Type
+
+1. **Layer 4:** No changes
+2. **Layer 3:** Add chain detection function (e.g., `_detect_fork_discovered_chains()`) and integrate into rendering
+3. **Layer 2:** No changes
+4. **Layer 1:** No changes
+
+---
+
+## 4. Motif Registry (Layer 3 Deep Dive)
 
 The motif registry in `motifs.py` bridges raw tactical dataclasses
 and human-readable coaching text. Each motif type occupies one
