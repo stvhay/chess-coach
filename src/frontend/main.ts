@@ -759,6 +759,20 @@ function init() {
     updateFenDisplay(gc.fen());
   }
 
+  // --- Markdown helper ---
+  function parseSimpleMarkdown(text: string): string {
+    // Escape HTML to prevent XSS
+    const escaped = text
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+
+    // Convert **bold** to <strong>
+    return escaped.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  }
+
   // --- Coaching display ---
   function showCoaching(coaching: CoachingData) {
     const debugEnabled = localStorage.getItem("chess-teacher-debug") === "true";
@@ -785,7 +799,7 @@ function init() {
 
     const msg = document.createElement("div");
     msg.className = `coach-message ${coaching.quality}`;
-    msg.textContent = coaching.message;
+    msg.innerHTML = parseSimpleMarkdown(coaching.message);
     msg.dataset.ply = String(gc.getCurrentPly());
     msg.addEventListener("click", () => {
       const ply = parseInt(msg.dataset.ply!, 10);

@@ -18,7 +18,9 @@ Rules:
 - Reference ONLY the analysis data provided. Do not invent variations or evaluations.
 - Use natural language, not algebraic notation dumps.
 - When citing a line, keep it to the key moves (2-4 moves max).
-- Never use markdown formatting (no **, ##, or bullet points).
+- You may use paragraph breaks (blank lines) for readability.
+- You may use **bold** sparingly to emphasize key moves or concepts.
+- Do not use other markdown formatting (no ##, bullet points, or other special syntax).
 - Address the student as "you."
 - Focus on the most important single idea, not an exhaustive list.
 - Stay in character throughout your response."""

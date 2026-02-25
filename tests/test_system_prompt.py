@@ -14,9 +14,11 @@ class TestBaseRules:
         prompt = build_coaching_system_prompt(persona_block="Test persona.")
         assert "ONLY the analysis data provided" in prompt
 
-    def test_no_markdown_rule(self):
+    def test_markdown_policy(self):
         prompt = build_coaching_system_prompt(persona_block="Test persona.")
-        assert "Never use markdown formatting" in prompt
+        # Allow bold, but not other markdown
+        assert "**bold**" in prompt or "may use **bold**" in prompt
+        assert "Do not use other markdown formatting" in prompt
 
     def test_stay_in_character_rule(self):
         prompt = build_coaching_system_prompt(persona_block="Test persona.")
