@@ -13,7 +13,7 @@ import chess
 
 from server.analysis import GamePhase, analyze, detect_game_phase
 from server.descriptions import describe_position_from_report
-from server.engine import EngineAnalysis, MoveInfo
+from server.engine import EngineProtocol, MoveInfo
 from server.llm import ChessTeacher, OpponentMoveContext
 
 
@@ -79,7 +79,7 @@ def filter_candidates(
 
 async def select_opponent_move(
     board: chess.Board,
-    engine: EngineAnalysis,
+    engine: EngineProtocol,
     teacher: ChessTeacher | None = None,
 ) -> OpponentMoveResult:
     """Select an opponent move using engine candidates + optional LLM.

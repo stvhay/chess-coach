@@ -22,7 +22,7 @@ from starlette.responses import RedirectResponse, Response
 
 from server.analysis import analyze
 from server.config import Settings
-from server.engine import EngineAnalysis
+from server.engine import EngineAnalysis, EngineProtocol
 from server.game import GameManager
 from server.import_puzzles import (
     LICHESS_PUZZLE_URL,

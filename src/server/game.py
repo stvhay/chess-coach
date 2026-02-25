@@ -10,7 +10,7 @@ import chess
 from server.analysis import analyze
 from server.coach import Arrow, assess_move
 from server.elo_profiles import get_profile
-from server.engine import EngineAnalysis
+from server.engine import EngineProtocol
 from server.game_tree import build_coaching_tree
 from server.knowledge import query_knowledge
 from server.llm import ChessTeacher
@@ -48,7 +48,7 @@ def _game_result(board: chess.Board) -> str | None:
 class GameManager:
     def __init__(
         self,
-        engine: EngineAnalysis,
+        engine: EngineProtocol,
         teacher: ChessTeacher | None = None,
         rag: ChessRAG | None = None,
         rag_top_k: int = 3,

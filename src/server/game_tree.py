@@ -22,7 +22,7 @@ from server.analysis import (
     analyze_tactics,
 )
 from server.elo_profiles import EloProfile
-from server.engine import EngineAnalysis, Evaluation
+from server.engine import EngineProtocol, Evaluation
 from server.motifs import (
     HIGH_VALUE_KEYS,
     MODERATE_VALUE_KEYS,
@@ -261,7 +261,7 @@ def _add_continuation_children(
 
 
 async def build_coaching_tree(
-    engine: EngineAnalysis,
+    engine: EngineProtocol,
     board_before: chess.Board,
     player_move_uci: str,
     eval_before: Evaluation,
@@ -372,7 +372,7 @@ async def build_coaching_tree(
 
 async def _add_player_move_async(
     tree: GameTree,
-    engine: EngineAnalysis,
+    engine: EngineProtocol,
     board_before: chess.Board,
     player_move_uci: str,
     profile: EloProfile,
@@ -409,7 +409,7 @@ async def _add_player_move_async(
 
 def _add_player_move(
     tree: GameTree,
-    engine: EngineAnalysis,
+    engine: EngineProtocol,
     board_before: chess.Board,
     player_move_uci: str,
     profile: EloProfile,
@@ -425,7 +425,7 @@ def _add_player_move(
     tree.decision_point.add_child(player_move, source="played")
 
 
-async def enrich_node_mate_threats(node: GameNode, engine: EngineAnalysis) -> None:
+async def enrich_node_mate_threats(node: GameNode, engine: EngineProtocol) -> None:
     """Enrich a node's tactics with Stockfish-powered mate-in-N threats.
 
     Replaces shallow depth-1 mate threats with deeper Stockfish analysis.

@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 import asyncio
 import logging
@@ -35,7 +36,23 @@ class LineInfo:
     depth: int
 
 
-class EngineAnalysis:
+class EngineProtocol(ABC):
+    """Abstract interface for chess engine analysis backends."""
+
+    @abstractmethod
+    async def evaluate(self, fen: str, depth: int = 20) -> Evaluation: ...
+
+    @abstractmethod
+    async def analyze_lines(self, fen: str, n: int = 5, depth: int = 16) -> list[LineInfo]: ...
+
+    @abstractmethod
+    async def best_moves(self, fen: str, n: int = 3, depth: int = 20) -> list[MoveInfo]: ...
+
+    @abstractmethod
+    async def find_mate_threats(self, fen: str, max_depth: int = 3, eval_depth: int = 10) -> list[dict]: ...
+
+
+class EngineAnalysis(EngineProtocol):
     def __init__(self, stockfish_path: str = "stockfish", hash_mb: int = 64):
         self._path = stockfish_path
         self._hash_mb = hash_mb
