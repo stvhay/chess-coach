@@ -21,13 +21,45 @@ def _parse_color(color_name: str) -> chess.Color:
     return chess.WHITE if color_name == "white" else chess.BLACK
 
 
+def _build_defense_notes(
+    board: chess.Board,
+    target_sq: chess.Square,
+    defended_color: chess.Color,
+) -> str:
+    """Explain why defenders of target_sq cannot actually defend it.
+
+    Checks each defender for absolute pins (to king). If a defender is
+    pinned and the target is NOT on the pin ray, it cannot recapture —
+    note that fact. Consistent with SEE's _can_capture_on() logic.
+    """
+    notes: list[str] = []
+    for def_sq in board.attackers(defended_color, target_sq):
+        if not board.is_pinned(defended_color, def_sq):
+            continue
+        pin_mask = board.pin(defended_color, def_sq)
+        if pin_mask & chess.BB_SQUARES[target_sq]:
+            continue  # target is on pin ray — defender CAN capture there
+        # Defender is pinned off-ray and cannot defend target_sq
+        def_piece = board.piece_at(def_sq)
+        if def_piece is None:
+            continue
+        piece_char = chess.piece_symbol(def_piece.piece_type).upper()
+        king_sq = board.king(defended_color)
+        pinned_to = chess.square_name(king_sq) if king_sq is not None else "?"
+        notes.append(
+            f"defender {piece_char} on {chess.square_name(def_sq)} pinned to {pinned_to}"
+        )
+    return "; ".join(notes)
+
+
 def _value_hanging(hanging: HangingPiece, board: chess.Board) -> TacticValue:
     """Value a hanging piece via SEE from the opponent's perspective."""
     sq = chess.parse_square(hanging.square)
     # Attacker is the opponent of the piece's owner
     attacker_color = not _parse_color(hanging.color)
     delta = see(board, sq, attacker_color)
-    return TacticValue(material_delta=delta, is_sound=delta > 0)
+    defense_notes = _build_defense_notes(board, sq, _parse_color(hanging.color))
+    return TacticValue(material_delta=delta, is_sound=delta > 0, defense_notes=defense_notes)
 
 
 def _value_pin(pin: Pin, board: chess.Board) -> TacticValue:

@@ -13,6 +13,8 @@ class TacticValue:
     material_delta: int    # centipawns (100 = 1 pawn), positive = beneficiary gains
     is_sound: bool         # material_delta > 0
     source: str = "see"    # "see" | "engine" | "heuristic"
+    defense_notes: str = ""                          # why SEE returns its value ("defender N on c6 pinned to e8")
+    related_motifs: list[str] = field(default_factory=list)  # cross-refs: ["pin:b5-c6-e8"]
 
 
 @dataclass

@@ -53,6 +53,47 @@ def _is_significant_discovery(da) -> bool:
     return not blocker_is_pawn or target_is_valuable
 
 
+def _detect_pin_hanging_chains(tactics: TacticalMotifs) -> dict[tuple, tuple]:
+    """Detect pin->hanging chains from precomputed defense_notes. No board needed.
+
+    Returns {pin_key: hanging_key} for each chain found.
+    Only active when CHESS_TEACHER_ENABLE_CHAINING=1.
+    """
+    from server.config_flags import is_chain_detection_enabled
+    if not is_chain_detection_enabled():
+        return {}
+    chains: dict[tuple, tuple] = {}
+    for hanging in tactics.hanging:
+        if not hanging.value or not hanging.value.defense_notes:
+            continue
+        notes = hanging.value.defense_notes.lower()
+        for pin in tactics.pins:
+            if pin.pinned_square.lower() in notes and "pinned" in notes:
+                pin_key = ("pin", pin.pinner_square, pin.pinned_square, pin.pinned_to, pin.is_absolute)
+                hanging_key = ("hanging", hanging.square, hanging.piece, hanging.color)
+                chains[pin_key] = hanging_key
+                break  # one pin per hanging piece for Tier 1
+    return chains
+
+
+def _render_chain_merged(pin, hanging, ctx: RenderContext) -> tuple[str, bool]:
+    """Render pin->hanging chain as one merged description."""
+    pin_text, pin_is_opp = render_pin(pin, ctx)
+    # Build hanging piece reference
+    if hanging.color:
+        is_opp_h = not _color_is_students(hanging.color, ctx.player_color)
+    else:
+        is_opp_h = not _piece_is_students(hanging.piece, ctx.student_is_white)
+    h_desc = _own_their(hanging.piece, not is_opp_h)
+    # Strip trailing period and any value suffix, add chain clause
+    base = pin_text.rstrip(".")
+    chain_clause = f", leaving {h_desc} on {hanging.square} undefended"
+    suffix = _value_suffix(hanging, ctx)
+    if suffix:
+        chain_clause += suffix
+    return base + chain_clause + ".", pin_is_opp
+
+
 # ---------------------------------------------------------------------------
 # Render context
 # ---------------------------------------------------------------------------
@@ -635,6 +676,11 @@ def render_motifs(
         for fork in getattr(tactics, "forks", []):
             fork_squares.update(fork.targets)
 
+    # Chain detection (Tier 1: pin -> hanging)
+    chains = _detect_pin_hanging_chains(tactics)
+    hanging_in_chain: set[tuple] = set(chains.values())
+    pin_in_chain: dict[tuple, tuple] = {pk: hk for pk, hk in chains.items()}
+
     # Compute ray dedup once (shared by pin/skewer/xray/discovered filters)
     ray_dedup: dict[str, list] | None = None
 
@@ -661,7 +707,29 @@ def render_motifs(
                 if spec.squares_fn and spec.squares_fn(item) & fork_squares:
                     continue
 
+            # Chain suppression: skip hanging pieces already merged into a pin chain
+            if spec.diff_key == "hanging":
+                h_key = spec.key_fn(item)
+                if h_key in hanging_in_chain:
+                    rendered_keys.add(h_key)  # track as rendered to prevent re-emergence
+                    continue
+
             desc, is_opp = spec.render_fn(item, ctx)
+
+            # Chain merge: replace pin description with merged pin+hanging narrative
+            if spec.diff_key == "pin":
+                p_key = spec.key_fn(item)
+                if p_key in pin_in_chain:
+                    h_key = pin_in_chain[p_key]
+                    match = next(
+                        (h for h in tactics.hanging
+                         if ("hanging", h.square, h.piece, h.color) == h_key),
+                        None,
+                    )
+                    if match is not None:
+                        desc, is_opp = _render_chain_merged(item, match, ctx)
+                        rendered_keys.add(h_key)  # mark hanging as rendered
+
             # Skip motifs that render to empty text (e.g., validated but invalid)
             if not desc or not desc.strip():
                 continue

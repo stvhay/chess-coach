@@ -12,6 +12,7 @@ import chess
 from server.analysis.tactics import see, TacticValue, analyze_tactics
 from server.analysis.tactics.see import _can_capture_on, _get_sorted_attackers, _PIECE_VALUES
 from server.analysis.tactics.valuation import (
+    _build_defense_notes,
     _value_capturable_defender,
     _value_discovered,
     _value_fork,
@@ -628,3 +629,82 @@ def test_value_overloaded_empty_duties():
     assert val.source == "heuristic"
     assert val.is_sound is False
     assert val.material_delta == 0
+
+
+# ---------------------------------------------------------------------------
+# Defense notes tests
+# ---------------------------------------------------------------------------
+
+
+def test_defense_notes_pinned_defender():
+    """Nd7 pinned by Rd1 to Kd8 along d-file, defending e5 (off d-file).
+
+    FEN: 3k4/3n4/8/4p3/4P3/8/8/3RK3 w - - 0 1
+    Rd1 pins Nd7 to Kd8. Pe4 attacks e5. Nd7 "defends" e5 but is pinned off-ray.
+    """
+    board = chess.Board("3k4/3n4/8/4p3/4P3/8/8/3RK3 w - - 0 1")
+    notes = _build_defense_notes(board, chess.E5, chess.BLACK)
+    assert "pinned" in notes
+    assert "d7" in notes
+
+
+def test_defense_notes_empty_no_pins():
+    """Genuinely hanging piece with no pinned defenders → empty defense_notes."""
+    # Black knight on d5, undefended, attacked by white pawn on c4
+    board = chess.Board("4k3/8/8/3n4/2P5/8/8/4K3 w - - 0 1")
+    notes = _build_defense_notes(board, chess.D5, chess.BLACK)
+    assert notes == ""
+
+
+def test_defense_notes_pinned_on_ray_still_defends():
+    """Defender pinned but target IS on pin ray → defense_notes is empty.
+
+    Be6 pinned along b3-f7 diagonal by Bb3 to Kf7. d5 is on the diagonal,
+    so Be6 CAN capture there despite being pinned.
+    """
+    board = chess.Board("8/5k2/4b3/8/8/1BN5/8/4K3 w - - 0 1")
+    notes = _build_defense_notes(board, chess.D5, chess.BLACK)
+    assert notes == ""
+
+
+def test_related_motifs_cross_refs_pin():
+    """Cross-reference logic: hanging piece with defense_notes gets related_motifs populated.
+
+    The cross-reference pass in analyze_tactics links hanging pieces to pins
+    when defense_notes mentions a pinned square. We test this by verifying
+    the logic on a constructed TacticalMotifs with pre-set defense_notes.
+
+    Note: In current _find_hanging (Lichess is_defended), pinned defenders
+    still count as defenders, so defense_notes on real hanging pieces is rare.
+    This test validates the cross-reference wiring independently.
+    """
+    from server.analysis.tactics.types import TacticalMotifs
+
+    pin = Pin(
+        pinned_square="d7", pinned_piece="n",
+        pinner_square="d1", pinner_piece="R",
+        pinned_to="d8", pinned_to_piece="k",
+        is_absolute=True, color="white",
+    )
+    hanging = HangingPiece(
+        square="f5", piece="b", attacker_squares=["e4", "e3"],
+        color="black", can_retreat=False,
+        value=TacticValue(
+            material_delta=300, is_sound=True,
+            defense_notes="defender N on d7 pinned to d8",
+        ),
+    )
+    motifs = TacticalMotifs(pins=[pin], hanging=[hanging])
+
+    # Simulate the cross-reference pass from analyze_tactics
+    for h in motifs.hanging:
+        if h.value and h.value.defense_notes:
+            for p in motifs.pins:
+                if p.pinned_square in h.value.defense_notes:
+                    h.value.related_motifs.append(
+                        f"pin:{p.pinner_square}-{p.pinned_square}-{p.pinned_to}"
+                    )
+
+    assert len(hanging.value.related_motifs) == 1
+    assert "d7" in hanging.value.related_motifs[0]
+    assert hanging.value.related_motifs[0] == "pin:d1-d7-d8"

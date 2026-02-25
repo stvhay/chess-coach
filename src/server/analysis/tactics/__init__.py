@@ -116,4 +116,13 @@ def analyze_tactics(board: chess.Board) -> TacticalMotifs:
     for op in motifs.overloaded_pieces:
         op.value = _value_overloaded(op, board)
 
+    # Cross-reference: link hanging pieces to pins via defense_notes
+    for h in motifs.hanging:
+        if h.value and h.value.defense_notes:
+            for p in motifs.pins:
+                if p.pinned_square in h.value.defense_notes:
+                    h.value.related_motifs.append(
+                        f"pin:{p.pinner_square}-{p.pinned_square}-{p.pinned_to}"
+                    )
+
     return motifs
