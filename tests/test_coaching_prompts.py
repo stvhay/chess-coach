@@ -79,7 +79,7 @@ SCENARIOS: dict[str, dict] = {
         ),
         "quality": "mistake",
         "cp_loss": 100,
-        "expect_in_prompt": ["# Student Move", "4. Nc3", "# Stronger Alternative"],
+        "expect_in_prompt": ["# Move Played", "4. Nc3", "# Stronger Alternative"],
         "expect_not_in_prompt": ["You played"],
     },
     "missed_fork": {
@@ -105,7 +105,7 @@ SCENARIOS: dict[str, dict] = {
         ),
         "quality": "blunder",
         "cp_loss": 260,
-        "expect_in_prompt": ["# Student Move", "4. Bd3", "Nxf7"],
+        "expect_in_prompt": ["# Move Played", "4. Bd3", "Nxf7"],
         "expect_not_in_prompt": ["You played"],
     },
     "good_move": {
@@ -130,7 +130,7 @@ SCENARIOS: dict[str, dict] = {
         ),
         "quality": "good",
         "cp_loss": 0,
-        "expect_in_prompt": ["# Student Move", "1. e4", "good"],
+        "expect_in_prompt": ["# Move Played", "1. e4", "good"],
         "expect_not_in_prompt": ["You played"],
     },
 }
@@ -183,7 +183,7 @@ class TestPromptStructure:
         """Prompt should use '# Move N.' or 'Student is playing', never 'You played'."""
         prompt, _ = await _build_prompt_for_scenario(scenario_name)
         assert "You played" not in prompt
-        assert "# Student Move" in prompt or "Student is playing" in prompt
+        assert "# Move Played" in prompt or "The student played as" in prompt
 
     @pytest.mark.parametrize("scenario_name", SCENARIOS.keys())
     async def test_no_per_ply_labels(self, scenario_name):
@@ -222,12 +222,12 @@ class TestPromptStructure:
         assert "Stronger Alternative: Bd3" not in prompt
 
     async def test_move_header_has_number(self):
-        """Move header should use '# Student Move' with numbered move on own line."""
+        """Move header should use '# Move Played' with numbered move on own line."""
         prompt, _ = await _build_prompt_for_scenario("pin_and_hanging")
-        assert "# Student Move" in prompt
+        assert "# Move Played" in prompt
         lines = prompt.split("\n")
         assert any(line.strip() == "4. Nc3" for line in lines)
-        assert "Move Played" not in prompt
+        assert "# Student Move" not in prompt
 
     async def test_good_move_filters_self(self):
         """When student plays the top move, it shouldn't be listed as an alternative."""
@@ -674,7 +674,7 @@ class TestEvalScenarios:
 
         # Always uses third person
         assert "You played" not in prompt
-        assert "# Move " in prompt or "Student is playing" in prompt
+        assert "# Move Played" in prompt or "The student played as" in prompt
 
         # Good moves should not have "Stronger Alternative"
         if result["quality"] in ("good", "brilliant"):

@@ -179,12 +179,12 @@ class TestSerializeReport:
     def test_contains_student_color(self):
         tree = _simple_tree()
         report = serialize_report(tree, "mistake", 60)
-        assert "Student is playing: White" in report
+        assert "The student played as: White" in report
 
     def test_contains_student_move_section(self):
         tree = _simple_tree()
         report = serialize_report(tree, "mistake", 60)
-        assert "# Student Move" in report
+        assert "# Move Played" in report
 
     def test_contains_move_on_own_line(self):
         tree = _simple_tree()
@@ -257,7 +257,7 @@ class TestSerializeReport:
     def test_position_section_present(self):
         tree = _simple_tree()
         report = serialize_report(tree, "good", 0)
-        assert "# Position Before White's Move" in report
+        assert "# Position Before the Move" in report
 
     def test_prompt_length_reasonable(self):
         tree = _simple_tree()
@@ -271,11 +271,11 @@ class TestSerializeReport:
         lines = report.split("\n")
         section_indices = {}
         for i, line in enumerate(lines):
-            if line.startswith("Student is playing"):
+            if line.startswith("The student played as"):
                 section_indices["color"] = i
             elif line.startswith("# Position Before"):
                 section_indices["position"] = i
-            elif line == "# Student Move":
+            elif line == "# Move Played":
                 section_indices["move"] = i
             elif line.startswith("# Stronger") or line.startswith("# Other") or line.startswith("# Also"):
                 section_indices.setdefault("alt", i)
@@ -291,12 +291,24 @@ class TestSerializeReport:
         report = serialize_report(tree, "good", 0)
         assert "Observations:" in report
 
+    def test_move_played_has_after_frame(self):
+        tree = _simple_tree()
+        report = serialize_report(tree, "mistake", 60)
+        lines = report.split("\n")
+        assert any(line.strip() == "After this move:" for line in lines)
+
+    def test_alternative_has_creates_frame(self):
+        tree = _simple_tree()
+        report = serialize_report(tree, "mistake", 60)
+        lines = report.split("\n")
+        assert any(line.strip() == "This move creates:" for line in lines)
+
 
 class TestSerializeReportMoveNumbers:
     def test_move_2_has_correct_number(self):
         tree = _tree_with_history()
         report = serialize_report(tree, "good", 0)
-        assert "# Student Move" in report
+        assert "# Move Played" in report
         lines = report.split("\n")
         assert any(line.strip() == "2. Nf3" for line in lines)
 

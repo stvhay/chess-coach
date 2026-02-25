@@ -53,7 +53,7 @@ def _sample_report(**overrides) -> str:
 class TestSerializeReport:
     def test_contains_player_move(self):
         report = _sample_report()
-        assert "# Student Move" in report
+        assert "# Move Played" in report
         lines = report.split("\n")
         assert any(line.strip() == "1. e4" for line in lines)
 
