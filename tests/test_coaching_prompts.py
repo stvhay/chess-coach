@@ -5,15 +5,15 @@ Three layers:
    consistency, and tactical content from known positions with mocked engine.
 2. Integration tests (run with `pytest -m integration`) — use real Stockfish
    engine to verify the full build_coaching_tree/serialize_report pipeline across
-   diverse scenarios.
-3. Live LLM tests:
-   - Quick smoke test (run with `pytest -m live`) — sends ONE prompt to the LLM
-   - Full LLM suite (run with `pytest -m full_llm`) — sends ALL 30 prompts to the LLM
+   diverse scenarios (5 representative positions).
+3. Live LLM smoke test (run with `pytest -m live`) — sends ONE prompt to the LLM
+   for quick validation.
 
 Run structural tests:  uv run pytest tests/test_coaching_prompts.py
 Run integration tests: uv run pytest tests/test_coaching_prompts.py -m integration -s
 Run LLM smoke test:    uv run pytest tests/test_coaching_prompts.py -m live -s
-Run full LLM suite:    uv run pytest tests/test_coaching_prompts.py -m full_llm -s
+
+For comprehensive LLM evaluation, use: tests/eval_coaching.py
 """
 
 from __future__ import annotations
@@ -267,9 +267,6 @@ class TestLiveCoaching:
 
     Quick smoke test (one scenario):
       uv run pytest tests/test_coaching_prompts.py -m live -s
-
-    Full suite (all scenarios):
-      uv run pytest tests/test_coaching_prompts.py::TestLiveCoaching -m full_llm -s
     """
 
     @pytest.mark.live
@@ -301,42 +298,15 @@ class TestLiveCoaching:
             assert "**" not in response
             assert "##" not in response
 
-    @pytest.mark.full_llm
-    @pytest.mark.parametrize("scenario_name", ["missed_fork", "good_move"])
-    async def test_llm_response_extended(self, scenario_name):
-        """Extended test: send remaining scenarios to the LLM (requires -m full_llm)."""
-        s = SCENARIOS[scenario_name]
-        prompt, _ = await _build_prompt_for_scenario(scenario_name)
-
-        teacher = _live_teacher()
-        response = await teacher.explain_move(prompt)
-
-        print(f"\n{'='*60}")
-        print(f"SCENARIO: {scenario_name}")
-        print(f"  {s['description']}")
-        print(f"  Quality: {s['quality']} (cp_loss={s['cp_loss']})")
-        print(f"{'='*60}")
-        print(f"PROMPT ({len(prompt)} chars):")
-        print(prompt)
-        print(f"{'-'*60}")
-        print(f"LLM RESPONSE:")
-        print(response or "(None — LLM unreachable or failed)")
-        print(f"{'='*60}\n")
-
-        # Basic sanity: if the LLM responded, it should be non-empty
-        if response is not None:
-            assert len(response.strip()) > 0
-            # Should not contain markdown formatting
-            assert "**" not in response
-            assert "##" not in response
-
 
 # ---------------------------------------------------------------------------
 # Integration scenarios — real Stockfish, diverse positions
+# Reduced to 5 representative scenarios covering different move qualities,
+# tactical themes, and game phases. For comprehensive evaluation, use
+# tests/eval_coaching.py instead.
 # ---------------------------------------------------------------------------
 
 EVAL_SCENARIOS = [
-    # --- Missed tactics ---
     {
         "name": "missed_knight_fork",
         "desc": "Misses Nxf7 forking king and rook (Fried Liver)",
@@ -344,6 +314,22 @@ EVAL_SCENARIOS = [
         "student_move": "d2d3",
         "expect_quality": ["blunder", "mistake"],
         "expect_motifs": ["fork"],
+    },
+    {
+        "name": "good_opening_e4",
+        "desc": "Plays standard e4 opening",
+        "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+        "student_move": "e2e4",
+        "expect_quality": ["good", "brilliant"],
+        "expect_motifs": [],
+    },
+    {
+        "name": "walks_into_pin",
+        "desc": "Blocks check with Nc3 getting absolutely pinned (1.d4 e5 2.dxe5 Bb4+)",
+        "fen": "rnbqk1nr/pppp1ppp/8/4P3/1b6/8/PPP1PPPP/RNBQKBNR w KQkq - 1 3",
+        "student_move": "b1c3",
+        "expect_quality": ["inaccuracy", "mistake", "blunder"],
+        "expect_motifs": ["pin"],
     },
     {
         "name": "missed_back_rank_mate",
@@ -354,211 +340,11 @@ EVAL_SCENARIOS = [
         "expect_motifs": ["checkmate"],
     },
     {
-        "name": "missed_mate_in_one",
-        "desc": "Misses Qh4# after 1.f3 e5 2.g4??",
-        "fen": "rnbqkbnr/pppp1ppp/8/4p3/6P1/5P2/PPPPP2P/RNBQKBNR b KQkq - 0 2",
-        "student_move": "d7d5",
-        "expect_quality": ["blunder"],
-        "expect_motifs": ["checkmate"],
-    },
-    {
-        "name": "ignores_mate_threat",
-        "desc": "Plays d6 ignoring Qxf7# threat (Scholar's Mate)",
-        "fen": "r1bqkbnr/pppp1ppp/2n5/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 3 3",
-        "student_move": "d7d6",
-        "expect_quality": ["blunder", "mistake"],
-        "expect_motifs": [],  # opponent checkmate — may or may not be in prompt
-    },
-    {
-        "name": "missed_free_pawn",
-        "desc": "Plays d6 instead of Nxe4 winning a free pawn",
-        "fen": "rnbqkb1r/pppppppp/5n2/8/3PP3/8/PPP2PPP/RNBQKBNR b KQkq - 0 2",
-        "student_move": "d7d6",
-        "expect_quality": ["inaccuracy", "mistake"],
-        "expect_motifs": [],
-    },
-    # --- Good moves ---
-    {
-        "name": "good_opening_e4",
-        "desc": "Plays standard e4 opening",
-        "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-        "student_move": "e2e4",
-        "expect_quality": ["good", "brilliant"],
-        "expect_motifs": [],
-    },
-    {
-        "name": "good_castling",
-        "desc": "Castles kingside for safety in Italian Game",
-        "fen": "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
-        "student_move": "e1g1",
-        "expect_quality": ["good", "brilliant", "inaccuracy"],  # Stockfish may prefer d4/c3
-        "expect_motifs": [],
-    },
-    {
-        "name": "good_morphy_defense",
-        "desc": "Plays a6 in Ruy Lopez (Morphy Defense)",
-        "fen": "r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3",
-        "student_move": "a7a6",
-        "expect_quality": ["good", "brilliant"],
-        "expect_motifs": [],
-    },
-    {
-        "name": "good_sicilian_nf3",
-        "desc": "Plays Nf3 developing in the Sicilian",
-        "fen": "rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2",
-        "student_move": "g1f3",
-        "expect_quality": ["good", "brilliant"],
-        "expect_motifs": [],
-    },
-    # --- Positional/strategic errors ---
-    {
-        "name": "walks_into_pin",
-        "desc": "Blocks check with Nc3 getting absolutely pinned (1.d4 e5 2.dxe5 Bb4+)",
-        "fen": "rnbqk1nr/pppp1ppp/8/4P3/1b6/8/PPP1PPPP/RNBQKBNR w KQkq - 1 3",
-        "student_move": "b1c3",
-        "expect_quality": ["inaccuracy", "mistake", "blunder"],
-        "expect_motifs": ["pin"],
-    },
-    {
-        "name": "passive_bishop_retreat",
-        "desc": "Retreats Italian bishop to e2",
-        "fen": "r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 2 3",
-        "student_move": "c4e2",
-        "expect_quality": ["inaccuracy", "mistake"],
-        "expect_motifs": [],
-    },
-    {
-        "name": "weakening_f_pawn",
-        "desc": "Plays f6 weakening king diagonal — blocks Nf6 and allows Ng5",
-        "fen": "r1bqkbnr/ppp2ppp/2np4/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 2 3",
-        "student_move": "f7f6",
-        "expect_quality": ["inaccuracy", "mistake", "blunder"],
-        "expect_motifs": [],
-    },
-    # --- Endgame ---
-    {
-        "name": "endgame_wrong_king",
-        "desc": "Moves king away from passed pawn instead of supporting it",
-        "fen": "8/8/8/8/3Pk3/8/3K4/8 w - - 0 1",
-        "student_move": "d2c2",
-        "expect_quality": ["good", "inaccuracy", "mistake"],
-        "expect_motifs": [],
-    },
-    {
         "name": "endgame_good_pawn_push",
         "desc": "Pushes passed pawn in a favorable K+P ending",
         "fen": "8/8/8/8/4k3/8/3PK3/8 w - - 0 1",
         "student_move": "d2d4",
         "expect_quality": ["good", "brilliant", "inaccuracy"],
-        "expect_motifs": [],
-    },
-    # --- Middlegame complexity ---
-    {
-        "name": "trade_queens_when_ahead",
-        "desc": "Trades queens when materially ahead",
-        "fen": "r1b2rk1/ppp2ppp/2n5/3qN3/8/8/PPPQ1PPP/R1B2RK1 w - - 0 10",
-        "student_move": "d2d5",
-        "expect_quality": ["good", "brilliant", "inaccuracy"],
-        "expect_motifs": [],
-    },
-
-    # ===================================================================
-    # Wave 2: broader coverage — d4 games, Sicilian, endgame, tactics
-    # ===================================================================
-
-    # --- Queen's pawn good moves ---
-    {
-        "name": "good_qga_accept",
-        "desc": "Accepts Queen's Gambit — perfectly sound opening choice",
-        "fen": "rnbqkbnr/ppp1pppp/8/3p4/2PP4/8/PP2PPPP/RNBQKBNR b KQkq - 0 2",
-        "student_move": "d5c4",
-        "expect_quality": ["good", "brilliant", "inaccuracy"],
-        "expect_motifs": [],
-    },
-    {
-        "name": "good_london_develop",
-        "desc": "Plays Bf4 in the London System — signature developing move",
-        "fen": "rnbqkb1r/ppp1pppp/5n2/3p4/3P4/5N2/PPP1PPPP/RNBQKB1R w KQkq - 2 3",
-        "student_move": "c1f4",
-        "expect_quality": ["good", "brilliant", "inaccuracy"],
-        "expect_motifs": [],
-    },
-    # --- Piece placement errors ---
-    {
-        "name": "premature_queen_sortie",
-        "desc": "Brings queen out early to e7 blocking bishop development",
-        "fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2",
-        "student_move": "d8e7",
-        "expect_quality": ["inaccuracy", "mistake"],
-        "expect_motifs": [],
-    },
-    {
-        "name": "knight_on_the_rim",
-        "desc": "Plays Na4 sending knight to the rim with no purpose",
-        "fen": "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/2N2N2/PPPP1PPP/R1BQK2R w KQkq - 4 4",
-        "student_move": "c3a4",
-        "expect_quality": ["inaccuracy", "mistake", "blunder"],
-        "expect_motifs": [],
-    },
-    # --- Sicilian middlegame ---
-    {
-        "name": "sicilian_passive_bishop",
-        "desc": "Plays passive Be2 in Open Sicilian when Bg5/Bc4/Be3 are stronger",
-        "fen": "rnbqkb1r/1p2pppp/p2p1n2/8/3NP3/2N5/PPP2PPP/R1BQKB1R w KQkq - 0 6",
-        "student_move": "f1e2",
-        "expect_quality": ["good", "inaccuracy", "mistake"],
-        "expect_motifs": [],
-    },
-    # --- Tactical blunders ---
-    {
-        "name": "premature_sacrifice",
-        "desc": "Sacrifices bishop on f7+ with no follow-up — loses piece for pawn",
-        "fen": "r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 2 3",
-        "student_move": "c4f7",
-        "expect_quality": ["blunder", "mistake"],
-        "expect_motifs": [],
-    },
-    {
-        "name": "falls_for_legals_mate",
-        "desc": "Greedily captures queen — walks into Legal's Mate pattern",
-        "fen": "rn1qkbnr/ppp2p1p/3p2p1/4N3/2B1P1b1/2N5/PPPP1PPP/R1BQK2R b KQkq - 0 5",
-        "student_move": "g4d1",
-        "expect_quality": ["blunder", "mistake"],
-        "expect_motifs": [],
-    },
-    # --- KID thematic play ---
-    {
-        "name": "good_kid_d5_break",
-        "desc": "Plays thematic d5 central break in King's Indian Defense",
-        "fen": "r1bq1rk1/pppn1pbp/3ppnp1/8/2PPP3/2N2N2/PP2BPPP/R1BQ1RK1 b - - 0 8",
-        "student_move": "d6d5",
-        "expect_quality": ["good", "brilliant", "inaccuracy", "mistake"],
-        "expect_motifs": [],
-    },
-    # --- Rook ending ---
-    {
-        "name": "good_rook_cut_off_king",
-        "desc": "Cuts off enemy king along the 6th rank — textbook technique",
-        "fen": "8/8/4k3/8/2R5/5K2/4P3/8 w - - 0 1",
-        "student_move": "c4c6",
-        "expect_quality": ["good", "brilliant", "inaccuracy"],
-        "expect_motifs": [],
-    },
-    # --- Other openings ---
-    {
-        "name": "good_caro_kann_bf5",
-        "desc": "Develops bishop to f5 in the Caro-Kann — classical and strong",
-        "fen": "rnbqkbnr/pp2pppp/2p5/3pP3/3P4/8/PPP2PPP/RNBQKBNR b KQkq - 0 3",
-        "student_move": "c8f5",
-        "expect_quality": ["good", "brilliant", "inaccuracy"],
-        "expect_motifs": [],
-    },
-    {
-        "name": "good_scandinavian_qd6",
-        "desc": "Retreats queen to d6 in Scandinavian — solid modern main line",
-        "fen": "rnb1kbnr/ppp1pppp/8/3q4/8/2N5/PPPP1PPP/R1BQKBNR b KQkq - 1 3",
-        "student_move": "d5d6",
-        "expect_quality": ["good", "brilliant", "inaccuracy", "mistake"],
         "expect_motifs": [],
     },
 ]
@@ -630,7 +416,7 @@ def _engine_results(request):
 
 @pytest.mark.integration
 class TestEvalScenarios:
-    """Integration tests with real Stockfish across diverse scenarios.
+    """Integration tests with real Stockfish across 5 diverse scenarios.
 
     Run with: uv run pytest tests/test_coaching_prompts.py -m integration -s
     """
@@ -699,41 +485,3 @@ class TestEvalScenarios:
         print(f"{'='*60}")
         print(result["prompt"])
         print(f"{'='*60}\n")
-
-
-@pytest.mark.full_llm
-class TestEvalScenariosLive:
-    """Send eval scenario prompts to real LLM.
-
-    Run with: uv run pytest tests/test_coaching_prompts.py::TestEvalScenariosLive -m full_llm -s
-
-    This is the FULL test suite (27 scenarios) and requires explicit -m full_llm to run.
-    """
-
-    @pytest.mark.parametrize(
-        "scenario",
-        EVAL_SCENARIOS,
-        ids=[s["name"] for s in EVAL_SCENARIOS],
-    )
-    async def test_llm_response(self, scenario):
-        """Full pipeline: Stockfish + LLM for each scenario."""
-        result = await _build_eval_scenario(scenario)
-        teacher = _live_teacher()
-        response = await teacher.explain_move(result["prompt"])
-
-        print(f"\n{'='*60}")
-        print(f"SCENARIO: {scenario['name']} — {scenario['desc']}")
-        print(f"  Student: {result['student_san']}  Best: {result['best_san']}")
-        print(f"  Quality: {result['quality']}  CP loss: {result['cp_loss']}")
-        print(f"{'='*60}")
-        print(f"PROMPT ({len(result['prompt'])} chars):")
-        print(result["prompt"])
-        print(f"{'-'*60}")
-        print(f"LLM RESPONSE:")
-        print(response or "(None — LLM unreachable)")
-        print(f"{'='*60}\n")
-
-        if response is not None:
-            assert len(response.strip()) > 0
-            assert "**" not in response
-            assert "##" not in response
