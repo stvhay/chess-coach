@@ -152,6 +152,28 @@ def _render_chain_merged(pin, hanging, ctx: RenderContext) -> tuple[str, bool]:
     return base + chain_clause + ".", pin_is_opp
 
 
+def _render_overload_chain_merged(
+    op, hanging_squares: list[str], ctx: RenderContext,
+) -> tuple[str, bool]:
+    """Render overloaded piece with hanging consequence merged in."""
+    is_opponents = not _piece_is_students(op.piece, ctx.student_is_white)
+    piece_desc = _own_their(op.piece, not is_opponents)
+    charges = ", ".join(op.defended_squares)
+
+    if len(hanging_squares) == 1:
+        consequence = f"{hanging_squares[0]} is hanging"
+    else:
+        consequence = f"{', '.join(hanging_squares[:-1])} and {hanging_squares[-1]} are hanging"
+
+    desc = (f"{piece_desc.capitalize()} on {op.square} is overloaded, "
+            f"sole defender of {charges} — {consequence}.")
+
+    suffix = _value_suffix(op, ctx)
+    if suffix and desc.endswith("."):
+        desc = desc[:-1] + suffix + "."
+    return desc, is_opponents
+
+
 # ---------------------------------------------------------------------------
 # Render context
 # ---------------------------------------------------------------------------
@@ -739,6 +761,17 @@ def render_motifs(
     hanging_in_chain: set[tuple] = set(chains.values())
     pin_in_chain: dict[tuple, tuple] = {pk: hk for pk, hk in chains.items()}
 
+    # Chain detection (Tier 2: overload -> hanging, capturable_defender -> hanging)
+    overload_chains = _detect_overload_hanging_chains(tactics)
+    cd_chains = _detect_capturable_defender_hanging_chains(tactics)
+    for h_keys in overload_chains.values():
+        hanging_in_chain.update(h_keys)
+    hanging_in_chain.update(cd_chains.values())
+    # Track overloaded keys that need merged rendering
+    overloaded_in_chain: dict[tuple, list[str]] = {}
+    for op_key, h_keys in overload_chains.items():
+        overloaded_in_chain[op_key] = [hk[1] for hk in h_keys]  # hk[1] is the square
+
     # Compute ray dedup once (shared by pin/skewer/xray/discovered filters)
     ray_dedup: dict[str, list] | None = None
 
@@ -787,6 +820,17 @@ def render_motifs(
                     if match is not None:
                         desc, is_opp = _render_chain_merged(item, match, ctx)
                         rendered_keys.add(h_key)  # mark hanging as rendered
+
+            # Chain merge: replace overloaded description with merged overload+hanging
+            if spec.diff_key == "overloaded":
+                o_key = spec.key_fn(item)
+                if o_key in overloaded_in_chain:
+                    hanging_sqs = overloaded_in_chain[o_key]
+                    desc, is_opp = _render_overload_chain_merged(
+                        item, hanging_sqs, ctx,
+                    )
+                    for h_key in overload_chains[o_key]:
+                        rendered_keys.add(h_key)
 
             # Skip motifs that render to empty text (e.g., validated but invalid)
             if not desc or not desc.strip():
