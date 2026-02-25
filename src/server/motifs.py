@@ -374,14 +374,14 @@ class MotifSpec:
 MOTIF_REGISTRY: dict[str, MotifSpec] = {
     "pin": MotifSpec(
         diff_key="pin", field="pins",
-        key_fn=lambda t: ("pin", t.pinner_square, t.pinned_square),
+        key_fn=lambda t: ("pin", t.pinner_square, t.pinned_square, t.pinned_to, t.is_absolute),
         render_fn=render_pin,
         ray_dedup_key="pins",
         priority=25,
     ),
     "fork": MotifSpec(
         diff_key="fork", field="forks",
-        key_fn=lambda t: ("fork", t.forking_square, tuple(sorted(t.targets))),
+        key_fn=lambda t: ("fork", t.forking_square, tuple(sorted(zip(t.targets, t.target_pieces) if t.target_pieces else ((sq,) for sq in t.targets)))),
         render_fn=render_fork,
         priority=20,
         squares_fn=lambda f: frozenset(f.targets),
@@ -395,14 +395,14 @@ MOTIF_REGISTRY: dict[str, MotifSpec] = {
     ),
     "hanging": MotifSpec(
         diff_key="hanging", field="hanging",
-        key_fn=lambda t: ("hanging", t.square, t.piece),
+        key_fn=lambda t: ("hanging", t.square, t.piece, t.color),
         render_fn=render_hanging,
         priority=30,
         squares_fn=lambda h: frozenset({h.square}),
     ),
     "discovered": MotifSpec(
         diff_key="discovered", field="discovered_attacks",
-        key_fn=lambda t: ("discovered", t.slider_square, t.target_square),
+        key_fn=lambda t: ("discovered", t.slider_square, t.target_square, t.blocker_square),
         render_fn=render_discovered_attack,
         ray_dedup_key="discovered_attacks",
         cap=3,
@@ -458,13 +458,13 @@ MOTIF_REGISTRY: dict[str, MotifSpec] = {
     ),
     "overloaded": MotifSpec(
         diff_key="overloaded", field="overloaded_pieces",
-        key_fn=lambda t: ("overloaded", t.square, t.piece),
+        key_fn=lambda t: ("overloaded", t.square, t.piece, tuple(sorted(t.defended_squares))),
         render_fn=render_overloaded_piece,
         priority=35,
     ),
     "capturable_defender": MotifSpec(
         diff_key="capturable_defender", field="capturable_defenders",
-        key_fn=lambda t: ("capturable_defender", t.defender_square),
+        key_fn=lambda t: ("capturable_defender", t.defender_square, t.charge_square),
         render_fn=render_capturable_defender,
         priority=35,
     ),

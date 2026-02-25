@@ -4,11 +4,13 @@ import chess
 
 from server.analysis import (
     BackRankWeakness,
+    CapturableDefender,
     DiscoveredAttack,
     ExposedKing,
     Fork,
     HangingPiece,
     MatePattern,
+    OverloadedPiece,
     Pin,
     Skewer,
     TacticalMotifs,
@@ -256,13 +258,13 @@ class TestAllTacticKeys:
         pin = Pin("c6", "N", "b5", "B", "e8", "k", True)
         keys = all_tactic_keys(TacticalMotifs(pins=[pin]))
         assert len(keys) == 1
-        assert ("pin", "b5", "c6") in keys
+        assert ("pin", "b5", "c6", "e8", True) in keys
 
     def test_single_fork(self):
         fork = Fork("e5", "N", ["c6", "g6"])
         keys = all_tactic_keys(TacticalMotifs(forks=[fork]))
         assert len(keys) == 1
-        assert ("fork", "e5", ("c6", "g6")) in keys
+        assert ("fork", "e5", (("c6",), ("g6",))) in keys
 
     def test_multiple_types(self):
         pin = Pin("c6", "N", "b5", "B", "e8", "k", True)
@@ -274,6 +276,57 @@ class TestAllTacticKeys:
         mp = MatePattern("smothered")
         keys = all_tactic_keys(TacticalMotifs(mate_patterns=[mp]))
         assert ("mate_pattern", "smothered") in keys
+
+    def test_pin_key_includes_pinned_to_and_absolute(self):
+        """Pin key must include pinned_to and is_absolute to distinguish mutations."""
+        pin_abs = Pin("c6", "n", "b5", "B", "e8", "k", True)
+        pin_rel = Pin("c6", "n", "b5", "B", "d7", "q", False)
+        keys_abs = all_tactic_keys(TacticalMotifs(pins=[pin_abs]))
+        keys_rel = all_tactic_keys(TacticalMotifs(pins=[pin_rel]))
+        assert keys_abs != keys_rel
+        key_abs = next(iter(keys_abs))
+        assert "e8" in key_abs
+        assert True in key_abs
+
+    def test_hanging_key_includes_color(self):
+        """Hanging key must include color to distinguish sides."""
+        hp_w = HangingPiece("d5", "N", ["e3"], color="White")
+        hp_b = HangingPiece("d5", "n", ["e3"], color="Black")
+        keys_w = all_tactic_keys(TacticalMotifs(hanging=[hp_w]))
+        keys_b = all_tactic_keys(TacticalMotifs(hanging=[hp_b]))
+        assert keys_w != keys_b
+
+    def test_fork_key_includes_target_pieces(self):
+        """Fork key must include target pieces to distinguish piece types on same squares."""
+        fork_rq = Fork("e5", "N", ["c6", "g6"], ["r", "q"])
+        fork_bn = Fork("e5", "N", ["c6", "g6"], ["b", "n"])
+        keys_rq = all_tactic_keys(TacticalMotifs(forks=[fork_rq]))
+        keys_bn = all_tactic_keys(TacticalMotifs(forks=[fork_bn]))
+        assert keys_rq != keys_bn
+
+    def test_capturable_defender_key_includes_charge(self):
+        """Capturable defender key must include charge_square."""
+        cd1 = CapturableDefender("d5", "N", "e4", "B", "c3", color="Black")
+        cd2 = CapturableDefender("d5", "N", "f6", "R", "c3", color="Black")
+        keys1 = all_tactic_keys(TacticalMotifs(capturable_defenders=[cd1]))
+        keys2 = all_tactic_keys(TacticalMotifs(capturable_defenders=[cd2]))
+        assert keys1 != keys2
+
+    def test_overloaded_key_includes_defended_squares(self):
+        """Overloaded key must include defended_squares."""
+        op1 = OverloadedPiece("d5", "N", ["c3", "e3"], color="Black")
+        op2 = OverloadedPiece("d5", "N", ["c3", "f4"], color="Black")
+        keys1 = all_tactic_keys(TacticalMotifs(overloaded_pieces=[op1]))
+        keys2 = all_tactic_keys(TacticalMotifs(overloaded_pieces=[op2]))
+        assert keys1 != keys2
+
+    def test_discovered_key_includes_blocker(self):
+        """Discovered attack key must include blocker_square."""
+        da1 = DiscoveredAttack("f3", "N", "d1", "Q", "g4", "b")
+        da2 = DiscoveredAttack("e4", "B", "d1", "Q", "g4", "b")
+        keys1 = all_tactic_keys(TacticalMotifs(discovered_attacks=[da1]))
+        keys2 = all_tactic_keys(TacticalMotifs(discovered_attacks=[da2]))
+        assert keys1 != keys2
 
 
 # --- motif_labels tests ---
