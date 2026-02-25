@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chess Teacher Theme Preview</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f5f5f5;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      margin-bottom: 30px;
+      color: #333;
+    }
+
+    .theme-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+      gap: 30px;
+      margin-bottom: 40px;
+    }
+
+    .theme-preview {
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+
+    .theme-preview-header {
+      padding: 16px;
+      background: #f0f0f0;
+      border-bottom: 1px solid #ddd;
+      font-weight: bold;
+      font-size: 14px;
+      color: #333;
+    }
+
+    .theme-preview-content {
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      min-height: 400px;
+    }
+
+    /* Chessboard */
+    .chessboard {
+      display: grid;
+      grid-template-columns: repeat(8, 1fr);
+      gap: 0;
+      margin-bottom: 16px;
+      border: 2px solid var(--border);
+      width: 240px;
+      height: 240px;
+    }
+
+    .square {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: bold;
+      color: var(--text-dim);
+    }
+
+    .square.light {
+      background: var(--board-light);
+    }
+
+    .square.dark {
+      background: var(--board-dark);
+    }
+
+    /* UI Elements */
+    .ui-section {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .ui-label {
+      font-size: 12px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .ui-content {
+      padding: 12px;
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .ui-content-light {
+      background: var(--bg-body);
+      color: var(--text);
+    }
+
+    .button-row {
+      display: flex;
+      gap: 8px;
+    }
+
+    button {
+      padding: 8px 12px;
+      background: var(--bg-button);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    button:hover {
+      background: var(--bg-button-hover);
+    }
+
+    .accent-example {
+      padding: 8px 12px;
+      background: var(--bg-panel);
+      border: 2px solid var(--accent);
+      border-radius: 4px;
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: bold;
+    }
+
+    .text-sample {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 12px;
+      background: var(--bg-body);
+      border-radius: 4px;
+    }
+
+    .text-primary {
+      color: var(--text);
+      font-size: 13px;
+    }
+
+    .text-muted-sample {
+      color: var(--text-muted);
+      font-size: 12px;
+    }
+
+    .text-dim-sample {
+      color: var(--text-dim);
+      font-size: 11px;
+    }
+
+    .color-swatch-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+    }
+
+    .color-swatch {
+      padding: 12px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-family: monospace;
+      color: var(--text);
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .color-label {
+      font-size: 10px;
+      opacity: 0.7;
+      margin-top: 2px;
+    }
+
+    /* Theme definitions */
+    html.dark {
+      --bg-body: #1e1e1e;
+      --bg-header: #181818;
+      --bg-panel: #252526;
+      --bg-input: #1e1e1e;
+      --bg-button: #333333;
+      --bg-button-hover: #3e3e3e;
+      --bg-row-odd: #1e1e1e;
+      --bg-row-even: #262628;
+      --border-subtle: #2d2d2d;
+      --border: #3c3c3c;
+      --border-strong: #505050;
+      --text: #cccccc;
+      --text-muted: #858585;
+      --text-dim: #5a5a5a;
+      --accent: #4ade80;
+      --board-light: #dee3e6;
+      --board-dark: #8ca2ad;
+    }
+
+    html.light {
+      --bg-body: #f5f0e8;
+      --bg-header: #e8e0d0;
+      --bg-panel: #ede6da;
+      --bg-input: #f5f0e8;
+      --bg-button: #ddd5c5;
+      --bg-button-hover: #d0c7b5;
+      --bg-row-odd: #f5f0e8;
+      --bg-row-even: #ede6da;
+      --border-subtle: #e0d8c8;
+      --border: #ccc3b0;
+      --border-strong: #b8ad98;
+      --text: #2c2418;
+      --text-muted: #8a7e6e;
+      --text-dim: #b0a490;
+      --accent: #7a6340;
+      --board-light: #f0d9b5;
+      --board-dark: #946f51;
+    }
+
+    html.wood {
+      --bg-body: #221c14;
+      --bg-header: #1a1410;
+      --bg-panel: #2c241a;
+      --bg-input: #221c14;
+      --bg-button: #3d3226;
+      --bg-button-hover: #4a3d2e;
+      --bg-row-odd: #221c14;
+      --bg-row-even: #2c241a;
+      --border-subtle: #332a1e;
+      --border: #443828;
+      --border-strong: #5a4a36;
+      --text: #dcc8a8;
+      --text-muted: #9a845f;
+      --text-dim: #6b5a42;
+      --accent: #d4a054;
+      --board-light: #e8ceab;
+      --board-dark: #bc7944;
+    }
+
+    html.cyberpunk {
+      --bg-body: #0a0a15;
+      --bg-header: #050510;
+      --bg-panel: #0f0f1f;
+      --bg-input: #0a0a15;
+      --bg-button: #1a1a2a;
+      --bg-button-hover: #2a2a3a;
+      --bg-row-odd: #0a0a15;
+      --bg-row-even: #0f0f1f;
+      --border-subtle: #1a1a2a;
+      --border: #2a2a3a;
+      --border-strong: #3a3a4a;
+      --text: #e0e0ff;
+      --text-muted: #8080aa;
+      --text-dim: #4a4a6a;
+      --accent: #00ffff;
+      --board-light: #00aa88;
+      --board-dark: #1a1a4a;
+    }
+
+    html.warmglow {
+      --bg-body: #2a1810;
+      --bg-header: #1f1208;
+      --bg-panel: #3a2818;
+      --bg-input: #2a1810;
+      --bg-button: #4a3820;
+      --bg-button-hover: #5a4828;
+      --bg-row-odd: #2a1810;
+      --bg-row-even: #3a2818;
+      --border-subtle: #3a2818;
+      --border: #4a3820;
+      --border-strong: #5a4828;
+      --text: #ffccaa;
+      --text-muted: #cc8844;
+      --text-dim: #884422;
+      --accent: #ffaa00;
+      --board-light: #f5ddb0;
+      --board-dark: #9a6f3a;
+    }
+
+    html.ocean {
+      --bg-body: #0d1b2a;
+      --bg-header: #081219;
+      --bg-panel: #15253d;
+      --bg-input: #0d1b2a;
+      --bg-button: #203349;
+      --bg-button-hover: #2a4159;
+      --bg-row-odd: #0d1b2a;
+      --bg-row-even: #15253d;
+      --border-subtle: #1a2e42;
+      --border: #253d52;
+      --border-strong: #304c62;
+      --text: #b3d9ff;
+      --text-muted: #7a9ab8;
+      --text-dim: #556a80;
+      --accent: #4ac9ff;
+      --board-light: #8fb3d9;
+      --board-dark: #2a5a8a;
+    }
+
+    html.christmas {
+      --bg-body: #1a0a0a;
+      --bg-header: #0f0505;
+      --bg-panel: #2d0d0d;
+      --bg-input: #1a0a0a;
+      --bg-button: #3d1d1d;
+      --bg-button-hover: #5a2d2d;
+      --bg-row-odd: #1a0a0a;
+      --bg-row-even: #2d0d0d;
+      --border-subtle: #2d1d1d;
+      --border: #4a2d2d;
+      --border-strong: #6a4d4d;
+      --text: #ffdd00;
+      --text-muted: #ffaa00;
+      --text-dim: #cc6600;
+      --accent: #00ff00;
+      --board-light: #ff3333;
+      --board-dark: #00aa00;
+    }
+
+    .theme-selector {
+      margin-bottom: 30px;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .theme-selector button {
+      padding: 10px 16px;
+      background: #333;
+      color: white;
+      border: 2px solid transparent;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .theme-selector button.active {
+      border-color: #0071e3;
+      background: #0071e3;
+    }
+
+    .theme-selector button:hover:not(.active) {
+      background: #555;
+    }
+
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Chess Teacher Theme Preview</h1>
+
+    <div class="theme-selector">
+      <button class="active" onclick="setTheme('dark')">Dark (Built-in)</button>
+      <button onclick="setTheme('light')">Light (Built-in)</button>
+      <button onclick="setTheme('wood')">Wood (Built-in)</button>
+      <button onclick="setTheme('cyberpunk')">Neon (Custom)</button>
+      <button onclick="setTheme('ocean')">Ocean Waves (Custom)</button>
+      <button onclick="setTheme('christmas')">🎄 Gaudy Christmas 🎄</button>
+    </div>
+
+    <div class="theme-grid">
+      <!-- Theme 1 -->
+      <div class="theme-preview">
+        <div class="theme-preview-header" id="theme-name">Dark</div>
+        <div class="theme-preview-content" id="theme-content">
+          <!-- Chessboard -->
+          <div>
+            <div class="ui-label">Chessboard (25% + 25% of screen)</div>
+            <div class="chessboard" id="chessboard">
+              <div class="square light"></div>
+              <div class="square dark"></div>
+              <div class="square light"></div>
+              <div class="square dark"></div>
+              <div class="square light"></div>
+              <div class="square dark"></div>
+              <div class="square light"></div>
+              <div class="square dark"></div>
+
+              <div class="square dark"></div>
+              <div class="square light"></div>
+              <div class="square dark"></div>
+              <div class="square light"></div>
+              <div class="square dark"></div>
+              <div class="square light"></div>
+              <div class="square dark"></div>
+              <div class="square light"></div>
+
+              <div class="square light"></div>
+              <div class="square dark"></div>
+              <div class="square light"></div>
+              <div class="square dark"></div>
+              <div class="square light"></div>
+              <div class="square dark"></div>
+              <div class="square light"></div>
+              <div class="square dark"></div>
+
+              <div class="square dark"></div>
+              <div class="square light"></div>
+              <div class="square dark"></div>
+              <div class="square light"></div>
+              <div class="square dark"></div>
+              <div class="square light"></div>
+              <div class="square dark"></div>
+              <div class="square light"></div>
+
+              <div class="square light"></div>
+              <div class="square dark"></div>
+              <div class="square light"></div>
+              <div class="square dark"></div>
+              <div class="square light"></div>
+              <div class="square dark"></div>
+              <div class="square light"></div>
+              <div class="square dark"></div>
+
+              <div class="square dark"></div>
+              <div class="square light"></div>
+              <div class="square dark"></div>
+              <div class="square light"></div>
+              <div class="square dark"></div>
+              <div class="square light"></div>
+              <div class="square dark"></div>
+              <div class="square light"></div>
+
+              <div class="square light"></div>
+              <div class="square dark"></div>
+              <div class="square light"></div>
+              <div class="square dark"></div>
+              <div class="square light"></div>
+              <div class="square dark"></div>
+              <div class="square light"></div>
+              <div class="square dark"></div>
+
+              <div class="square dark"></div>
+              <div class="square light"></div>
+              <div class="square dark"></div>
+              <div class="square light"></div>
+              <div class="square dark"></div>
+              <div class="square light"></div>
+              <div class="square dark"></div>
+              <div class="square light"></div>
+            </div>
+          </div>
+
+          <!-- Text samples -->
+          <div class="ui-section">
+            <div class="ui-label">Text & Readability (15-25% of screen)</div>
+            <div class="text-sample">
+              <div class="text-primary">Primary text: Main coaching message</div>
+              <div class="text-muted-sample">Muted text: Secondary labels and hints</div>
+              <div class="text-dim-sample">Dim text: Barely noticeable annotations</div>
+            </div>
+          </div>
+
+          <!-- Coaching panel -->
+          <div class="ui-section">
+            <div class="ui-label">Panel (bg-panel, 20-25% of screen)</div>
+            <div class="ui-content">
+              This is coaching feedback displayed in a panel. Should have good contrast and feel distinct from the main background.
+            </div>
+          </div>
+
+          <!-- Buttons -->
+          <div class="ui-section">
+            <div class="ui-label">Buttons & Interaction</div>
+            <div class="button-row">
+              <button>New Game</button>
+              <button>Settings</button>
+            </div>
+          </div>
+
+          <!-- Accent highlight -->
+          <div class="ui-section">
+            <div class="ui-label">Accent Color (2-3% of screen)</div>
+            <div class="accent-example">✓ Active / Brilliant Move</div>
+          </div>
+
+          <!-- Color swatches -->
+          <div class="ui-section">
+            <div class="ui-label">Color Palette</div>
+            <div class="color-swatch-grid">
+              <div>
+                <div class="color-swatch" style="background: var(--bg-body);">bg-body</div>
+                <div class="color-label" style="color: var(--text-dim);">#1e1e1e</div>
+              </div>
+              <div>
+                <div class="color-swatch" style="background: var(--bg-panel);">bg-panel</div>
+                <div class="color-label" style="color: var(--text-dim);">#252526</div>
+              </div>
+              <div>
+                <div class="color-swatch" style="background: var(--bg-button);">bg-button</div>
+                <div class="color-label" style="color: var(--text-dim);">#333333</div>
+              </div>
+              <div>
+                <div class="color-swatch" style="background: var(--accent); color: var(--bg-body);">accent</div>
+                <div class="color-label" style="color: var(--text-dim);">#4ade80</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Blank space for second theme (filled on demand) -->
+      <div id="theme-preview-2"></div>
+    </div>
+  </div>
+
+  <script>
+    const themeSwatches = {
+      dark: { name: 'Dark', colors: { body: '#1e1e1e', panel: '#252526', button: '#333333', accent: '#4ade80' } },
+      light: { name: 'Light', colors: { body: '#f5f0e8', panel: '#ede6da', button: '#ddd5c5', accent: '#7a6340' } },
+      wood: { name: 'Wood', colors: { body: '#221c14', panel: '#2c241a', button: '#3d3226', accent: '#d4a054' } },
+      cyberpunk: { name: 'Neon', colors: { body: '#0a0a15', panel: '#0f0f1f', button: '#1a1a2a', accent: '#00ffff' } },
+      ocean: { name: 'Ocean Waves', colors: { body: '#0d1b2a', panel: '#15253d', button: '#203349', accent: '#4ac9ff' } },
+      christmas: { name: '🎄 Gaudy Christmas', colors: { body: '#1a0a0a', panel: '#2d0d0d', button: '#3d1d1d', accent: '#00ff00' } }
+    };
+
+    function setTheme(theme) {
+      // Update active button
+      document.querySelectorAll('.theme-selector button').forEach(btn => btn.classList.remove('active'));
+      event.target.classList.add('active');
+
+      // Apply theme
+      document.documentElement.className = theme;
+
+      // Update theme name
+      document.getElementById('theme-name').textContent = themeSwatches[theme].name;
+
+      // Update color swatches
+      const swatches = document.querySelectorAll('.color-swatch-grid');
+      swatches.forEach(grid => {
+        const labels = ['bg-body', 'bg-panel', 'bg-button', 'accent'];
+        const colors = themeSwatches[theme].colors;
+        const divs = grid.querySelectorAll('.color-swatch');
+        divs[0].style.background = `var(--bg-body)`;
+        divs[1].style.background = `var(--bg-panel)`;
+        divs[2].style.background = `var(--bg-button)`;
+        divs[3].style.background = `var(--accent)`;
+      });
+    }
+
+    // Initialize with dark theme
+    setTheme('dark');
+  </script>
+</body>
+</html>
