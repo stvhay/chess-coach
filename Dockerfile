@@ -1,3 +1,11 @@
+FROM node:22-slim AS frontend
+WORKDIR /build
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY src/frontend/ src/frontend/
+COPY tsconfig.json ./
+RUN mkdir -p static && npm run build
+
 FROM python:3.14-slim
 RUN apt-get update && apt-get install -y --no-install-recommends stockfish && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir uv
@@ -9,6 +17,8 @@ COPY patches/chromadb_config.py.patch /tmp/chromadb_config.py.patch
 RUN python /tmp/chromadb_config.py.patch
 COPY src/ src/
 COPY static/ static/
+COPY --from=frontend /build/static/app.js static/app.js
+COPY --from=frontend /build/static/chessground.css static/chessground.css
 COPY data/knowledge_base.json /app/data/knowledge_base.json
 COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh && mkdir -p data
