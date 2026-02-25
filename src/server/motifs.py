@@ -522,8 +522,8 @@ def render_motifs(
     max_items: int | None = None,
     *,
     new_keys: set[tuple] | None = None,
-) -> tuple[list[RenderedMotif], list[RenderedMotif], list[RenderedMotif]]:
-    """Render all new motifs, returning (opportunities, threats, observations).
+) -> tuple[list[RenderedMotif], list[RenderedMotif], list[RenderedMotif], set[tuple]]:
+    """Render all new motifs, returning (opportunities, threats, observations, rendered_keys).
 
     Items from specs with is_observation=True go to observations regardless
     of the opportunity/threat classification.
@@ -537,10 +537,16 @@ def render_motifs(
     When *new_keys* is provided, only motifs whose key (via spec.key_fn)
     is in *new_keys* are rendered.  This gives per-item precision instead
     of the coarser type-level gate via *new_types*.
+
+    The fourth return value, *rendered_keys*, contains the key_fn tuple
+    for every motif that was actually rendered (non-empty text, not
+    filtered out). This allows callers to track exactly which motifs
+    were shown, rather than inferring from the full tactic set.
     """
     opps: list[RenderedMotif] = []
     thrs: list[RenderedMotif] = []
     obs: list[RenderedMotif] = []
+    rendered_keys: set[tuple] = set()
 
     # Collect fork target squares for fork-implies-hanging dedup
     fork_squares: set[str] = set()
@@ -590,6 +596,7 @@ def render_motifs(
                 opps.append(rm)
             else:
                 thrs.append(rm)
+            rendered_keys.add(spec.key_fn(item))
 
     # Sort by priority (ascending = most important first)
     opps.sort(key=lambda r: r.priority)
@@ -602,4 +609,4 @@ def render_motifs(
         thrs = thrs[:max_items]
         obs = obs[:max_items]
 
-    return opps, thrs, obs
+    return opps, thrs, obs, rendered_keys

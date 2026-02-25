@@ -191,7 +191,7 @@ class TestBug5OverloadedPieceValidation:
         all_types = {spec.diff_key for spec in MOTIF_REGISTRY.values()
                      if getattr(tactics, spec.field, [])}
 
-        opps, thrs, obs = render_motifs(tactics, all_types, ctx)
+        opps, thrs, obs, _ = render_motifs(tactics, all_types, ctx)
 
         # All rendered motifs should have non-empty text
         for rm in opps + thrs + obs:

@@ -242,7 +242,7 @@ def describe_position_from_report(
         player_color=player_color,
         mode=RenderMode.POSITION,
     )
-    opps_rm, thrs_rm, obs_rm = render_motifs(tactics, all_types, ctx)
+    opps_rm, thrs_rm, obs_rm, _ = render_motifs(tactics, all_types, ctx)
 
     # Post-filter: skip back rank in early game
     skip_back_rank = _should_skip_back_rank(report)
@@ -355,7 +355,7 @@ def describe_changes(
             player_color=player_color,
             mode=RenderMode.THREAT if is_future else RenderMode.OPPORTUNITY,
         )
-        opps_rm, thrs_rm, obs_rm = render_motifs(
+        opps_rm, thrs_rm, obs_rm, rendered_keys = render_motifs(
             current_tactics, new_types, ctx, new_keys=filtered_new_keys,
         )
 
@@ -405,6 +405,9 @@ def describe_changes(
 
         prev_tactics = current_tactics
         # Update seen motifs for next iteration (prevent same motif across multiple plies)
-        seen_motif_keys.update(all_tactic_keys(current_tactics))
+        # Bug 2 fix: only track motifs that were actually rendered, not all
+        # motifs in the position. This ensures re-emerging motifs (ones that
+        # disappear and reappear) are reported again.
+        seen_motif_keys.update(rendered_keys)
 
     return all_opportunities, all_threats, all_observations

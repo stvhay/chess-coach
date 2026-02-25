@@ -215,7 +215,7 @@ class TestRenderMotifsThreeBuckets:
         """Fork by student's piece should go to opportunities, not observations."""
         tactics = TacticalMotifs(forks=[Fork("e5", "N", ["c6", "g6"], ["r", "q"])])
         ctx = _ctx(True)
-        opps, thrs, obs = render_motifs(tactics, {"fork"}, ctx)
+        opps, thrs, obs, _ = render_motifs(tactics, {"fork"}, ctx)
         assert len(opps) == 1
         assert len(thrs) == 0
         assert len(obs) == 0
@@ -230,7 +230,7 @@ class TestRenderMotifsThreeBuckets:
             back_rank_weaknesses=[BackRankWeakness(weak_color="Black", king_square="g8")]
         )
         ctx = _ctx(True)
-        opps, thrs, obs = render_motifs(tactics, {"back_rank"}, ctx)
+        opps, thrs, obs, _ = render_motifs(tactics, {"back_rank"}, ctx)
         assert len(obs) == 1
         assert len(opps) == 0
         assert len(thrs) == 0
@@ -243,7 +243,7 @@ class TestRenderMotifsThreeBuckets:
             back_rank_weaknesses=[BackRankWeakness(weak_color="Black", king_square="g8")],
         )
         ctx = _ctx(True)
-        opps, thrs, obs = render_motifs(tactics, {"fork", "back_rank"}, ctx)
+        opps, thrs, obs, _ = render_motifs(tactics, {"fork", "back_rank"}, ctx)
         assert len(opps) == 1
         assert len(obs) == 1
 
@@ -425,7 +425,7 @@ class TestRenderMotifsImprovements:
             exposed_kings=[ExposedKing(color="black", king_square="e8")],
         )
         ctx = _ctx(True)
-        opps, thrs, obs = render_motifs(tactics, {"fork", "exposed_king"}, ctx)
+        opps, thrs, obs, _ = render_motifs(tactics, {"fork", "exposed_king"}, ctx)
         # Fork goes to opps (priority 20), exposed_king goes to obs (priority 50)
         assert len(opps) >= 1
         assert opps[0].diff_key == "fork"
@@ -441,7 +441,7 @@ class TestRenderMotifsImprovements:
             ],
         )
         ctx = _ctx(True)
-        opps, thrs, obs = render_motifs(tactics, {"fork"}, ctx, max_items=1)
+        opps, thrs, obs, _ = render_motifs(tactics, {"fork"}, ctx, max_items=1)
         assert len(opps) == 1
 
     def test_fork_suppresses_hanging_same_square(self):
@@ -451,7 +451,7 @@ class TestRenderMotifsImprovements:
             hanging=[HangingPiece(square="c6", piece="r", attacker_squares=["d5"], color="Black")],
         )
         ctx = _ctx(True)
-        opps, thrs, obs = render_motifs(tactics, {"fork", "hanging"}, ctx)
+        opps, thrs, obs, _ = render_motifs(tactics, {"fork", "hanging"}, ctx)
         all_keys = [r.diff_key for r in opps + thrs + obs]
         assert "fork" in all_keys
         assert "hanging" not in all_keys
@@ -463,7 +463,45 @@ class TestRenderMotifsImprovements:
             hanging=[HangingPiece(square="e4", piece="n", attacker_squares=["f2"], color="Black")],
         )
         ctx = _ctx(True)
-        opps, thrs, obs = render_motifs(tactics, {"fork", "hanging"}, ctx)
+        opps, thrs, obs, _ = render_motifs(tactics, {"fork", "hanging"}, ctx)
         all_keys = [r.diff_key for r in opps + thrs + obs]
         assert "fork" in all_keys
         assert "hanging" in all_keys
+
+
+# --- rendered_keys tests ---
+
+class TestRenderedKeys:
+    def test_render_motifs_returns_four_tuple(self):
+        """render_motifs returns (opps, thrs, obs, rendered_keys)."""
+        tactics = TacticalMotifs(forks=[Fork("e5", "N", ["c6", "g6"], ["r", "q"])])
+        ctx = _ctx(True)
+        result = render_motifs(tactics, {"fork"}, ctx)
+        assert len(result) == 4
+        opps, thrs, obs, rendered_keys = result
+        assert isinstance(rendered_keys, set)
+        assert len(rendered_keys) == 1  # one fork rendered
+
+    def test_rendered_keys_excludes_filtered_motifs(self):
+        """Motifs filtered by new_keys should not appear in rendered_keys."""
+        fork_a = Fork("d5", "N", ["c3", "f6"], ["B", "R"])
+        fork_b = Fork("e4", "N", ["c5", "g5"], ["B", "Q"])
+        tactics = TacticalMotifs(forks=[fork_a, fork_b])
+        ctx = _ctx(True)
+        # Only include fork_b's key in new_keys
+        fork_spec = MOTIF_REGISTRY["fork"]
+        key_b = fork_spec.key_fn(fork_b)
+        opps, thrs, obs, rendered_keys = render_motifs(
+            tactics, {"fork"}, ctx, new_keys={key_b}
+        )
+        assert key_b in rendered_keys
+        key_a = fork_spec.key_fn(fork_a)
+        assert key_a not in rendered_keys
+
+    def test_rendered_keys_excludes_empty_renders(self):
+        """Motifs that render to empty text should not appear in rendered_keys."""
+        xa = XRayAttack("a4", "B", "c6", "N", "e8", "K")
+        tactics = TacticalMotifs(xray_attacks=[xa])
+        ctx = _ctx(True)
+        opps, thrs, obs, rendered_keys = render_motifs(tactics, {"xray"}, ctx)
+        assert len(rendered_keys) == 0

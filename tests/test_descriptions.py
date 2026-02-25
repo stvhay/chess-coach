@@ -5,6 +5,7 @@ import chess
 from server.analysis import (
     DiscoveredAttack,
     Fork,
+    HangingPiece,
     Pin,
     TacticalMotifs,
 )
@@ -317,3 +318,65 @@ class TestFalseDiscoveredAttack:
         # The discovered attack should be preserved (blocker a4 != move dest a1)
         assert "discover" in all_text or "x-ray" in all_text or "a4" in all_text, \
             "Genuine discovered attack (blocker already in place) should be preserved"
+
+
+# --- Bug 2: re-emerging motif tests ---
+
+
+def test_remerging_motif_reported():
+    """Bug 2 fix: motif suppressed at ply 0 should not block future rendering.
+
+    With the old code, seen_motif_keys was updated via all_tactic_keys(),
+    which added ALL motifs from each position — including ones that were
+    not rendered (e.g., suppressed by fork-implies-hanging dedup). This
+    blocked those motifs from being reported when they reappeared later.
+
+    Scenario (3-ply chain):
+    - Parent: no tactics
+    - Ply 0: fork on c6 + hanging on c6 (hanging suppressed by fork dedup)
+    - Ply 1: fork and hanging both disappear
+    - Ply 2: hanging on c6 reappears (alone, no fork)
+
+    Old behavior: all_tactic_keys(ply0) adds hanging's key to seen_motif_keys
+    even though it was never rendered (suppressed by fork dedup). At ply 2,
+    hanging is filtered out.
+
+    Fixed behavior: rendered_keys from ply 0 does NOT contain hanging (it was
+    suppressed). At ply 2, hanging is not in seen_motif_keys, so it's reported.
+    """
+    parent_board = chess.Board()
+    parent_node = GameNode(board=parent_board, source="played")
+
+    move0 = chess.Move.from_uci("g1f3")
+    ply0 = parent_node.add_child(move0, "played")
+
+    move1 = chess.Move.from_uci("b8c6")
+    ply1 = ply0.add_child(move1, "engine")
+
+    move2 = chess.Move.from_uci("f3e5")
+    ply2 = ply1.add_child(move2, "engine")
+
+    # Fork on d5 targeting c6 and g6 — hanging on c6 will be suppressed
+    fork = Fork("d5", "N", ["c6", "g6"], ["r", "q"])
+    hanging = HangingPiece(square="c6", piece="r", attacker_squares=["d5"], color="Black")
+
+    # Parent: no tactics
+    parent_node._tactics = TacticalMotifs()
+    # Ply 0: fork + hanging (hanging suppressed by fork-implies-hanging dedup)
+    ply0._tactics = TacticalMotifs(forks=[fork], hanging=[hanging])
+    # Ply 1: everything disappears
+    ply1._tactics = TacticalMotifs()
+    # Ply 2: hanging reappears alone (no fork to suppress it)
+    ply2._tactics = TacticalMotifs(hanging=[hanging])
+
+    tree = GameTree(
+        root=parent_node, decision_point=parent_node, player_color=chess.WHITE,
+    )
+    opps, thrs, obs = describe_changes(tree, ply0, max_plies=3)
+    all_text = " ".join(opps + thrs + obs).lower()
+
+    # The hanging piece at ply 2 should be reported
+    assert "hanging" in all_text or "undefended" in all_text, (
+        f"Re-emerging hanging piece on c6 should be reported at ply 2, "
+        f"but was not found in: {all_text}"
+    )
