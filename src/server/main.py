@@ -366,10 +366,10 @@ async def generate_theme(req: ThemeGenerateRequest):
 
 @app.websocket("/ws/engine")
 async def ws_engine_endpoint(ws: WebSocket):
+    await ws.accept()
     if _ws_engine is None:
         await ws.close(code=1008, reason="Server not in browser engine mode")
         return
-    await ws.accept()
     logger.info("Browser engine connected")
     _ws_engine.attach(ws)
     try:

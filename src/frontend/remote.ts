@@ -30,8 +30,10 @@ export class RemoteUCI {
     const url = `${protocol}//${location.host}/ws/engine`;
 
     this.ws = new WebSocket(url);
+    let wasOpen = false;
 
     this.ws.onopen = () => {
+      wasOpen = true;
       console.log("[RemoteUCI] Connected");
       if (this.reconnectTimer !== null) {
         clearTimeout(this.reconnectTimer);
@@ -44,7 +46,7 @@ export class RemoteUCI {
     };
 
     this.ws.onclose = (event) => {
-      if (event.code === 1008) {
+      if (event.code === 1008 || !wasOpen) {
         // Server not in browser engine mode — stop reconnecting
         console.log("[RemoteUCI] Server not in browser mode, stopping");
         return;
@@ -53,8 +55,8 @@ export class RemoteUCI {
       this.reconnectTimer = window.setTimeout(() => this.connect(), 3000);
     };
 
-    this.ws.onerror = (err) => {
-      console.error("[RemoteUCI] WebSocket error", err);
+    this.ws.onerror = () => {
+      // Logged by onclose handler; suppress noisy console error
     };
   }
 
