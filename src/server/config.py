@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     # Stockfish
     stockfish_path: str = "stockfish"
     stockfish_hash_mb: int = 64
+    stockfish_mode: str = "local"  # "local" (subprocess) or "browser" (WebSocket)
 
     # Data paths
     chromadb_dir: str = "data/chromadb"

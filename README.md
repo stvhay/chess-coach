@@ -101,12 +101,39 @@ The first startup seeds the ChromaDB knowledge base automatically (takes ~30 sec
 ## Key Features
 
 - **Live coaching during games** — play against a pedagogically-motivated opponent with real-time explanations
+- **14 coaching personas** — choose your teaching style: from Anna Cramling's encouraging warmth to Ben Finegold's deadpan humor, Magnus Carlsen's understated precision to Mikhail Tal's poetic daring
 - **Grounded analysis** — every coaching claim backed by Stockfish evaluation and coded tactical detection
 - **Adjustable difficulty** — ELO-based profiles control opponent strength and coaching depth
 - **Puzzle database** — 5.7M Lichess puzzles with full-text search
 - **RAG-powered context** — retrieves relevant patterns, openings, and concepts from the knowledge base
 - **Graceful degradation** — game continues even if LLM/server goes down (browser-side Stockfish fallback)
 - **CLI and MCP server** — analyze positions from the command line or integrate with other tools
+
+## Coaching Personas
+
+The LLM's personality and teaching style adapt to match 14 distinct coaching personas. Each persona shapes **how** the coach explains positions, delivers feedback, and encourages the student — without changing the underlying analysis.
+
+**Popular personas:**
+- **Anna Cramling** — Warm, enthusiastic, encouraging. Celebrates creative play and makes chess feel accessible. Prioritizes building confidence.
+- **Daniel Naroditsky** — Methodical and patient. Emphasizes process over results. Breaks explanations into clear, structured steps. "Let's think about candidate moves."
+- **GothamChess (Levy Rozman)** — High energy, dramatic reactions. Uses humor and pop-culture references. Makes even boring positions sound like thrillers.
+- **GM Ben Finegold** — Dry, deadpan humor. Sardonic observations. "Never play f3." Teaches through gentle ridicule wrapped around deep insights.
+- **Hikaru Nakamura** — Quick pattern reads, casual but sharp. Speed-chess energy. "Yeah, this is just winning."
+- **Magnus Carlsen** — Understated, quietly confident. Moves are "obvious" or "natural." Dry Scandinavian humor. Focuses on positional subtlety and small edges.
+
+**Legendary masters:**
+- **Garry Kasparov** — Intense, passionate, demanding. Chess is war. Uses dramatic, forceful language. Demands excellence.
+- **Mikhail Tal** — Poetic and daring. Celebrates sacrifices and complications. "The beauty of the move justifies the risk."
+- **Jose Raul Capablanca** — Effortless clarity. Emphasizes simplicity and endgame mastery. Elegant and economical in language.
+- **Judit Polgar** — Direct, no-nonsense, tactical fighter. Emphasizes fighting spirit and tactical precision. "Always check all forcing moves."
+- **Mikhail Botvinnik** — Stern, systematic, scientific. Formal tone. Chess is a discipline that rewards method and preparation.
+- **Paul Morphy** — Elegant, somewhat formal 19th-century style. Development and open lines above all.
+- **Vishy Anand** — Warm, gentlemanly, eloquent. Patient with beginners, insightful with advanced players. Emphasizes intuition alongside calculation.
+
+**Prodigy:**
+- **Faustino Oro** — The 12-year-old Argentine prodigy ("The Messi of Chess"). Explains chess like a brilliant kid: matter-of-fact, slightly impatient with obvious mistakes, casually referencing ideas that took most players decades to learn. "I beat Magnus in bullet that one time."
+
+Select your persona in the web UI. The persona system is composable — the behavioral prompt block injects into the coaching system prompt without changing the analysis pipeline. See `src/server/prompts/personas.py` for full persona definitions.
 
 ## Documentation
 

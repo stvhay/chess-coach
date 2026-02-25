@@ -2,6 +2,7 @@ import { createBoard } from "./board";
 import { BrowserEngine, MultiPVInfo } from "./eval";
 import { GameController, PromotionPiece } from "./game";
 import { CoachingData } from "./api";
+import { RemoteUCI } from "./remote";
 
 /** Generate a chessground-compatible board SVG with the given square colors. */
 function makeBoardSvg(lightHex: string, darkHex: string): string {
@@ -928,6 +929,14 @@ function init() {
       engineStatus.textContent = "Engine: unavailable";
       engineStatus.classList.add("error");
     });
+
+  // Remote engine worker for server-dispatched analysis
+  const remoteEngine = new BrowserEngine();
+  remoteEngine.init("/static/vendor/stockfish/stockfish.js").then(() => {
+    const remote = new RemoteUCI(remoteEngine);
+    remote.connect();
+    console.log("[RemoteUCI] Remote engine worker initialized");
+  });
 }
 
 document.addEventListener("DOMContentLoaded", init);
