@@ -313,6 +313,32 @@ class TestSerializeReport:
         lines = report.split("\n")
         assert any(line.strip() == "This move creates:" for line in lines)
 
+    def test_position_before_uses_past_tense(self):
+        """Position Before section should use past tense for descriptions."""
+        # Position: White Ke1, Qd1, Nf3; Black Ke8, Qd8, pawn e4
+        # The pawn on e4 is undefended (hanging) — should become "was undefended"
+        fen = "3qk3/8/8/8/4p3/5N2/8/3QK3 b - - 0 1"
+        board = chess.Board(fen)
+        root = GameNode(board=board, source="played")
+        # Student is Black, decision point is root
+        # Black plays Qd6
+        child = root.add_child(chess.Move.from_uci("d8d6"), "played")
+        child.add_child(chess.Move.from_uci("f3e5"), "engine", score_cp=50)
+        tree = GameTree(root=root, decision_point=root, player_color=chess.BLACK)
+        report = serialize_report(tree, "good", 0)
+        # Find the Position Before section
+        lines = report.split("\n")
+        pos_start = next(i for i, l in enumerate(lines) if l.startswith("# Position Before"))
+        move_start = next(i for i, l in enumerate(lines) if l.startswith("# Move Played"))
+        position_section = "\n".join(lines[pos_start:move_start])
+        # Should NOT contain present tense "is " patterns in description bullets
+        bullet_lines = [l for l in lines[pos_start:move_start] if l.strip().startswith("- ")]
+        for bullet in bullet_lines:
+            assert " is undefended" not in bullet, f"Present tense found in Position Before: {bullet}"
+            assert " is hanging" not in bullet, f"Present tense found in Position Before: {bullet}"
+            assert " forks " not in bullet, f"Present tense found in Position Before: {bullet}"
+            assert " pins " not in bullet, f"Present tense found in Position Before: {bullet}"
+
 
 class TestSerializeReportMoveNumbers:
     def test_move_2_has_correct_number(self):

@@ -317,7 +317,7 @@ def serialize_report(
     lines.append("")
 
     # --- Position Before Move ---
-    pos_desc = describe_position(tree, decision)
+    pos_desc = describe_position(tree, decision, tense="past")
     lines.append("# Position Before the Move")
     if pgn:
         lines.append(pgn)
