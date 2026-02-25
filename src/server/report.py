@@ -311,14 +311,14 @@ def serialize_report(
     move_number = decision.board.fullmove_number
 
     # --- Student color ---
-    lines.append(f"Student is playing: {player_color}")
+    lines.append(f"The student played as: {player_color}")
 
     pgn = _game_pgn(tree)
     lines.append("")
 
     # --- Position Before Move ---
     pos_desc = describe_position(tree, decision)
-    lines.append(f"# Position Before {player_color}'s Move")
+    lines.append("# Position Before the Move")
     if pgn:
         lines.append(pgn)
     _append_categorized(lines, "Threats", pos_desc.threats)
@@ -331,7 +331,7 @@ def serialize_report(
     if player_node is not None:
         player_san = player_node.san
         numbered_move = _format_numbered_move(player_san, move_number, student_is_white)
-        lines.append("# Student Move")
+        lines.append("# Move Played")
         lines.append("")
         lines.append(numbered_move)
 
@@ -340,9 +340,11 @@ def serialize_report(
 
         # Changes (three-bucket)
         opps, thrs, obs = describe_changes(tree, player_node, max_plies=2)
-        _append_categorized(lines, "\nNew Threats", thrs)
-        _append_categorized(lines, "\nNew Opportunities", opps)
-        _append_categorized(lines, "\nNew Observations", obs)
+        if thrs or opps or obs:
+            lines.append("\nAfter this move:")
+        _append_categorized(lines, "New Threats", thrs)
+        _append_categorized(lines, "New Opportunities", opps)
+        _append_categorized(lines, "New Observations", obs)
 
         _append_continuation_analysis(
             lines, player_node, move_number, student_is_white, is_player_move=True,
@@ -373,9 +375,11 @@ def serialize_report(
 
         # Changes (three-bucket)
         opps, thrs, obs = describe_changes(tree, alt, max_plies=3)
-        _append_categorized(lines, "\nNew Threats", thrs)
-        _append_categorized(lines, "\nNew Opportunities", opps)
-        _append_categorized(lines, "\nNew Observations", obs)
+        if thrs or opps or obs:
+            lines.append("\nThis move creates:")
+        _append_categorized(lines, "New Threats", thrs)
+        _append_categorized(lines, "New Opportunities", opps)
+        _append_categorized(lines, "New Observations", obs)
 
         _append_continuation_analysis(
             lines, alt, move_number, student_is_white, is_player_move=False,

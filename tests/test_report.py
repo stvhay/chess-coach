@@ -47,6 +47,16 @@ def _tree_with_history() -> GameTree:
     return GameTree(root=root, decision_point=e5, player_color=chess.WHITE)
 
 
+def _tree_with_changes() -> GameTree:
+    """Tree after 1.e4 e5 — both Nf3 (attacks e5) and Bc4 (pins f7) produce changes."""
+    root = GameNode(board=chess.Board(), source="played")
+    e4 = root.add_child(chess.Move.from_uci("e2e4"), "played")
+    e5 = e4.add_child(chess.Move.from_uci("e7e5"), "played")
+    e5.add_child(chess.Move.from_uci("g1f3"), "played", score_cp=30)
+    e5.add_child(chess.Move.from_uci("f1c4"), "engine", score_cp=25)
+    return GameTree(root=root, decision_point=e5, player_color=chess.WHITE)
+
+
 # --- Helper tests ---
 
 class TestHelpers:
@@ -292,13 +302,13 @@ class TestSerializeReport:
         assert "Observations:" in report
 
     def test_move_played_has_after_frame(self):
-        tree = _simple_tree()
+        tree = _tree_with_changes()
         report = serialize_report(tree, "mistake", 60)
         lines = report.split("\n")
         assert any(line.strip() == "After this move:" for line in lines)
 
     def test_alternative_has_creates_frame(self):
-        tree = _simple_tree()
+        tree = _tree_with_changes()
         report = serialize_report(tree, "mistake", 60)
         lines = report.split("\n")
         assert any(line.strip() == "This move creates:" for line in lines)
