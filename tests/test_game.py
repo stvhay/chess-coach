@@ -300,3 +300,28 @@ class TestGameManagerLLM:
         prompt = teacher.explain_move.call_args[0][0]
         assert isinstance(prompt, str)
         assert "Relevant chess knowledge" not in prompt
+
+    async def test_coaching_rag_top_k_zero_disables_retrieval(self):
+        """When rag_top_k=0, RAG query is not called and no context is added."""
+        teacher = AsyncMock(spec=ChessTeacher)
+        teacher.explain_move = AsyncMock(return_value="RAG disabled test!")
+
+        rag = AsyncMock()
+        rag.query = AsyncMock(return_value=[
+            Result(id="1", text="This should not appear.", metadata={}, distance=0.1),
+        ])
+
+        engine = _mock_engine()
+        gm = GameManager(engine, teacher=teacher, rag=rag, rag_top_k=0)
+        sid, _, _ = gm.new_game()
+
+        result = await gm.make_move(sid, "e2e4")
+        assert result["coaching"] is not None
+        assert result["coaching"]["message"] == "RAG disabled test!"
+        # RAG query should NOT have been called
+        rag.query.assert_not_called()
+        # Prompt should not contain RAG context
+        prompt = teacher.explain_move.call_args[0][0]
+        assert isinstance(prompt, str)
+        assert "Relevant chess knowledge" not in prompt
+        assert "This should not appear" not in prompt

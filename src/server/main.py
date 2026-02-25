@@ -1,9 +1,16 @@
 import asyncio
 import logging
 import os
+import warnings
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from pathlib import Path
+
+# chromadb 1.5.1 uses Pydantic V1 class-based config and @validator.
+# Suppress until chromadb ships Pydantic V2 migration.
+from pydantic import PydanticDeprecatedSince20
+
+warnings.filterwarnings("ignore", category=PydanticDeprecatedSince20, module=r"chromadb\.")
 
 import chess
 from fastapi import FastAPI, HTTPException
@@ -68,7 +75,7 @@ rag = ChessRAG(
     persist_dir=settings.chromadb_dir,
 )
 puzzle_db = PuzzleDB(db_path=settings.puzzle_db_path)
-games = GameManager(engine, teacher=teacher, rag=rag)
+games = GameManager(engine, teacher=teacher, rag=rag, rag_top_k=settings.rag_top_k)
 
 
 # --- Background initialization tasks ---

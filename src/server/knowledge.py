@@ -94,7 +94,12 @@ async def query_knowledge(
     tactics_summary: str = "",
     n: int = 3,
 ) -> str:
-    """Build query, search RAG, format results. Returns "" on any failure."""
+    """Build query, search RAG, format results. Returns "" on any failure.
+
+    If n=0, returns empty string immediately (RAG disabled).
+    """
+    if n <= 0:
+        return ""
     try:
         query = build_rag_query(report, coaching_quality, tactics_summary)
         results = await rag.query(query, n=n)

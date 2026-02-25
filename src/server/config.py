@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     chromadb_dir: str = "data/chromadb"
     puzzle_db_path: str = "data/puzzles.db"
 
+    # RAG configuration
+    rag_top_k: int = 3  # Number of knowledge chunks to retrieve (0 = disabled)
+
     # Initialization
     auto_init_puzzles: bool = True
 

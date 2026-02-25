@@ -38,6 +38,9 @@ testpaths = ["tests"]
 # Remove when chess >= 1.12 ships.
 filterwarnings = [
     "ignore:'asyncio.DefaultEventLoopPolicy':DeprecationWarning:chess.engine",
+    # chromadb 1.5.1 uses Pydantic V1 class-based config and @validator.
+    # Suppress until chromadb ships Pydantic V2 migration.
+    "ignore::pydantic.warnings.PydanticDeprecatedSince20:chromadb",
 ]
 markers = [
     "integration: marks tests that require external services (deselect with '-m \"not integration\"')",

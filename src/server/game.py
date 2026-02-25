@@ -50,10 +50,12 @@ class GameManager:
         engine: EngineAnalysis,
         teacher: ChessTeacher | None = None,
         rag: ChessRAG | None = None,
+        rag_top_k: int = 3,
     ):
         self._engine = engine
         self._teacher = teacher
         self._rag = rag
+        self._rag_top_k = rag_top_k
         self._sessions: dict[str, GameState] = {}
 
     def new_game(self, depth: int = 10, elo_profile: str = "intermediate") -> tuple[str, str, str]:
@@ -90,6 +92,7 @@ class GameManager:
                 self._rag, report,
                 coaching_data.quality.value,
                 coaching_data.tactics_summary,
+                n=self._rag_top_k,
             )
 
         # Serialize report
