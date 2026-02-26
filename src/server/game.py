@@ -64,6 +64,9 @@ class GameManager:
     ) -> tuple[str, str, str]:
         """Create a new game session. Returns (session_id, fen, status)."""
         session_id = str(uuid.uuid4())
+        logging.getLogger(__name__).info(
+            f"Creating new game session {session_id[:8]}... with coach='{coach_name}', elo='{elo_profile}'"
+        )
         self._sessions[session_id] = GameState(
             depth=depth, elo_profile=elo_profile, coach_name=coach_name
         )

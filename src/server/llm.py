@@ -56,6 +56,10 @@ class ChessTeacher:
     ) -> str:
         """Build system prompt with persona, quality, ELO, and verbosity."""
         persona = get_persona(coach)
+        import logging
+        logging.getLogger(__name__).debug(
+            f"Building system prompt with coach='{coach}' -> persona.name='{persona.name}'"
+        )
         return build_coaching_system_prompt(
             persona_block=persona.persona_block,
             move_quality=move_quality,

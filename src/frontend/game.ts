@@ -123,6 +123,7 @@ export class GameController {
 
   /** Set coach name for persona. */
   setCoachName(name: string): void {
+    console.log(`[GameController] Setting coach to: "${name}"`);
     this.coachName = name;
   }
 

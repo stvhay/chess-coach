@@ -862,6 +862,9 @@ function init() {
   gc.setCoachingCallback(showCoaching);
   gc.setPlyChangeCallback(onPlyChange);
 
+  // Initialize coach from localStorage before creating session
+  gc.setCoachName(savedCoach);
+
   // Create initial server session
   gc.newGame();
 

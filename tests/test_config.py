@@ -16,6 +16,7 @@ class TestSettings:
 
     def test_minimal_config(self, monkeypatch):
         """Only LLM_BASE_URL and LLM_MODEL are required."""
+        monkeypatch.delenv("LLM_API_KEY", raising=False)
         monkeypatch.setenv("LLM_BASE_URL", "http://localhost:11434")
         monkeypatch.setenv("LLM_MODEL", "qwen2.5:14b")
         s = Settings(_env_file=None)

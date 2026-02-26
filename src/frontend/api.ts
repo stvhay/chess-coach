@@ -41,6 +41,7 @@ export async function createGame(
   eloProfile: string = "intermediate",
   coachName: string = "Anna Cramling",
 ): Promise<NewGameResponse> {
+  console.log(`[API] Creating game with coach: "${coachName}", elo: "${eloProfile}"`);
   const res = await fetch(`${API_BASE}/game/new`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
