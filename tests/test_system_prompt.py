@@ -192,6 +192,31 @@ class TestBackwardCompat:
         assert "50-150 words" in COACHING_SYSTEM_PROMPT
 
 
+class TestBrilliantGuidanceContent:
+    """Brilliant guidance must explicitly handle alternatives."""
+
+    def test_brilliant_guidance_explicit_about_alternatives(self):
+        """Brilliant guidance must explicitly state alternatives are not stronger."""
+        from server.prompts.system import _QUALITY_GUIDANCE
+
+        brilliant_guidance = _QUALITY_GUIDANCE["brilliant"]
+
+        # Check for explicit language about alternatives not being stronger
+        # Must contain one of these patterns
+        patterns = [
+            "equal to or better",
+            "not stronger",
+            "just as good or better",
+            "do not suggest alternatives are stronger",
+        ]
+
+        found = any(pattern.lower() in brilliant_guidance.lower() for pattern in patterns)
+        assert found, (
+            f"Brilliant guidance must explicitly state alternatives are not stronger. "
+            f"Current guidance: {brilliant_guidance}"
+        )
+
+
 class TestComposition:
     """Full composition with all sections."""
 

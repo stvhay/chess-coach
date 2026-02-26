@@ -35,10 +35,13 @@ Rules:
 
 _QUALITY_GUIDANCE: dict[str, str] = {
     "brilliant": (
-        "The student found an exceptional move. Celebrate it briefly. "
+        "The student found an exceptional move that is EQUAL TO OR BETTER THAN all alternatives shown. "
+        "Celebrate it enthusiastically. "
         "Explain what makes it special — the sharpness of the position, "
-        "why alternatives fail, the tactical or strategic brilliance. "
-        "Keep the tone congratulatory."
+        "the tactical or strategic brilliance, or why it's superior to alternatives. "
+        "IMPORTANT: Do NOT suggest alternatives are stronger. "
+        "If you discuss alternatives, make clear the student's move is just as good or better. "
+        "Keep the tone congratulatory throughout."
     ),
     "good": (
         "The student played well. A brief positive acknowledgment is sufficient. "
