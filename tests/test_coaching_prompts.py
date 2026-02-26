@@ -485,3 +485,57 @@ class TestEvalScenarios:
         print(f"{'='*60}")
         print(result["prompt"])
         print(f"{'='*60}\n")
+
+
+# ---------------------------------------------------------------------------
+# Brilliancy integration tests — verify brilliant move coaching pipeline
+# ---------------------------------------------------------------------------
+
+def test_brilliant_move_report_labels_alternatives_correctly():
+    """When brilliancy is detected, alternatives should be labeled 'Other option'."""
+    import chess
+    from server.game_tree import GameNode, GameTree
+    from server.report import serialize_report
+
+    # Create a simple tree where player's move is brilliant
+    # Player move scores higher than alternative
+    root = GameNode(board=chess.Board(), source="played")
+
+    # Player's move: e4 with score +50
+    player_move = root.add_child(chess.Move.from_uci("e2e4"), "played", score_cp=50)
+
+    # Alternative: d4 with score +30 (worse)
+    alt_move = root.add_child(chess.Move.from_uci("d2d4"), "engine", score_cp=30)
+
+    tree = GameTree(root=root, decision_point=root, player_color=chess.WHITE)
+
+    # serialize_report should detect brilliancy and upgrade quality
+    report = serialize_report(tree, quality="inaccuracy", cp_loss=20)
+
+    # Verify brilliancy was detected
+    assert "Move classification: brilliant" in report
+
+    # Verify alternatives are labeled "Other option" not "Stronger Alternative"
+    assert "# Other option" in report
+    assert "# Stronger Alternative" not in report
+
+
+def test_brilliant_move_system_prompt_includes_guidance():
+    """System prompt for brilliant move should include the explicit guidance."""
+    from server.prompts.system import build_coaching_system_prompt
+    from server.prompts.personas import DEFAULT_PERSONA_NAME, PERSONAS
+
+    persona_block = PERSONAS[DEFAULT_PERSONA_NAME].persona_block
+
+    system_prompt = build_coaching_system_prompt(
+        persona_block=persona_block,
+        move_quality="brilliant",
+        elo_profile="intermediate",
+        verbosity="normal",
+    )
+
+    # Verify the brilliant guidance is included
+    assert "Move quality — brilliant:" in system_prompt
+
+    # Verify explicit alternative handling is present
+    assert "equal to or better" in system_prompt.lower() or "not stronger" in system_prompt.lower()
