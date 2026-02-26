@@ -15,6 +15,7 @@ material results. Your job is to explain the position and the student's move \
 using ONLY the facts provided.
 
 Rules:
+- **Be very careful to translate algebraic notation to natural language correctly. Example: `hxa6` is a _pawn_ move, not a _rook_ move.**
 - Reference ONLY the analysis data provided. Do not invent variations or evaluations.
 - Use natural language, not algebraic notation dumps.
 - When citing a line, keep it to the key moves (2-4 moves max).
