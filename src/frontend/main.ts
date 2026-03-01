@@ -760,6 +760,24 @@ function init() {
   }
 
   // --- Markdown helper ---
+  function makeCopyButton(text: string): HTMLButtonElement {
+    const btn = document.createElement("button");
+    btn.className = "copy-btn";
+    btn.textContent = "copy";
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      navigator.clipboard.writeText(text).then(() => {
+        btn.textContent = "copied";
+        setTimeout(() => { btn.textContent = "copy"; }, 1500);
+      }).catch(() => {
+        btn.textContent = "failed";
+        setTimeout(() => { btn.textContent = "copy"; }, 1500);
+      });
+    });
+    return btn;
+  }
+
   function parseSimpleMarkdown(text: string): string {
     // Escape HTML to prevent XSS
     const escaped = text
@@ -791,6 +809,7 @@ function init() {
       const summary = document.createElement("summary");
       summary.textContent = "LLM prompt";
       debugBubble.appendChild(summary);
+      debugBubble.appendChild(makeCopyButton(coaching.debug_prompt!));
       const pre = document.createElement("pre");
       pre.textContent = coaching.debug_prompt;
       debugBubble.appendChild(pre);
@@ -805,6 +824,7 @@ function init() {
       const ply = parseInt(msg.dataset.ply!, 10);
       gc.jumpToPly(ply);
     });
+    msg.appendChild(makeCopyButton(coaching.message));
     coachMessages.appendChild(msg);
     coachMessages.scrollTop = coachMessages.scrollHeight;
 
