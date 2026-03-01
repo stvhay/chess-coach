@@ -153,7 +153,7 @@ class TestVerbosityGuidance:
         prompt = build_coaching_system_prompt(
             persona_block="Test.", verbosity="terse",
         )
-        assert "25-75 words" in prompt
+        assert "40-75 words" in prompt
 
     def test_normal_word_count(self):
         prompt = build_coaching_system_prompt(
@@ -247,5 +247,5 @@ class TestComposition:
         persona_pos = prompt.index("PERSONA_MARKER")
         quality_pos = prompt.index("serious error")
         elo_pos = prompt.index("beginner")
-        verbosity_pos = prompt.index("25-75 words")
+        verbosity_pos = prompt.index("40-75 words")
         assert persona_pos < quality_pos < elo_pos < verbosity_pos

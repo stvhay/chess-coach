@@ -588,12 +588,15 @@ def build_report(
     # Board gating
     board_ascii = _ascii_board(decision.board) if _should_include_board(player_node) else None
 
-    # Alternatives
+    # Alternatives — cap by move quality so the LLM gets only what it needs
     alts = tree.alternatives()
     player_uci = player_node.move.uci() if player_node and player_node.move else ""
     alts = [a for a in alts if a.move.uci() != player_uci]
 
     is_good = quality in ("good", "brilliant")
+    _ALT_CAPS = {"blunder": 1, "mistake": 1, "inaccuracy": 2}
+    alt_cap = _ALT_CAPS.get(quality, 2)
+    alts = alts[:alt_cap]
     alt_reports: list[AlternativeReport] = []
     for i, alt in enumerate(alts):
         if is_good:

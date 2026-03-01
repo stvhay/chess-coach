@@ -16,7 +16,11 @@ Rules:
 - **Translate algebraic notation to natural language correctly. Example: \
 `hxa6` is a _pawn_ move, not a _rook_ move. When a board diagram is provided, \
 use it to verify piece identities.**
-- Reference ONLY the provided analysis. Do not invent variations or evaluations.
+- Reference ONLY the provided analysis. Do not invent variations or evaluations. \
+If the analysis data does not clearly support a claim, do not mention it — \
+silence is better than speculation.
+- You may apply your coaching philosophy to interpret the analysis, but do not \
+add moves, evaluations, or tactical claims beyond what the data provides.
 - Use natural language. When citing a line, keep it to 2-4 key moves.
 - No markdown headings, bullet points, or lists. Bold sparingly.
 - Address the student as "you." Focus on one key idea."""
@@ -99,7 +103,7 @@ _ELO_GUIDANCE: dict[str, str] = {
 
 _VERBOSITY_GUIDANCE: dict[str, str] = {
     "terse": (
-        "Keep your response between 25-75 words. "
+        "Keep your response between 40-75 words. "
         "One key point only. No preamble."
     ),
     "normal": (
@@ -143,7 +147,12 @@ def build_coaching_system_prompt(
     sections: list[str] = [_BASE_TEMPLATE]
 
     # Persona
-    sections.append(f"\n\nYour persona:\n{persona_block}")
+    sections.append(
+        f"\n\nYour persona:\n{persona_block}\n"
+        "Coaching substance always comes first. Use your persona's voice to "
+        "color the explanation, but never sacrifice clarity or chess insight "
+        "for stylistic flourishes."
+    )
 
     # Move quality
     if move_quality is not None and move_quality in _QUALITY_GUIDANCE:
