@@ -208,6 +208,57 @@ class TestMotifRenderers:
         assert "cannot move" in desc
         assert is_opp is True
 
+    def test_render_self_inflicted_pin(self):
+        """When pinned piece moves onto the pin line, use 'moved into a pin'."""
+        # You move rook to d5, it's pinned by their bishop on a2 to your king on h8
+        pin = Pin(
+            pinned_piece="R", pinned_square="d5",
+            pinner_piece="b", pinner_square="a2",
+            pinned_to="h8", pinned_to_piece="K",
+            is_absolute=True,
+        )
+        ctx = RenderContext(
+            student_is_white=True, player_color="White", move_dest="d5",
+        )
+        desc, is_opp = render_pin(pin, ctx)
+        assert "moved into a pin" in desc.lower()
+        assert "your rook on d5" in desc.lower()
+        assert "their bishop on a2" in desc.lower()
+        assert "pins" not in desc.lower().split("pin")[0]  # no "X pins Y" framing
+
+    def test_render_active_pin_not_reframed(self):
+        """When the pinner itself just moved, use normal 'pins' language."""
+        pin = Pin(
+            pinned_piece="n", pinned_square="c6",
+            pinner_piece="B", pinner_square="b5",
+            pinned_to="e8", pinned_to_piece="k",
+            is_absolute=True,
+        )
+        ctx = RenderContext(
+            student_is_white=True, player_color="White", move_dest="b5",
+        )
+        desc, is_opp = render_pin(pin, ctx)
+        assert "your bishop on b5 pins" in desc.lower()
+        assert "moved into" not in desc.lower()
+
+    def test_render_discovered_pin(self):
+        """When a blocker moves off the line, use 'uncovered a pin' language."""
+        # You move your rook off d4; their bishop on a1 now pins your knight on e5 to king on h8
+        pin = Pin(
+            pinned_piece="N", pinned_square="e5",
+            pinner_piece="b", pinner_square="a1",
+            pinned_to="h8", pinned_to_piece="K",
+            is_absolute=True,
+        )
+        ctx = RenderContext(
+            student_is_white=True, player_color="White",
+            move_dest="d1", move_origin="d4", move_piece="R",
+        )
+        desc, is_opp = render_pin(pin, ctx)
+        assert "uncovered a pin" in desc.lower()
+        assert "your rook" in desc.lower()  # names the mover
+        assert "their bishop on a1" in desc.lower()
+
     def test_render_skewer(self):
         skewer = Skewer(
             attacker_piece="R", attacker_square="e1",
@@ -258,6 +309,23 @@ class TestMotifRenderers:
         )
         desc, is_opp = render_skewer(skewer, _ctx(True))
         assert "skewers" in desc.lower()
+
+    def test_render_discovered_skewer(self):
+        """When a blocker moves off the line, use 'uncovered a skewer' language."""
+        # You move your pawn off e4; their rook on a4 now skewers your king on g4
+        skewer = Skewer(
+            attacker_piece="r", attacker_square="a4",
+            front_piece="K", front_square="g4",
+            behind_piece="Q", behind_square="h4",
+        )
+        ctx = RenderContext(
+            student_is_white=True, player_color="White",
+            move_dest="e5", move_origin="e4", move_piece="P",
+        )
+        desc, is_opp = render_skewer(skewer, ctx)
+        assert "uncovered a skewer" in desc.lower()
+        assert "your pawn" in desc.lower()  # names the mover
+        assert "their rook on a4" in desc.lower()
 
     def test_render_hanging_opponent(self):
         hp = HangingPiece(square="d5", piece="n", attacker_squares=["e3"], color="Black")

@@ -201,7 +201,9 @@ class RenderContext:
     player_color: str           # "White" or "Black"
     mode: RenderMode = RenderMode.OPPORTUNITY
     render_config: RenderConfig | None = None
-    move_dest: str | None = None  # destination square of the move that created this position
+    move_dest: str | None = None    # destination square of the move that created this position
+    move_origin: str | None = None  # origin square of the move that created this position
+    move_piece: str | None = None   # piece char that moved (e.g. "R", "n")
 
     @property
     def is_threat(self) -> bool:
@@ -323,8 +325,34 @@ def render_fork(fork, ctx: RenderContext) -> tuple[str, bool]:
     return desc, is_student
 
 
+def _classify_pin_causality(pin, ctx: RenderContext) -> str:
+    """Classify how a pin was caused relative to the move that created this position.
+
+    Returns one of:
+      "active"         — pinner just moved to create the pin
+      "self_inflicted" — pinned piece just moved onto the pin line
+      "discovered"     — a blocker moved off the line, revealing the pin
+      "normal"         — no move context, or ambiguous
+    """
+    if ctx.move_dest is None:
+        return "normal"
+    if pin.pinner_square == ctx.move_dest:
+        return "active"
+    if pin.pinned_square == ctx.move_dest:
+        return "self_inflicted"
+    # None of the pin participants just arrived — a blocker may have left
+    if pin.pinned_to != ctx.move_dest and ctx.move_origin is not None:
+        return "discovered"
+    return "normal"
+
+
 def render_pin(pin, ctx: RenderContext) -> tuple[str, bool]:
-    """Render a pin. Returns (description, is_opportunity)."""
+    """Render a pin. Returns (description, is_opportunity).
+
+    Self-inflicted pins (pinned piece walked onto the line) use
+    "moved into a pin" language. Discovered pins (blocker left the line)
+    use "moving X uncovered a pin" language.
+    """
     is_student = _piece_is_students(pin.pinner_piece, ctx.student_is_white)
     pinner = _own_their(pin.pinner_piece, is_student)
     pinned = _own_their(pin.pinned_piece, _piece_is_students(pin.pinned_piece, ctx.student_is_white))
@@ -333,8 +361,18 @@ def render_pin(pin, ctx: RenderContext) -> tuple[str, bool]:
     else:
         to_desc = pin.pinned_to
     abs_label = " — it cannot move" if pin.is_absolute else ""
-    desc = (f"{pinner.capitalize()} on {pin.pinner_square} pins "
-            f"{pinned} on {pin.pinned_square} to {to_desc}{abs_label}.")
+
+    causality = _classify_pin_causality(pin, ctx)
+    if causality == "self_inflicted":
+        desc = (f"{pinned.capitalize()} on {pin.pinned_square} moved into a pin "
+                f"by {pinner} on {pin.pinner_square}{abs_label}.")
+    elif causality == "discovered" and ctx.move_piece:
+        mover = _own_their(ctx.move_piece, _piece_is_students(ctx.move_piece, ctx.student_is_white))
+        desc = (f"Moving {mover} uncovered a pin: {pinner} on {pin.pinner_square} pins "
+                f"{pinned} on {pin.pinned_square} to {to_desc}{abs_label}.")
+    else:
+        desc = (f"{pinner.capitalize()} on {pin.pinner_square} pins "
+                f"{pinned} on {pin.pinned_square} to {to_desc}{abs_label}.")
     # Append value suffix before final period
     suffix = _value_suffix(pin, ctx, is_opportunity=is_student)
     if suffix and desc.endswith("."):
@@ -342,32 +380,48 @@ def render_pin(pin, ctx: RenderContext) -> tuple[str, bool]:
     return desc, is_student
 
 
-def _is_self_inflicted_skewer(skewer, ctx: RenderContext) -> bool:
-    """Detect if a skewer was caused by the front piece moving into the attacker's line.
+def _classify_skewer_causality(skewer, ctx: RenderContext) -> str:
+    """Classify how a skewer was caused relative to the move.
 
-    Returns True when the front piece (the one that must move) just arrived
-    on the skewer line — i.e. the victim walked into it.
+    Returns one of:
+      "active"         — attacker just moved to create the skewer
+      "self_inflicted" — front piece just moved onto the skewer line
+      "discovered"     — a blocker moved off the line, revealing the skewer
+      "normal"         — no move context, or ambiguous
     """
     if ctx.move_dest is None:
-        return False
+        return "normal"
     if skewer.attacker_square == ctx.move_dest:
-        return False  # attacker just moved here — genuine active skewer
-    return ctx.move_dest == skewer.front_square
+        return "active"
+    if skewer.front_square == ctx.move_dest:
+        return "self_inflicted"
+    # None of the skewer participants just arrived — a blocker may have left
+    if skewer.behind_square != ctx.move_dest and ctx.move_origin is not None:
+        return "discovered"
+    return "normal"
 
 
 def render_skewer(skewer, ctx: RenderContext) -> tuple[str, bool]:
     """Render a skewer.
 
     Self-inflicted skewers (front piece moved into attacker's line) use
-    "moved into a skewer" instead of crediting the attacker.
+    "moved into a skewer". Discovered skewers (blocker left the line) use
+    "moving X uncovered a skewer".
     """
     is_student = _piece_is_students(skewer.attacker_piece, ctx.student_is_white)
     attacker = _own_their(skewer.attacker_piece, is_student)
     front = _own_their(skewer.front_piece, _piece_is_students(skewer.front_piece, ctx.student_is_white))
     behind = _own_their(skewer.behind_piece, _piece_is_students(skewer.behind_piece, ctx.student_is_white))
-    if _is_self_inflicted_skewer(skewer, ctx):
+
+    causality = _classify_skewer_causality(skewer, ctx)
+    if causality == "self_inflicted":
         desc = (f"{front.capitalize()} on {skewer.front_square} moved into a skewer "
                 f"by {attacker} on {skewer.attacker_square}.")
+    elif causality == "discovered" and ctx.move_piece:
+        mover = _own_their(ctx.move_piece, _piece_is_students(ctx.move_piece, ctx.student_is_white))
+        desc = (f"Moving {mover} uncovered a skewer: {attacker} on {skewer.attacker_square} skewers "
+                f"{front} on {skewer.front_square} behind "
+                f"{behind} on {skewer.behind_square}.")
     else:
         desc = (f"{attacker.capitalize()} on {skewer.attacker_square} skewers "
                 f"{front} on {skewer.front_square} behind "

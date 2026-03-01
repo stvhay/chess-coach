@@ -428,12 +428,21 @@ def describe_changes(
         # Render motifs via registry
         is_future = i > 0
         dest_sq = chess.square_name(chain_node.move.to_square) if chain_node.move else None
+        origin_sq = chess.square_name(chain_node.move.from_square) if chain_node.move else None
+        moved_piece = None
+        if chain_node.move and chain_node.parent:
+            # Look up the piece on the parent board at the origin square
+            p = chain_node.parent.board.piece_at(chain_node.move.from_square)
+            if p:
+                moved_piece = p.symbol()
         ctx = RenderContext(
             student_is_white=student_is_white,
             player_color=player_color,
             mode=RenderMode.THREAT if is_future else RenderMode.OPPORTUNITY,
             render_config=RenderConfig(),
             move_dest=dest_sq,
+            move_origin=origin_sq,
+            move_piece=moved_piece,
         )
         opps_rm, thrs_rm, obs_rm, rendered_keys = render_motifs(
             current_tactics, new_types, ctx, new_keys=filtered_new_keys,
