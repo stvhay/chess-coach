@@ -342,15 +342,36 @@ def render_pin(pin, ctx: RenderContext) -> tuple[str, bool]:
     return desc, is_student
 
 
+def _is_self_inflicted_skewer(skewer, ctx: RenderContext) -> bool:
+    """Detect if a skewer was caused by the front piece moving into the attacker's line.
+
+    Returns True when the front piece (the one that must move) just arrived
+    on the skewer line — i.e. the victim walked into it.
+    """
+    if ctx.move_dest is None:
+        return False
+    if skewer.attacker_square == ctx.move_dest:
+        return False  # attacker just moved here — genuine active skewer
+    return ctx.move_dest == skewer.front_square
+
+
 def render_skewer(skewer, ctx: RenderContext) -> tuple[str, bool]:
-    """Render a skewer."""
+    """Render a skewer.
+
+    Self-inflicted skewers (front piece moved into attacker's line) use
+    "moved into a skewer" instead of crediting the attacker.
+    """
     is_student = _piece_is_students(skewer.attacker_piece, ctx.student_is_white)
     attacker = _own_their(skewer.attacker_piece, is_student)
     front = _own_their(skewer.front_piece, _piece_is_students(skewer.front_piece, ctx.student_is_white))
     behind = _own_their(skewer.behind_piece, _piece_is_students(skewer.behind_piece, ctx.student_is_white))
-    desc = (f"{attacker.capitalize()} on {skewer.attacker_square} skewers "
-            f"{front} on {skewer.front_square} behind "
-            f"{behind} on {skewer.behind_square}.")
+    if _is_self_inflicted_skewer(skewer, ctx):
+        desc = (f"{front.capitalize()} on {skewer.front_square} moved into a skewer "
+                f"by {attacker} on {skewer.attacker_square}.")
+    else:
+        desc = (f"{attacker.capitalize()} on {skewer.attacker_square} skewers "
+                f"{front} on {skewer.front_square} behind "
+                f"{behind} on {skewer.behind_square}.")
     # Append value suffix before final period
     suffix = _value_suffix(skewer, ctx, is_opportunity=is_student)
     if suffix and desc.endswith("."):

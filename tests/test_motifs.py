@@ -218,6 +218,47 @@ class TestMotifRenderers:
         assert "your rook on e1 skewers" in desc.lower()
         assert is_opp is True
 
+    def test_render_self_inflicted_skewer(self):
+        """When front piece moves into attacker's line, use 'moved into a skewer'."""
+        # Their rook on a4, you move king to e4, your queen is on h4
+        skewer = Skewer(
+            attacker_piece="r", attacker_square="a4",
+            front_piece="K", front_square="e4",
+            behind_piece="Q", behind_square="h4",
+        )
+        ctx = RenderContext(
+            student_is_white=True, player_color="White", move_dest="e4",
+        )
+        desc, is_opp = render_skewer(skewer, ctx)
+        assert "moved into a skewer" in desc.lower()
+        assert "your king on e4" in desc.lower()
+        assert "their rook on a4" in desc.lower()
+        assert "skewers" not in desc.lower()
+
+    def test_render_active_skewer_not_reframed(self):
+        """When the attacker itself just moved, use normal 'skewers' language."""
+        skewer = Skewer(
+            attacker_piece="R", attacker_square="e1",
+            front_piece="q", front_square="e5",
+            behind_piece="k", behind_square="e8",
+        )
+        ctx = RenderContext(
+            student_is_white=True, player_color="White", move_dest="e1",
+        )
+        desc, is_opp = render_skewer(skewer, ctx)
+        assert "skewers" in desc.lower()
+        assert "moved into a skewer" not in desc.lower()
+
+    def test_render_skewer_no_move_context(self):
+        """Without move_dest, skewers render normally."""
+        skewer = Skewer(
+            attacker_piece="r", attacker_square="a4",
+            front_piece="K", front_square="e4",
+            behind_piece="Q", behind_square="h4",
+        )
+        desc, is_opp = render_skewer(skewer, _ctx(True))
+        assert "skewers" in desc.lower()
+
     def test_render_hanging_opponent(self):
         hp = HangingPiece(square="d5", piece="n", attacker_squares=["e3"], color="Black")
         desc, is_opp = render_hanging(hp, _ctx(True))
