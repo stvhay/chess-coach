@@ -787,8 +787,10 @@ function init() {
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&#039;");
 
-    // Convert **bold** to <strong>
-    return escaped.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+    // Convert **bold** to <strong>, then *italic* to <em>
+    return escaped
+      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      .replace(/\*(.+?)\*/g, "<em>$1</em>");
   }
 
   // --- Coaching display ---
