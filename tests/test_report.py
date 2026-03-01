@@ -197,23 +197,22 @@ class TestSerializeReport:
     def test_contains_student_color(self):
         tree = _simple_tree()
         report = serialize_report(tree, "mistake", 60)
-        assert "The student played as: White" in report
+        assert "Student plays as White" in report
 
     def test_contains_student_move_section(self):
         tree = _simple_tree()
         report = serialize_report(tree, "mistake", 60)
-        assert "# Move Played" in report
+        assert "# Move Played:" in report
 
-    def test_contains_move_on_own_line(self):
+    def test_move_in_heading(self):
         tree = _simple_tree()
         report = serialize_report(tree, "mistake", 60)
-        lines = report.split("\n")
-        assert any(line.strip() == "1. e4" for line in lines)
+        assert "# Move Played: 1. e4" in report
 
     def test_contains_quality(self):
         tree = _simple_tree()
         report = serialize_report(tree, "mistake", 60)
-        assert "Move classification: mistake" in report
+        assert "[mistake]" in report
 
     def test_no_you_played(self):
         tree = _simple_tree()
@@ -223,59 +222,57 @@ class TestSerializeReport:
     def test_contains_stronger_alternative(self):
         tree = _simple_tree()
         report = serialize_report(tree, "mistake", 60)
-        assert "# Stronger Alternative" in report
+        assert "# Stronger Alternative:" in report
 
     def test_good_move_uses_other_option(self):
         tree = _simple_tree()
         report = serialize_report(tree, "good", 0)
-        assert "# Other option" in report
-        assert "# Stronger Alternative" not in report
+        assert "# Other option:" in report
+        assert "# Stronger Alternative:" not in report
 
     def test_player_move_not_in_alternatives(self):
         """Player's move should not appear as an alternative."""
         tree = _simple_tree()
         report = serialize_report(tree, "mistake", 60)
-        # e4 should not appear after "# Stronger Alternative"
         lines = report.split("\n")
         in_alt = False
         for line in lines:
-            if "# Stronger Alternative" in line:
+            if "# Stronger Alternative:" in line:
                 in_alt = True
-            if in_alt and line.strip() == "1. e4":
+            if in_alt and "1. e4" in line and "# Stronger Alternative:" not in line:
                 pytest.fail("Player's move appeared as alternative")
 
     def test_rag_context_included(self):
         tree = _simple_tree()
         report = serialize_report(tree, "good", 0, rag_context="A fork attacks two pieces.")
-        assert "Relevant chess knowledge" in report
+        assert "# Context" in report
         assert "fork attacks two pieces" in report
 
     def test_rag_context_omitted_when_empty(self):
         tree = _simple_tree()
         report = serialize_report(tree, "good", 0, rag_context="")
-        assert "Relevant chess knowledge" not in report
+        assert "# Context" not in report
 
     def test_no_game_section(self):
-        """The # Game heading should not appear — PGN is in Position section."""
+        """The # Game heading should not appear."""
         tree = _tree_with_history()
         report = serialize_report(tree, "good", 0)
         assert "# Game" not in report
 
-    def test_pgn_in_position_section(self):
-        """PGN appears after # Position Before heading."""
+    def test_pgn_before_yaml(self):
+        """PGN appears before the position YAML block."""
         tree = _tree_with_history()
         report = serialize_report(tree, "good", 0)
         assert "1. e4" in report
-        lines = report.split("\n")
-        position_idx = next(i for i, l in enumerate(lines) if l.startswith("# Position Before"))
-        # PGN should follow the Position heading
-        post_position = "\n".join(lines[position_idx:position_idx + 5])
-        assert "1. e4" in post_position
+        # PGN should appear before the first yaml block
+        pgn_idx = report.index("1. e4")
+        yaml_idx = report.index("```yaml")
+        assert pgn_idx < yaml_idx
 
-    def test_position_section_present(self):
+    def test_position_yaml_present(self):
         tree = _simple_tree()
         report = serialize_report(tree, "good", 0)
-        assert "# Position Before the Move" in report
+        assert "observations:" in report
 
     def test_prompt_length_reasonable(self):
         tree = _simple_tree()
@@ -289,11 +286,11 @@ class TestSerializeReport:
         lines = report.split("\n")
         section_indices = {}
         for i, line in enumerate(lines):
-            if line.startswith("The student played as"):
+            if line.startswith("Student plays as"):
                 section_indices["color"] = i
-            elif line.startswith("# Position Before"):
+            elif line.startswith("```yaml") and "position" not in section_indices:
                 section_indices["position"] = i
-            elif line == "# Move Played":
+            elif line.startswith("# Move Played:"):
                 section_indices["move"] = i
             elif line.startswith("# Stronger") or line.startswith("# Other") or line.startswith("# Also"):
                 section_indices.setdefault("alt", i)
@@ -304,57 +301,53 @@ class TestSerializeReport:
             assert section_indices["move"] < section_indices["alt"]
 
     def test_position_has_observations(self):
-        """Position section should have Observations category."""
+        """Position YAML block should have observations key."""
         tree = _simple_tree()
         report = serialize_report(tree, "good", 0)
-        assert "Observations:" in report
+        assert "observations:" in report
 
-    def test_move_played_has_after_frame(self):
+    def test_move_played_has_yaml_block(self):
         tree = _tree_with_changes()
         report = serialize_report(tree, "mistake", 60)
-        lines = report.split("\n")
-        assert any(line.strip() == "After this move:" for line in lines)
+        # After Move Played heading, there should be a yaml block with new_ keys
+        move_idx = report.index("# Move Played:")
+        after_move = report[move_idx:]
+        assert "new_" in after_move or "result:" in after_move
 
-    def test_alternative_has_creates_frame(self):
+    def test_alternative_has_yaml_block(self):
         tree = _tree_with_changes()
         report = serialize_report(tree, "mistake", 60)
-        lines = report.split("\n")
-        assert any(line.strip() == "This move creates:" for line in lines)
+        alt_idx = report.index("# Stronger Alternative:")
+        after_alt = report[alt_idx:]
+        assert "new_" in after_alt or "result:" in after_alt
 
     def test_position_before_uses_past_tense(self):
-        """Position Before section should use past tense for descriptions."""
-        # Position: White Ke1, Qd1, Nf3; Black Ke8, Qd8, pawn e4
-        # The pawn on e4 is undefended (hanging) — should become "was undefended"
+        """Position section should use past tense for descriptions."""
         fen = "3qk3/8/8/8/4p3/5N2/8/3QK3 b - - 0 1"
         board = chess.Board(fen)
         root = GameNode(board=board, source="played")
-        # Student is Black, decision point is root
-        # Black plays Qd6
         child = root.add_child(chess.Move.from_uci("d8d6"), "played")
         child.add_child(chess.Move.from_uci("f3e5"), "engine", score_cp=50)
         tree = GameTree(root=root, decision_point=root, player_color=chess.BLACK)
         report = serialize_report(tree, "good", 0)
-        # Find the Position Before section
-        lines = report.split("\n")
-        pos_start = next(i for i, l in enumerate(lines) if l.startswith("# Position Before"))
-        move_start = next(i for i, l in enumerate(lines) if l.startswith("# Move Played"))
-        position_section = "\n".join(lines[pos_start:move_start])
-        # Should NOT contain present tense "is " patterns in description bullets
-        bullet_lines = [l for l in lines[pos_start:move_start] if l.strip().startswith("- ")]
+        # Find position YAML block (before # Move Played)
+        move_idx = report.index("# Move Played:")
+        position_section = report[:move_idx]
+        # YAML list items use "  - " prefix
+        lines = position_section.split("\n")
+        bullet_lines = [l for l in lines if l.strip().startswith("- ")]
         for bullet in bullet_lines:
-            assert " is undefended" not in bullet, f"Present tense found in Position Before: {bullet}"
-            assert " is hanging" not in bullet, f"Present tense found in Position Before: {bullet}"
-            assert " forks " not in bullet, f"Present tense found in Position Before: {bullet}"
-            assert " pins " not in bullet, f"Present tense found in Position Before: {bullet}"
+            assert " is undefended" not in bullet, f"Present tense found: {bullet}"
+            assert " is hanging" not in bullet, f"Present tense found: {bullet}"
+            assert " forks " not in bullet, f"Present tense found: {bullet}"
+            assert " pins " not in bullet, f"Present tense found: {bullet}"
 
 
 class TestSerializeReportMoveNumbers:
     def test_move_2_has_correct_number(self):
         tree = _tree_with_history()
         report = serialize_report(tree, "good", 0)
-        assert "# Move Played" in report
-        lines = report.split("\n")
-        assert any(line.strip() == "2. Nf3" for line in lines)
+        assert "# Move Played: 2. Nf3" in report
 
 
 # --- Bug #6 investigation: Bxf6 gxf6 material equality ---
@@ -421,7 +414,7 @@ class TestOpponentResponsesInReport:
             ),
         ]
         report = serialize_report(tree, "mistake", 60)
-        assert "Opponent's candidate responses:" in report
+        assert "opponent_responses:" in report
         assert "bxc6: captures your knight on c6 (engine's top choice)" in report
         assert "dxc6: captures your knight on c6" in report
         # Best marker only on the best response
@@ -435,10 +428,10 @@ class TestOpponentResponsesInReport:
         tree = _simple_tree()
         tree.opponent_responses = []
         report = serialize_report(tree, "mistake", 60)
-        assert "Opponent's candidate responses:" not in report
+        assert "opponent_responses:" not in report
 
     def test_opponent_responses_before_continuation(self):
-        """Opponent responses appear before the Continuation line."""
+        """Opponent responses appear before continuation in YAML block."""
         from server.game_tree import OpponentResponse
 
         tree = _simple_tree()
@@ -449,10 +442,9 @@ class TestOpponentResponsesInReport:
             ),
         ]
         report = serialize_report(tree, "good", 0)
-        lines = report.split("\n")
-        opp_idx = next((i for i, l in enumerate(lines) if "Opponent's candidate responses:" in l), None)
-        cont_idx = next((i for i, l in enumerate(lines) if l.strip().startswith("Continuation:")), None)
-        if opp_idx is not None and cont_idx is not None:
+        if "opponent_responses:" in report and "continuation:" in report:
+            opp_idx = report.index("opponent_responses:")
+            cont_idx = report.index("continuation:")
             assert opp_idx < cont_idx
 
 
@@ -472,13 +464,13 @@ class TestContinuationNarrative:
         return GameTree(root=root, decision_point=e5, player_color=chess.WHITE)
 
     def test_continuation_has_per_ply_lines(self):
-        """Continuation should have bulleted per-ply descriptions."""
+        """Continuation should have YAML list items."""
         tree = self._tree_with_continuation()
         report = serialize_report(tree, "good", 0)
-        assert "Continuation:" in report
-        # Each continuation ply should be a bulleted line
+        assert "continuation:" in report
+        # Each continuation ply should be a YAML list item
         lines = report.split("\n")
-        continuation_start = next(i for i, l in enumerate(lines) if "Continuation:" in l)
+        continuation_start = next(i for i, l in enumerate(lines) if "continuation:" in l)
         ply_lines = [l for l in lines[continuation_start + 1:] if l.strip().startswith("- ")]
         assert len(ply_lines) >= 2  # at least Nc6 and Bc4
 
@@ -486,7 +478,6 @@ class TestContinuationNarrative:
         """Per-ply lines should include move numbers."""
         tree = self._tree_with_continuation()
         report = serialize_report(tree, "good", 0)
-        # Should have 2...Nc6 and 3.Bc4
         assert "2...Nc6" in report
         assert "3.Bc4" in report
 
@@ -494,7 +485,6 @@ class TestContinuationNarrative:
         """Per-ply lines should include descriptions of what each move does."""
         tree = self._tree_with_continuation()
         report = serialize_report(tree, "good", 0)
-        # Nc6 develops knight
         lines = report.split("\n")
         nc6_lines = [l for l in lines if "Nc6" in l and l.strip().startswith("- ")]
         assert len(nc6_lines) >= 1
@@ -588,7 +578,7 @@ class TestBrilliancyDetection:
         # Player move (e4) scores +50, alternative (d4) scores +30
         tree = _simple_tree(player_cp=50, alt_cp=30)
         report = serialize_report(tree, "inaccuracy", 20)
-        assert "Move classification: brilliant" in report
+        assert "[brilliant]" in report
         # Alternatives should be labeled "Other option" not "Stronger Alternative"
         assert "# Other option" in report
         assert "# Stronger Alternative" not in report
@@ -598,14 +588,14 @@ class TestBrilliancyDetection:
         # Player move (e4) scores +10, alternative (d4) scores +30
         tree = _simple_tree(player_cp=10, alt_cp=30)
         report = serialize_report(tree, "inaccuracy", 20)
-        assert "Move classification: inaccuracy" in report
+        assert "[inaccuracy]" in report
         assert "# Stronger Alternative" in report
 
     def test_player_equal_to_alternative_becomes_brilliant(self):
         """When player's eval == best alternative, quality becomes 'brilliant'."""
         tree = _simple_tree(player_cp=30, alt_cp=30)
         report = serialize_report(tree, "inaccuracy", 10)
-        assert "Move classification: brilliant" in report
+        assert "[brilliant]" in report
 
     def test_brilliancy_detection_respects_black_perspective(self):
         """For Black, lower cp is better — detect brilliancy correctly."""
@@ -618,7 +608,7 @@ class TestBrilliancyDetection:
         e4.add_child(chess.Move.from_uci("d7d5"), "engine", score_cp=-10)
         tree = GameTree(root=root, decision_point=e4, player_color=chess.BLACK)
         report = serialize_report(tree, "inaccuracy", 10)
-        assert "Move classification: brilliant" in report
+        assert "[brilliant]" in report
 
     def test_brilliancy_detection_black_worse_stays_original(self):
         """For Black, higher cp is worse — don't upgrade."""
@@ -630,7 +620,7 @@ class TestBrilliancyDetection:
         e4.add_child(chess.Move.from_uci("d7d5"), "engine", score_cp=-10)
         tree = GameTree(root=root, decision_point=e4, player_color=chess.BLACK)
         report = serialize_report(tree, "inaccuracy", 20)
-        assert "Move classification: inaccuracy" in report
+        assert "[inaccuracy]" in report
 
     def test_no_alternatives_skips_brilliancy(self):
         """No alternatives → skip brilliancy detection, keep original quality."""
@@ -638,10 +628,10 @@ class TestBrilliancyDetection:
         root.add_child(chess.Move.from_uci("e2e4"), "played", score_cp=50)
         tree = GameTree(root=root, decision_point=root, player_color=chess.WHITE)
         report = serialize_report(tree, "good", 0)
-        assert "Move classification: good" in report
+        assert "[good]" in report
 
     def test_no_score_skips_brilliancy(self):
         """Missing score on player/alt → skip brilliancy detection."""
         tree = _simple_tree(player_cp=None, alt_cp=30)
         report = serialize_report(tree, "inaccuracy", 20)
-        assert "Move classification: inaccuracy" in report
+        assert "[inaccuracy]" in report

@@ -183,7 +183,7 @@ class TestPromptStructure:
         """Prompt should use '# Move N.' or 'Student is playing', never 'You played'."""
         prompt, _ = await _build_prompt_for_scenario(scenario_name)
         assert "You played" not in prompt
-        assert "# Move Played" in prompt or "The student played as" in prompt
+        assert "# Move Played:" in prompt or "Student plays as" in prompt
 
     @pytest.mark.parametrize("scenario_name", SCENARIOS.keys())
     async def test_no_per_ply_labels(self, scenario_name):
@@ -222,11 +222,9 @@ class TestPromptStructure:
         assert "Stronger Alternative: Bd3" not in prompt
 
     async def test_move_header_has_number(self):
-        """Move header should use '# Move Played' with numbered move on own line."""
+        """Move header should include the numbered move."""
         prompt, _ = await _build_prompt_for_scenario("pin_and_hanging")
-        assert "# Move Played" in prompt
-        lines = prompt.split("\n")
-        assert any(line.strip() == "4. Nc3" for line in lines)
+        assert "# Move Played: 4. Nc3" in prompt
         assert "# Student Move" not in prompt
 
     async def test_good_move_filters_self(self):
@@ -460,7 +458,7 @@ class TestEvalScenarios:
 
         # Always uses third person
         assert "You played" not in prompt
-        assert "# Move Played" in prompt or "The student played as" in prompt
+        assert "# Move Played:" in prompt or "Student plays as" in prompt
 
         # Good moves should not have "Stronger Alternative"
         if result["quality"] in ("good", "brilliant"):
@@ -513,11 +511,11 @@ def test_brilliant_move_report_labels_alternatives_correctly():
     report = serialize_report(tree, quality="inaccuracy", cp_loss=20)
 
     # Verify brilliancy was detected
-    assert "Move classification: brilliant" in report
+    assert "[brilliant]" in report
 
     # Verify alternatives are labeled "Other option" not "Stronger Alternative"
-    assert "# Other option" in report
-    assert "# Stronger Alternative" not in report
+    assert "# Other option:" in report
+    assert "# Stronger Alternative:" not in report
 
 
 def test_brilliant_move_system_prompt_includes_guidance():

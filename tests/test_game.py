@@ -279,7 +279,7 @@ class TestGameManagerLLM:
         assert result["coaching"]["message"] == "No RAG but still coaching!"
         prompt = teacher.explain_move.call_args[0][0]
         assert isinstance(prompt, str)
-        assert "Relevant chess knowledge" not in prompt
+        assert "# Context" not in prompt
 
     async def test_coaching_rag_failure_degrades_gracefully(self):
         """When RAG raises an exception, coaching continues without it."""
@@ -299,7 +299,7 @@ class TestGameManagerLLM:
         # RAG context should be empty due to graceful degradation
         prompt = teacher.explain_move.call_args[0][0]
         assert isinstance(prompt, str)
-        assert "Relevant chess knowledge" not in prompt
+        assert "# Context" not in prompt
 
     async def test_coaching_rag_top_k_zero_disables_retrieval(self):
         """When rag_top_k=0, RAG query is not called and no context is added."""
@@ -323,5 +323,5 @@ class TestGameManagerLLM:
         # Prompt should not contain RAG context
         prompt = teacher.explain_move.call_args[0][0]
         assert isinstance(prompt, str)
-        assert "Relevant chess knowledge" not in prompt
+        assert "# Context" not in prompt
         assert "This should not appear" not in prompt

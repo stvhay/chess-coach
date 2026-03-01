@@ -9,9 +9,10 @@ Produces the LLM user prompt from a GameTree.
 from __future__ import annotations
 
 import chess
+from dataclasses import dataclass, field
 
 from server.analysis import MaterialCount, analyze_material
-from server.descriptions import describe_changes, describe_position
+from server.descriptions import PositionDescription, describe_changes, describe_position
 from server.game_tree import (
     GameNode, GameTree, _material_cp, _detect_sacrifice,
     _get_continuation_chain, _PIECE_NAMES as _GAMETREE_PIECE_NAMES,
@@ -86,78 +87,144 @@ def _format_numbered_move(san: str, move_number: int, student_is_white: bool | N
         return f"{move_number}...{san}"
 
 
-def _append_categorized(lines: list[str], header: str, items: list[str]) -> None:
-    """Append 'Header:\\n  - item\\n...' if items non-empty."""
-    if not items:
-        return
-    lines.append(f"{header}:")
-    for item in items:
-        lines.append(f"  - {item}")
+# ---------------------------------------------------------------------------
+# Intermediate report dataclasses
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ContinuationStep:
+    """A single ply in a continuation line."""
+    numbered: str      # "6...c4" or "7.Qxb6"
+    description: str   # "pushes pawn to c4, attacking queen"
 
 
-def _append_continuation_analysis(
-    lines: list[str],
+@dataclass
+class ContinuationAnalysis:
+    """Continuation data: steps, material result, warnings."""
+    steps: list[ContinuationStep] = field(default_factory=list)
+    result: str = ""
+    notes: list[str] = field(default_factory=list)
+
+
+@dataclass
+class MoveReport:
+    """Data for the student's played move."""
+    numbered_san: str
+    classification: str
+    changes: PositionDescription
+    opponent_responses: list[str]
+    continuation: ContinuationAnalysis
+
+
+@dataclass
+class AlternativeReport:
+    """Data for one alternative move."""
+    label: str
+    numbered_san: str
+    changes: PositionDescription
+    continuation: ContinuationAnalysis
+
+
+@dataclass
+class CoachingReport:
+    """Complete intermediate representation of a coaching report."""
+    student_color: str
+    fen: str
+    board_ascii: str | None
+    pgn: str
+    position: PositionDescription
+    move: MoveReport | None
+    alternatives: list[AlternativeReport]
+    rag_context: str
+
+
+# ---------------------------------------------------------------------------
+# Board rendering
+# ---------------------------------------------------------------------------
+
+def _ascii_board(board: chess.Board) -> str:
+    """Render board as labeled ASCII diagram."""
+    rows = str(board).split("\n")
+    labeled = []
+    for i, row in enumerate(rows):
+        labeled.append(f"  {8 - i} {row}")
+    labeled.append("    a b c d e f g h")
+    return "\n".join(labeled)
+
+
+def _should_include_board(player_node: GameNode | None) -> bool:
+    """Include board diagram for captures, pawn moves, and promotions.
+
+    These move types involve notation that LLMs frequently misinterpret
+    (e.g., confusing 'hxa6' as a rook move instead of a pawn move).
+    """
+    if player_node is None or player_node.move is None:
+        return False
+    san = player_node.san
+    if not san:
+        return False
+    if "x" in san:
+        return True
+    if san[0].islower():
+        return True
+    if "=" in san:
+        return True
+    return False
+
+
+def _collect_continuation(
     node: GameNode,
     move_number: int,
     student_is_white: bool | None,
     is_player_move: bool,
-) -> None:
-    """Append per-ply continuation narrative, material result, sacrifice, and checkmate.
-
-    Shared between player move and alternative sections.
-    """
+) -> ContinuationAnalysis:
+    """Collect structured continuation data from a node's chain."""
     chain = _get_continuation_chain(node)
     eff_student_white = student_is_white if student_is_white is not None else True
 
-    # Per-ply continuation narrative
-    if len(chain) > 1:  # chain[0] is the node itself; children follow
-        lines.append("\nContinuation:")
+    steps: list[ContinuationStep] = []
+    if len(chain) > 1:
         for c_node in chain[1:]:
             san = c_node.san
             if not san:
                 continue
-            # Determine move number from parent's board state
             parent_fullmove = c_node.parent.board.fullmove_number if c_node.parent else 1
-            mover_is_white = not c_node.board.turn  # who just moved
+            mover_is_white = not c_node.board.turn
             if mover_is_white:
                 numbered = f"{parent_fullmove}.{san}"
             else:
                 numbered = f"{parent_fullmove}...{san}"
-
             desc = _describe_continuation_move(c_node, eff_student_white)
-            if desc:
-                lines.append(f"  - {numbered}: {desc}")
-            else:
-                lines.append(f"  - {numbered}")
+            steps.append(ContinuationStep(numbered=numbered, description=desc))
 
-    # Material result (piece-level)
     result = _describe_result(chain, student_is_white)
-    if result:
-        lines.append(f"\n{result}")
+    if result.startswith("Result: "):
+        result = result[len("Result: "):]
 
-    # Sacrifice detection
+    notes: list[str] = []
     if _detect_sacrifice(chain, node.score_mate):
         if is_player_move:
-            lines.append("\nThis line involves a sacrifice (material given up then recovered).")
+            notes.append("This line involves a sacrifice (material given up then recovered).")
         else:
-            lines.append("\nThis line involves a sacrifice.")
+            notes.append("This line involves a sacrifice.")
 
-    # Checkmate detection
     if is_player_move:
         for idx, c_node in enumerate(chain[1:], start=1):
             if c_node.board.is_checkmate():
                 if idx % 2 == 1:
-                    lines.append("\nWARNING: This move leads to checkmate AGAINST the student!")
+                    notes.append("WARNING: This move leads to checkmate AGAINST the student!")
                     break
     else:
         for idx, c_node in enumerate(chain):
             if c_node.board.is_checkmate():
                 if idx % 2 == 0:
-                    lines.append("\nThis alternative delivers checkmate for the student!")
+                    notes.append("This alternative delivers checkmate for the student!")
                     break
                 else:
-                    lines.append("\nWARNING: This alternative leads to checkmate AGAINST the student!")
+                    notes.append("WARNING: This alternative leads to checkmate AGAINST the student!")
                     break
+
+    return ContinuationAnalysis(steps=steps, result=result, notes=notes)
 
 
 def _game_pgn(tree: GameTree) -> str:
@@ -408,52 +475,79 @@ def _describe_result(nodes: list[GameNode], student_is_white: bool | None) -> st
 
 
 # ---------------------------------------------------------------------------
-# Main serializer
+# YAML rendering
 # ---------------------------------------------------------------------------
 
-def serialize_report(
+def _yaml_section(entries: list[tuple[str, str | list[str]]]) -> str:
+    """Render entries as a fenced YAML code block.
+
+    Entries with empty/None values are omitted.
+    Returns empty string if all entries are empty.
+    """
+    body_lines: list[str] = []
+    for key, value in entries:
+        if isinstance(value, list):
+            if not value:
+                continue
+            body_lines.append(f"{key}:")
+            for item in value:
+                body_lines.append(f"  - {item}")
+        elif value:
+            body_lines.append(f"{key}: {value}")
+    if not body_lines:
+        return ""
+    return "```yaml\n" + "\n".join(body_lines) + "\n```"
+
+
+def _continuation_entries(
+    cont: ContinuationAnalysis,
+) -> list[tuple[str, str | list[str]]]:
+    """Convert ContinuationAnalysis to YAML-renderable entries."""
+    entries: list[tuple[str, str | list[str]]] = []
+    if cont.steps:
+        step_lines = []
+        for step in cont.steps:
+            if step.description:
+                step_lines.append(f"{step.numbered}: {step.description}")
+            else:
+                step_lines.append(step.numbered)
+        entries.append(("continuation", step_lines))
+    if cont.result:
+        entries.append(("result", cont.result))
+    if cont.notes:
+        entries.append(("notes", cont.notes))
+    return entries
+
+
+# ---------------------------------------------------------------------------
+# Report builder
+# ---------------------------------------------------------------------------
+
+def build_report(
     tree: GameTree,
     quality: str,
     cp_loss: int,
     rag_context: str = "",
-) -> str:
-    """Serialize a GameTree into a sectioned LLM prompt.
+) -> CoachingReport:
+    """Build a CoachingReport from a GameTree.
 
-    Structure:
-    - Student color
-    - Game (PGN to decision point)
-    - Position Before {color}'s Move (three-bucket description)
-    - Student Move (classification, changes, continuation, result)
-    - Stronger Alternative / Also considered / Other option
-    - Relevant chess knowledge (RAG)
+    Extracts all structured data needed for rendering.
     """
-    lines: list[str] = []
     player_color = "White" if tree.player_color == chess.WHITE else "Black"
     student_is_white = tree.player_color == chess.WHITE
     decision = tree.decision_point
     move_number = decision.board.fullmove_number
-
-    # --- Student color ---
-    lines.append(f"The student played as: {player_color}")
-
     pgn = _game_pgn(tree)
-    lines.append("")
+    fen = decision.board.fen()
 
-    # --- Position Before Move ---
+    # Position description (past tense for "before the move")
     pos_desc = describe_position(tree, decision, tense="past")
-    lines.append("# Position Before the Move")
-    if pgn:
-        lines.append(pgn)
-    _append_categorized(lines, "Threats", pos_desc.threats)
-    _append_categorized(lines, "Opportunities", pos_desc.opportunities)
-    _append_categorized(lines, "Observations", pos_desc.observations)
-    lines.append("")
 
-    # --- Student Move ---
+    # Player move
     player_node = tree.player_move_node()
+    move_report = None
     if player_node is not None:
-        # Brilliancy detection: if player's deep eval ≥ best alternative's,
-        # the screening pass missed this move — upgrade to "brilliant".
+        # Brilliancy detection
         alts_for_brilliancy = tree.alternatives()
         player_uci_check = player_node.move.uci() if player_node.move else ""
         alts_for_brilliancy = [a for a in alts_for_brilliancy if a.move.uci() != player_uci_check]
@@ -464,7 +558,6 @@ def serialize_report(
         ):
             best_alt_cp = alts_for_brilliancy[0].score_cp
             player_cp = player_node.score_cp
-            # Scores are from White's POV: higher is better for White, lower for Black
             if student_is_white:
                 player_beats_alts = player_cp >= best_alt_cp
             else:
@@ -472,73 +565,158 @@ def serialize_report(
             if player_beats_alts:
                 quality = "brilliant"
 
-        player_san = player_node.san
-        numbered_move = _format_numbered_move(player_san, move_number, student_is_white)
-        lines.append("# Move Played")
-        lines.append("")
-        lines.append(numbered_move)
-
-        if quality:
-            lines.append(f"\nMove classification: {quality}")
-
-        # Changes (three-bucket)
+        numbered_move = _format_numbered_move(player_node.san, move_number, student_is_white)
         opps, thrs, obs = describe_changes(tree, player_node, max_plies=2, is_played_move=True)
-        if thrs or opps or obs:
-            lines.append("\nAfter this move:")
-        _append_categorized(lines, "New Threats", thrs)
-        _append_categorized(lines, "New Opportunities", opps)
-        _append_categorized(lines, "New Observations", obs)
 
-        # Opponent candidate responses
+        opp_responses: list[str] = []
         if tree.opponent_responses:
-            lines.append("\nOpponent's candidate responses:")
             for resp in tree.opponent_responses:
                 best_marker = " (engine's top choice)" if resp.is_best else ""
-                lines.append(f"  - {resp.san}: {resp.description}{best_marker}")
+                opp_responses.append(f"{resp.san}: {resp.description}{best_marker}")
 
-        _append_continuation_analysis(
-            lines, player_node, move_number, student_is_white, is_player_move=True,
+        continuation = _collect_continuation(
+            player_node, move_number, student_is_white, is_player_move=True,
+        )
+        move_report = MoveReport(
+            numbered_san=numbered_move,
+            classification=quality,
+            changes=PositionDescription(threats=thrs, opportunities=opps, observations=obs),
+            opponent_responses=opp_responses,
+            continuation=continuation,
         )
 
-        lines.append("")
+    # Board gating
+    board_ascii = _ascii_board(decision.board) if _should_include_board(player_node) else None
 
-    # --- Alternatives ---
+    # Alternatives
     alts = tree.alternatives()
-    # Filter out player's move if it also appears as engine line
     player_uci = player_node.move.uci() if player_node and player_node.move else ""
     alts = [a for a in alts if a.move.uci() != player_uci]
 
     is_good = quality in ("good", "brilliant")
+    alt_reports: list[AlternativeReport] = []
     for i, alt in enumerate(alts):
-        alt_san = alt.san
         if is_good:
-            label = "# Other option"
+            label = "Other option"
         elif i == 0:
-            label = "# Stronger Alternative"
+            label = "Stronger Alternative"
         else:
-            label = "# Also considered"
-        lines.append(label)
-        lines.append("")
-        lines.append(_format_numbered_move(
-            _describe_capture(alt_san), move_number, student_is_white,
+            label = "Also considered"
+
+        numbered = _format_numbered_move(
+            _describe_capture(alt.san), move_number, student_is_white,
+        )
+        opps, thrs, obs = describe_changes(tree, alt, max_plies=3)
+        continuation = _collect_continuation(
+            alt, move_number, student_is_white, is_player_move=False,
+        )
+        alt_reports.append(AlternativeReport(
+            label=label,
+            numbered_san=numbered,
+            changes=PositionDescription(threats=thrs, opportunities=opps, observations=obs),
+            continuation=continuation,
         ))
 
-        # Changes (three-bucket)
-        opps, thrs, obs = describe_changes(tree, alt, max_plies=3)
-        if thrs or opps or obs:
-            lines.append("\nThis move creates:")
-        _append_categorized(lines, "New Threats", thrs)
-        _append_categorized(lines, "New Opportunities", opps)
-        _append_categorized(lines, "New Observations", obs)
+    return CoachingReport(
+        student_color=player_color,
+        fen=fen,
+        board_ascii=board_ascii,
+        pgn=pgn,
+        position=pos_desc,
+        move=move_report,
+        alternatives=alt_reports,
+        rag_context=rag_context,
+    )
 
-        _append_continuation_analysis(
-            lines, alt, move_number, student_is_white, is_player_move=False,
-        )
 
-        lines.append("")
+# ---------------------------------------------------------------------------
+# Renderer: Markdown + YAML code blocks
+# ---------------------------------------------------------------------------
 
-    # --- RAG context ---
-    if rag_context:
-        lines.append(f"Relevant chess knowledge:\n{rag_context}")
+def render_report(report: CoachingReport) -> str:
+    """Render a CoachingReport as Markdown with fenced YAML data blocks."""
+    parts: list[str] = []
 
-    return "\n".join(lines)
+    # Header
+    header = f"Student plays as {report.student_color}"
+    if report.board_ascii is not None:
+        header += f": {report.fen}"
+    parts.append(header)
+
+    # Board diagram (gated)
+    if report.board_ascii is not None:
+        parts.append(f"\n```chessboard\n{report.board_ascii}\n```")
+
+    # PGN
+    if report.pgn:
+        parts.append(f"\n{report.pgn}")
+
+    # Position YAML block
+    pos_yaml = _yaml_section([
+        ("threats", report.position.threats),
+        ("opportunities", report.position.opportunities),
+        ("observations", report.position.observations),
+    ])
+    if pos_yaml:
+        parts.append(f"\n{pos_yaml}")
+
+    # Move played
+    if report.move is not None:
+        m = report.move
+        parts.append(f"\n# Move Played: {m.numbered_san} [{m.classification}]")
+
+        entries: list[tuple[str, str | list[str]]] = []
+        if m.changes.threats:
+            entries.append(("new_threats", m.changes.threats))
+        if m.changes.opportunities:
+            entries.append(("new_opportunities", m.changes.opportunities))
+        if m.changes.observations:
+            entries.append(("new_observations", m.changes.observations))
+        if m.opponent_responses:
+            entries.append(("opponent_responses", m.opponent_responses))
+        entries.extend(_continuation_entries(m.continuation))
+
+        yaml_block = _yaml_section(entries)
+        if yaml_block:
+            parts.append(f"\n{yaml_block}")
+
+    # Alternatives
+    for alt in report.alternatives:
+        parts.append(f"\n# {alt.label}: {alt.numbered_san}")
+
+        entries = []
+        if alt.changes.threats:
+            entries.append(("new_threats", alt.changes.threats))
+        if alt.changes.opportunities:
+            entries.append(("new_opportunities", alt.changes.opportunities))
+        if alt.changes.observations:
+            entries.append(("new_observations", alt.changes.observations))
+        entries.extend(_continuation_entries(alt.continuation))
+
+        yaml_block = _yaml_section(entries)
+        if yaml_block:
+            parts.append(f"\n{yaml_block}")
+
+    # RAG context
+    if report.rag_context:
+        parts.append(f"\n# Context\n\n{report.rag_context}")
+
+    return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def serialize_report(
+    tree: GameTree,
+    quality: str,
+    cp_loss: int,
+    rag_context: str = "",
+) -> str:
+    """Serialize a GameTree into a Markdown+YAML LLM prompt.
+
+    Builds an intermediate CoachingReport, then renders it.
+    """
+    report = build_report(tree, quality, cp_loss, rag_context)
+    return render_report(report)

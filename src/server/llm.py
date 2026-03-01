@@ -106,7 +106,7 @@ class ChessTeacher:
         system = self._build_system_prompt(
             coach, verbosity, move_quality=move_quality, elo_profile=elo_profile,
         )
-        return f"SYSTEM:\n{system}\n\nUSER:\n{prompt}"
+        return f"--- system ---\n{system}\n\n--- user ---\n{prompt}"
 
     async def select_teaching_move(
         self, context: OpponentMoveContext

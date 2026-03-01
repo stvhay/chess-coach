@@ -53,9 +53,9 @@ def verify_bg3_position():
     print()
 
     checks = [
-        ("✓ Brilliancy detected", "Move classification: brilliant" in report),
-        ("✓ Alternatives labeled 'Other option'", "# Other option" in report),
-        ("✓ No 'Stronger Alternative' label", "# Stronger Alternative" not in report),
+        ("✓ Brilliancy detected", "[brilliant]" in report),
+        ("✓ Alternatives labeled 'Other option'", "# Other option:" in report),
+        ("✓ No 'Stronger Alternative' label", "# Stronger Alternative:" not in report),
     ]
 
     for label, passed in checks:

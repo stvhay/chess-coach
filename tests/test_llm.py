@@ -53,9 +53,7 @@ def _sample_report(**overrides) -> str:
 class TestSerializeReport:
     def test_contains_player_move(self):
         report = _sample_report()
-        assert "# Move Played" in report
-        lines = report.split("\n")
-        assert any(line.strip() == "1. e4" for line in lines)
+        assert "# Move Played: 1. e4" in report
 
     def test_contains_best_line(self):
         report = _sample_report()
@@ -69,25 +67,25 @@ class TestSerializeReport:
         tree = _sample_tree()
         report = serialize_report(tree, "mistake", 60,
                                   rag_context="A fork attacks two pieces simultaneously.")
-        assert "Relevant chess knowledge" in report
+        assert "# Context" in report
         assert "fork attacks two pieces" in report
 
     def test_omits_rag_when_empty(self):
         tree = _sample_tree()
         report = serialize_report(tree, "mistake", 60, rag_context="")
-        assert "Relevant chess knowledge" not in report
+        assert "# Context" not in report
 
     def test_filters_player_move_from_alternatives(self):
         """Player's own move should not appear as 'Stronger Alternative'."""
         report = _sample_report()
-        assert "# Stronger Alternative" in report
-        # e4 (player move) should not appear after the alternative header
+        assert "# Stronger Alternative:" in report
+        # e4 (player move) should not appear in alternative headings
         lines = report.split("\n")
         in_alt = False
         for line in lines:
-            if "# Stronger Alternative" in line:
+            if "# Stronger Alternative:" in line:
                 in_alt = True
-            if in_alt and line.strip() == "1. e4":
+            if in_alt and "1. e4" in line and "# Stronger Alternative:" not in line:
                 assert False, "Player's move appeared as alternative"
 
 
