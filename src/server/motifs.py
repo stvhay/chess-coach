@@ -201,6 +201,7 @@ class RenderContext:
     player_color: str           # "White" or "Black"
     mode: RenderMode = RenderMode.OPPORTUNITY
     render_config: RenderConfig | None = None
+    move_dest: str | None = None  # destination square of the move that created this position
 
     @property
     def is_threat(self) -> bool:
@@ -252,11 +253,32 @@ class RenderedMotif:
 # Motif renderers
 # ---------------------------------------------------------------------------
 
+def _is_self_inflicted_fork(fork, ctx: RenderContext) -> str | None:
+    """Detect if a fork was caused by the victim moving into the forker's range.
+
+    Returns the destination square if self-inflicted, None otherwise.
+    A fork is self-inflicted when:
+      - we know the move that created this position (ctx.move_dest)
+      - the forking piece did NOT just move (it was already there)
+      - the move destination IS one of the fork targets (victim walked into range)
+    """
+    if ctx.move_dest is None:
+        return None
+    if fork.forking_square == ctx.move_dest:
+        return None  # forker just moved here — genuine active fork
+    if ctx.move_dest in fork.targets:
+        return ctx.move_dest
+    return None
+
+
 def render_fork(fork, ctx: RenderContext) -> tuple[str, bool]:
     """Render a fork. Returns (description, is_opportunity).
 
     Pin-forks get different language: "pins X while also attacking Y"
     instead of "forks X and Y", since the pin is the primary motif.
+
+    Self-inflicted forks (victim moved into forker's range) use
+    "becomes another target for" instead of "forks".
     """
     is_student = _piece_is_students(fork.forking_piece, ctx.student_is_white)
     forker = _own_their(fork.forking_piece, is_student)
@@ -269,7 +291,15 @@ def render_fork(fork, ctx: RenderContext) -> tuple[str, bool]:
     else:
         targets = ", ".join(fork.targets)
 
-    if fork.is_pin_fork:
+    # Self-inflicted fork: the victim moved a piece into the forker's range
+    self_inflicted_sq = _is_self_inflicted_fork(fork, ctx)
+    if self_inflicted_sq and fork.target_pieces:
+        # Find the piece that just moved into the fork
+        arrived_idx = fork.targets.index(self_inflicted_sq)
+        arrived_piece = fork.target_pieces[arrived_idx]
+        arrived = _own_their(arrived_piece, _piece_is_students(arrived_piece, ctx.student_is_white))
+        desc = f"{arrived.capitalize()} on {self_inflicted_sq} becomes another target for {forker} on {fork.forking_square}."
+    elif fork.is_pin_fork:
         # Pin is the primary motif (rendered separately); describe the additional attack
         non_pinned = [
             f"{_own_their(tp, _piece_is_students(tp, ctx.student_is_white))} on {sq}"

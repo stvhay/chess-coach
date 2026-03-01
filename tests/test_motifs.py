@@ -165,6 +165,35 @@ class TestMotifRenderers:
         assert "forks" in desc.lower()
         assert "pins and also attacks" not in desc.lower()
 
+    def test_render_self_inflicted_fork(self):
+        """When victim moves into forker's range, use 'becomes another target' language."""
+        # Knight on f6 already attacks e4; White moves queen to h5 (into the fork)
+        fork = Fork("f6", "n", ["e4", "h5"], ["P", "Q"], color="black")
+        ctx = RenderContext(
+            student_is_white=True, player_color="White", move_dest="h5",
+        )
+        desc, is_opp = render_fork(fork, ctx)
+        assert "becomes another target for" in desc.lower()
+        assert "forks" not in desc.lower()
+        assert "your queen on h5" in desc.lower()
+        assert "their knight on f6" in desc.lower()
+
+    def test_render_active_fork_not_reframed(self):
+        """When the forking piece itself just moved, use normal 'forks' language."""
+        fork = Fork("e5", "N", ["c6", "g6"], ["r", "q"])
+        ctx = RenderContext(
+            student_is_white=True, player_color="White", move_dest="e5",
+        )
+        desc, is_opp = render_fork(fork, ctx)
+        assert "forks" in desc.lower()
+        assert "becomes another target" not in desc.lower()
+
+    def test_render_fork_no_move_context(self):
+        """Without move_dest, forks render normally (e.g. position descriptions)."""
+        fork = Fork("f6", "n", ["e4", "h5"], ["P", "Q"], color="black")
+        desc, is_opp = render_fork(fork, _ctx(True))
+        assert "forks" in desc.lower()
+
     def test_render_pin(self):
         # White bishop pins Black knight to Black king
         pin = Pin(
